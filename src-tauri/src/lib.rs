@@ -97,6 +97,44 @@ fn open_config(_app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+fn center_on_cursor_monitor(window: &tauri::WebviewWindow) {
+    let cursor = match window.cursor_position() {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+    let monitors = match window.available_monitors() {
+        Ok(m) => m,
+        Err(_) => return,
+    };
+    let monitor = monitors.iter().find(|m| {
+        let pos = m.position();
+        let size = m.size();
+        cursor.x >= pos.x as f64
+            && cursor.x < (pos.x + size.width as i32) as f64
+            && cursor.y >= pos.y as f64
+            && cursor.y < (pos.y + size.height as i32) as f64
+    });
+    let monitor = match monitor {
+        Some(m) => m,
+        None => return,
+    };
+
+    let scale = monitor.scale_factor();
+    let pos = monitor.position();
+    let size = monitor.size();
+
+    let mon_x = pos.x as f64 / scale;
+    let mon_y = pos.y as f64 / scale;
+    let mon_w = size.width as f64 / scale;
+    let mon_h = size.height as f64 / scale;
+
+    let win_w = 620.0_f64;
+    let x = mon_x + (mon_w - win_w) / 2.0;
+    let y = mon_y + mon_h * 0.25;
+
+    window.set_position(tauri::LogicalPosition::new(x, y)).ok();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let config = config::load_config();
@@ -115,6 +153,7 @@ pub fn run() {
                     if window.is_visible().unwrap_or(false) {
                         window.hide().ok();
                     } else {
+                        center_on_cursor_monitor(&window);
                         window.show().ok();
                         window.set_focus().ok();
                         window.emit("show-launcher", ()).ok();
