@@ -223,12 +223,7 @@
         runSlashCommand(filteredSlash[selectedIndex] ?? filteredSlash[0]);
       } else if (filtered[selectedIndex]) {
         const item = filtered[selectedIndex];
-        if (item.source === "Path" && item.path.endsWith("/")) {
-          // ディレクトリ → クエリを更新してナビゲート
-          query = item.path;
-        } else {
-          launchItem(item, null);
-        }
+        launchItem(item, null);
       }
     }
   }
