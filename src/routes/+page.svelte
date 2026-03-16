@@ -207,6 +207,7 @@
       completionType: argItem?.completion ?? "path",
       completionList: argItem?.completion_list ?? [],
       completionCommand: argItem?.completion_command ?? null,
+      workdir: argItem?.workdir ?? null,
     }).then((result) => {
       completionPrefix = result.prefix;
       allCompletions = result.completions;

@@ -11,12 +11,13 @@ pub fn complete(
     completion_type: &CompletionType,
     completion_list: &[String],
     completion_command: &Option<String>,
+    workdir: &Option<String>,
 ) -> (String, Vec<String>) {
     match completion_type {
         CompletionType::None => (String::new(), vec![]),
         CompletionType::Path => complete_path(input),
         CompletionType::List => complete_list(input, completion_list),
-        CompletionType::Command => complete_command(input, completion_command),
+        CompletionType::Command => complete_command(input, completion_command, workdir),
     }
 }
 
@@ -98,7 +99,11 @@ fn complete_list(input: &str, list: &[String]) -> (String, Vec<String>) {
 
 // --- command 補完 ---
 
-fn complete_command(input: &str, command: &Option<String>) -> (String, Vec<String>) {
+fn complete_command(
+    input: &str,
+    command: &Option<String>,
+    workdir: &Option<String>,
+) -> (String, Vec<String>) {
     let Some(cmd_str) = command else {
         return (String::new(), vec![]);
     };
@@ -110,15 +115,21 @@ fn complete_command(input: &str, command: &Option<String>) -> (String, Vec<Strin
     let output = {
         #[cfg(target_os = "windows")]
         {
-            std::process::Command::new("cmd")
-                .args(["/c", cmd_str])
-                .output()
+            let mut cmd = std::process::Command::new("cmd");
+            cmd.args(["/c", cmd_str]);
+            if let Some(dir) = workdir {
+                cmd.current_dir(dir);
+            }
+            cmd.output()
         }
         #[cfg(not(target_os = "windows"))]
         {
-            std::process::Command::new("sh")
-                .args(["-c", cmd_str])
-                .output()
+            let mut cmd = std::process::Command::new("sh");
+            cmd.args(["-c", cmd_str]);
+            if let Some(dir) = workdir {
+                cmd.current_dir(dir);
+            }
+            cmd.output()
         }
     };
 

@@ -71,9 +71,10 @@ fn complete_path(
     completion_type: config::CompletionType,
     completion_list: Vec<String>,
     completion_command: Option<String>,
+    workdir: Option<String>,
 ) -> CompleteResult {
     let (prefix, completions) =
-        complete::complete(&input, &completion_type, &completion_list, &completion_command);
+        complete::complete(&input, &completion_type, &completion_list, &completion_command, &workdir);
     CompleteResult { prefix, completions }
 }
 
