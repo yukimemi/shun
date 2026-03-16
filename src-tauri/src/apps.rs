@@ -58,9 +58,11 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
             c.creation_flags(CREATE_NO_WINDOW);
             c
         } else if p.ends_with(".cmd") || p.ends_with(".bat") {
-            // .cmd/.bat はコンソール表示が必要な場合があるのでそのまま
+            // .cmd/.bat は新しいコンソールウィンドウで起動
+            const CREATE_NEW_CONSOLE: u32 = 0x00000010;
             let mut c = std::process::Command::new("cmd");
             c.args(["/c", &path]);
+            c.creation_flags(CREATE_NEW_CONSOLE);
             if !item.args.is_empty() {
                 c.args(&item.args);
             }
