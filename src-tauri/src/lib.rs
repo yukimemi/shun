@@ -66,8 +66,14 @@ struct CompleteResult {
 }
 
 #[tauri::command]
-fn complete_path(input: String) -> CompleteResult {
-    let (prefix, completions) = complete::complete(&input);
+fn complete_path(
+    input: String,
+    completion_type: config::CompletionType,
+    completion_list: Vec<String>,
+    completion_command: Option<String>,
+) -> CompleteResult {
+    let (prefix, completions) =
+        complete::complete(&input, &completion_type, &completion_list, &completion_command);
     CompleteResult { prefix, completions }
 }
 

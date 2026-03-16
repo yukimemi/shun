@@ -1,11 +1,28 @@
 use std::path::{Path, PathBuf};
 
-/// 入力の末尾にあるパスっぽいトークンを補完候補と合わせて返す
+use crate::config::CompletionType;
+
+/// 補完タイプに応じて候補を返す
 /// 戻り値: (prefix, completions)
-///   prefix    = 入力のうちパス以外の部分 (例: "--flag ")
-///   completions = パス補完候補リスト
-pub fn complete(input: &str) -> (String, Vec<String>) {
-    // 入力の最後のトークンをパスとして扱う
+///   prefix      = 入力のうちパス以外の部分 (例: "--flag ")
+///   completions = 補完候補リスト
+pub fn complete(
+    input: &str,
+    completion_type: &CompletionType,
+    completion_list: &[String],
+    completion_command: &Option<String>,
+) -> (String, Vec<String>) {
+    match completion_type {
+        CompletionType::None => (String::new(), vec![]),
+        CompletionType::Path => complete_path(input),
+        CompletionType::List => complete_list(input, completion_list),
+        CompletionType::Command => complete_command(input, completion_command),
+    }
+}
+
+// --- path 補完 ---
+
+fn complete_path(input: &str) -> (String, Vec<String>) {
     let (prefix, partial) = split_last_token(input);
     if partial.is_empty() {
         return (prefix, vec![]);
@@ -14,7 +31,6 @@ pub fn complete(input: &str) -> (String, Vec<String>) {
     let expanded = expand_tilde(partial);
     let expanded_path = Path::new(&expanded);
 
-    // dir と stem を分ける
     let (dir, stem) = if expanded.ends_with('/') || expanded.ends_with('\\') {
         (expanded.as_str().to_string(), String::new())
     } else {
@@ -46,16 +62,12 @@ pub fn complete(input: &str) -> (String, Vec<String>) {
             if !name.to_lowercase().starts_with(&stem) {
                 return None;
             }
-            // パスを組み立て（チルダを復元）
             let full = entry.path();
             let mut s = full.to_string_lossy().to_string();
-            // Windows のバックスラッシュをスラッシュに
             s = s.replace('\\', "/");
-            // ディレクトリには末尾スラッシュ
             if entry.path().is_dir() {
                 s.push('/');
             }
-            // チルダに戻す
             if let Some(home) = dirs_next::home_dir() {
                 let home_str = home.to_string_lossy().replace('\\', "/");
                 if s.starts_with(&*home_str) {
@@ -66,7 +78,68 @@ pub fn complete(input: &str) -> (String, Vec<String>) {
         })
         .collect();
 
-    // ディレクトリ優先、次に通常ファイル。ドット/ドル始まりは後ろへ
+    sort_completions(&mut completions);
+    (prefix, completions)
+}
+
+// --- list 補完 ---
+
+fn complete_list(input: &str, list: &[String]) -> (String, Vec<String>) {
+    let (prefix, partial) = split_last_token(input);
+    let partial_lower = partial.to_lowercase();
+    let mut completions: Vec<String> = list
+        .iter()
+        .filter(|s| s.to_lowercase().starts_with(&partial_lower))
+        .cloned()
+        .collect();
+    completions.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    (prefix, completions)
+}
+
+// --- command 補完 ---
+
+fn complete_command(input: &str, command: &Option<String>) -> (String, Vec<String>) {
+    let Some(cmd_str) = command else {
+        return (String::new(), vec![]);
+    };
+
+    let (prefix, partial) = split_last_token(input);
+    let partial_lower = partial.to_lowercase();
+
+    // シェル経由で実行
+    let output = {
+        #[cfg(target_os = "windows")]
+        {
+            std::process::Command::new("cmd")
+                .args(["/c", cmd_str])
+                .output()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            std::process::Command::new("sh")
+                .args(["-c", cmd_str])
+                .output()
+        }
+    };
+
+    let output = match output {
+        Ok(o) => o,
+        Err(_) => return (prefix, vec![]),
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut completions: Vec<String> = stdout
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty() && l.to_lowercase().starts_with(&partial_lower))
+        .collect();
+    completions.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    (prefix, completions)
+}
+
+// --- ユーティリティ ---
+
+fn sort_completions(completions: &mut Vec<String>) {
     completions.sort_by(|a, b| {
         let a_name = a.trim_end_matches('/').split('/').last().unwrap_or("");
         let b_name = b.trim_end_matches('/').split('/').last().unwrap_or("");
@@ -84,11 +157,9 @@ pub fn complete(input: &str) -> (String, Vec<String>) {
             },
         }
     });
-    (prefix, completions)
 }
 
 fn split_last_token(input: &str) -> (String, &str) {
-    // スペース区切りで最後のトークンを取り出す
     if let Some(pos) = input.rfind(' ') {
         let prefix = &input[..=pos];
         let last = &input[pos + 1..];

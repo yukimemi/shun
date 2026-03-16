@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-use crate::config::{AppEntry, Config, ScanDir};
+use crate::config::{AppEntry, CompletionType, Config, ScanDir};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LaunchItem {
@@ -11,6 +11,11 @@ pub struct LaunchItem {
     pub workdir: Option<String>,
     pub allow_extra_args: bool,
     pub source: ItemSource,
+    #[serde(default)]
+    pub completion: CompletionType,
+    #[serde(default)]
+    pub completion_list: Vec<String>,
+    pub completion_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,6 +85,9 @@ fn launch_item_from_entry(app: &AppEntry) -> LaunchItem {
         workdir: app.workdir.clone(),
         allow_extra_args: app.allow_extra_args,
         source: ItemSource::Config,
+        completion: app.completion.clone(),
+        completion_list: app.completion_list.clone(),
+        completion_command: app.completion_command.clone(),
     }
 }
 
@@ -136,6 +144,9 @@ fn collect_files(
                 workdir: None,
                 allow_extra_args: false,
                 source: ItemSource::ScanDir,
+                completion: CompletionType::Path,
+                completion_list: vec![],
+                completion_command: None,
             });
         }
     }
@@ -193,6 +204,9 @@ fn collect_lnk_files(dir: &Path, items: &mut Vec<LaunchItem>) {
                 workdir: None,
                 allow_extra_args: false,
                 source: ItemSource::System,
+                completion: CompletionType::Path,
+                completion_list: vec![],
+                completion_command: None,
             });
         }
     }
@@ -219,6 +233,9 @@ fn collect_system_apps() -> Vec<LaunchItem> {
                         workdir: None,
                         allow_extra_args: false,
                         source: ItemSource::System,
+                        completion: CompletionType::Path,
+                        completion_list: vec![],
+                        completion_command: None,
                     });
                 }
             }
@@ -297,5 +314,8 @@ fn parse_desktop_file(path: &Path) -> Option<LaunchItem> {
         workdir: None,
         allow_extra_args: false,
         source: ItemSource::System,
+        completion: CompletionType::Path,
+        completion_list: vec![],
+        completion_command: None,
     })
 }

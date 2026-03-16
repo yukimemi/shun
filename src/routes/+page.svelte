@@ -202,7 +202,12 @@
       resizeForArgs(0);
       return;
     }
-    invoke("complete_path", { input }).then((result) => {
+    invoke("complete_path", {
+      input,
+      completionType: argItem?.completion ?? "path",
+      completionList: argItem?.completion_list ?? [],
+      completionCommand: argItem?.completion_command ?? null,
+    }).then((result) => {
       completionPrefix = result.prefix;
       allCompletions = result.completions;
       completionIndex = 0;

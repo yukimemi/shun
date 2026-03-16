@@ -101,6 +101,21 @@ impl Default for Keybindings {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum CompletionType {
+    Path,     // ファイルシステム補完 (デフォルト)
+    None,     // 補完なし
+    List,     // completion_list から補完
+    Command,  // completion_command の出力から補完
+}
+
+impl Default for CompletionType {
+    fn default() -> Self {
+        CompletionType::Path
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppEntry {
     pub name: String,
@@ -110,6 +125,11 @@ pub struct AppEntry {
     pub workdir: Option<String>,
     #[serde(default)]
     pub allow_extra_args: bool,
+    #[serde(default)]
+    pub completion: CompletionType,
+    #[serde(default)]
+    pub completion_list: Vec<String>,
+    pub completion_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,6 +201,9 @@ close       = "Escape"
 # args             = ["--flag"]
 # workdir          = "/path/to/dir"
 # allow_extra_args = true
+# completion       = "path"     # "path" | "none" | "list" | "command"
+# completion_list  = ["start", "stop", "restart"]   # completion = "list" の時
+# completion_command = "git branch --format='%(refname:short)'"  # completion = "command" の時
 
 # ディレクトリスキャンで自動登録
 # [[scan_dirs]]
