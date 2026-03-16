@@ -67,27 +67,40 @@ word_accept = "Ctrl+f"
 line_accept = "Ctrl+e"
 close       = "Escape"
 
-# Register apps / scripts manually
+# Open editor with file path completion
 [[apps]]
 name             = "Neovide"
 path             = "neovide"
 allow_extra_args = true
 completion       = "path"       # "path" | "none" | "list" | "command"
 
+# Open a URL directly
 [[apps]]
-name             = "GitHub"
-path             = "https://github.com/yukimemi"
+name = "GitHub"
+path = "https://github.com"
 
+# systemctl with fixed subcommand list
 [[apps]]
-name             = "Scoop"
-path             = "scoop"
+name            = "systemctl"
+path            = "systemctl"
 allow_extra_args = true
-completion       = "list"
-completion_list  = ["install", "uninstall", "update", "search", "list", "status"]
+completion      = "list"
+completion_list = ["start", "stop", "restart", "status", "enable", "disable", "reload"]
 
+# docker exec into a running container (completion from docker ps)
 [[apps]]
-name               = "Git"
+name               = "docker exec"
+path               = "docker"
+args               = ["exec", "-it"]
+allow_extra_args   = true
+completion         = "command"
+completion_command = "docker ps --format '{{.Names}}'"
+
+# git checkout with branch name completion
+[[apps]]
+name               = "git checkout"
 path               = "git"
+args               = ["checkout"]
 allow_extra_args   = true
 completion         = "command"
 completion_command = "git branch --format='%(refname:short)'"
