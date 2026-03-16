@@ -82,7 +82,12 @@ fn complete_path(
 #[tauri::command]
 fn launch_item(item: apps::LaunchItem, extra_args: Option<Vec<String>>) -> Result<(), String> {
     history::record(&item.path);
-    apps::launch_with_extra(&item, extra_args.unwrap_or_default())
+    let path = &item.path;
+    if path.starts_with("http://") || path.starts_with("https://") {
+        tauri_plugin_opener::open_url(path, None::<&str>).map_err(|e| e.to_string())
+    } else {
+        apps::launch_with_extra(&item, extra_args.unwrap_or_default())
+    }
 }
 
 #[tauri::command]
