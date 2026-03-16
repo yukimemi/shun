@@ -23,6 +23,7 @@ pub enum ItemSource {
     Config,
     ScanDir,
     System,
+    Url,
 }
 
 pub fn launch_with_extra(item: &LaunchItem, extra_args: Vec<String>) -> Result<(), String> {
