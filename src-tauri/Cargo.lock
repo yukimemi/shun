@@ -3390,7 +3390,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-global-shortcut",
  "tauri-plugin-opener",
- "toml 0.8.2",
+ "toml 0.9.12+spec-1.1.0",
 ]
 
 [[package]]
