@@ -79,13 +79,12 @@ completion       = "path"       # "path" | "none" | "list" | "command"
 name = "GitHub"
 path = "https://github.com"
 
-# systemctl with fixed subcommand list
+# run with free-form arguments (no completion)
 [[apps]]
-name            = "systemctl"
-path            = "systemctl"
+name             = "systemctl"
+path             = "systemctl"
 allow_extra_args = true
-completion      = "list"
-completion_list = ["start", "stop", "restart", "status", "enable", "disable", "reload"]
+completion       = "none"
 
 # docker exec into a running container (completion from docker ps)
 [[apps]]
