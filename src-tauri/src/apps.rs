@@ -45,14 +45,27 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
         cmd.current_dir(crate::utils::expand_path(workdir));
     }
 
-    // Windows の .lnk ファイルは cmd /c start で起動
+    // Windows の .lnk / .cmd / .bat ファイルは cmd /c で起動
     #[cfg(target_os = "windows")]
-    let mut cmd = if path.to_lowercase().ends_with(".lnk") {
-        let mut c = std::process::Command::new("cmd");
-        c.args(["/c", "start", "", &path]);
-        c
-    } else {
-        cmd
+    let mut cmd = {
+        let p = path.to_lowercase();
+        if p.ends_with(".lnk") {
+            let mut c = std::process::Command::new("cmd");
+            c.args(["/c", "start", "", &path]);
+            c
+        } else if p.ends_with(".cmd") || p.ends_with(".bat") {
+            let mut c = std::process::Command::new("cmd");
+            c.args(["/c", &path]);
+            if !item.args.is_empty() {
+                c.args(&item.args);
+            }
+            if let Some(workdir) = &item.workdir {
+                c.current_dir(crate::utils::expand_path(workdir));
+            }
+            c
+        } else {
+            cmd
+        }
     };
 
     #[cfg(target_os = "windows")]
