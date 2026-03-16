@@ -201,6 +201,12 @@
       resizeForSearch(filteredSlash.length);
       return;
     }
+    if (query.startsWith("http://") || query.startsWith("https://")) {
+      filtered = [{ name: query, path: query, args: [], workdir: null, allow_extra_args: false, source: "Url", completion: "none", completion_list: [], completion_command: null }];
+      selectedIndex = 0;
+      resizeForSearch(1);
+      return;
+    }
     invoke("search_items", { query }).then((results) => {
       filtered = results;
       selectedIndex = 0;
@@ -314,7 +320,7 @@
                 {#if filtered.length > MAX_ITEMS}
                   <span class="completion-count">{globalIdx + 1}/{filtered.length}</span>
                 {/if}
-                <span class="item-source">{item.source}</span>
+                <span class="item-source" data-source={item.source}>{item.source}</span>
               </div>
             </div>
           {/each}
@@ -533,5 +539,9 @@
     color: #cba6f7;
     font-family: monospace;
     font-size: 14px;
+  }
+
+  :global(.item-source[data-source="Url"]) {
+    color: #89b4fa;
   }
 </style>
