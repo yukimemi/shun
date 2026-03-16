@@ -45,13 +45,23 @@
   let allCompletions = $state([]);    // 全補完候補
   let completionIndex = $state(0);   // 選択中インデックス
 
-  // 現在の ghost suffix (表示用)
+  // 現在の ghost suffix (args モード用)
   let ghostSuffix = $derived(() => {
     if (!allCompletions.length) return "";
     const candidate = allCompletions[completionIndex];
     const partial = extraArgs.slice(completionPrefix.length);
     if (candidate.toLowerCase().startsWith(partial.toLowerCase())) {
       return candidate.slice(partial.length);
+    }
+    return "";
+  });
+
+  // search モード パス補完の ghost suffix
+  let searchGhostSuffix = $derived(() => {
+    if (!isPathQuery(query) || filtered.length === 0) return "";
+    const candidate = filtered[selectedIndex]?.path ?? filtered[0]?.path ?? "";
+    if (candidate.toLowerCase().startsWith(query.toLowerCase())) {
+      return candidate.slice(query.length);
     }
     return "";
   });
@@ -184,14 +194,28 @@
       selectedIndex = Math.max(selectedIndex - 1, 0);
     } else if (e.ctrlKey && e.key === "f") {
       e.preventDefault();
+      if (isPathQuery(query) && searchGhostSuffix()) {
+        const suffix = searchGhostSuffix();
+        const slashIdx = suffix.indexOf("/");
+        query = slashIdx === -1 ? query + suffix : query + suffix.slice(0, slashIdx + 1);
+      }
+    } else if (e.ctrlKey && e.key === "e") {
+      e.preventDefault();
+      if (isPathQuery(query) && searchGhostSuffix()) {
+        query = query + searchGhostSuffix();
+      }
     } else if (e.key === "Tab") {
       e.preventDefault();
-      const item = filtered[selectedIndex];
-      if (item?.allow_extra_args) {
-        argItem = item;
-        mode = "args";
-        win.setSize(new LogicalSize(WINDOW_WIDTH, INPUT_HEIGHT));
-        setTimeout(() => argsEl?.focus(), 10);
+      if (isPathQuery(query) && filtered[selectedIndex]) {
+        query = filtered[selectedIndex].path;
+      } else {
+        const item = filtered[selectedIndex];
+        if (item?.allow_extra_args) {
+          argItem = item;
+          mode = "args";
+          win.setSize(new LogicalSize(WINDOW_WIDTH, INPUT_HEIGHT));
+          setTimeout(() => argsEl?.focus(), 10);
+        }
       }
     } else if (e.key === "Enter") {
       e.preventDefault();
@@ -299,16 +323,23 @@
 <main>
   <div class="launcher">
     {#if mode === "search"}
-      <input
-        type="text"
-        class="search"
-        placeholder="Type to search..."
-        bind:value={query}
-        bind:this={inputEl}
-        use:focusInput
-        autocomplete="off"
-        spellcheck="false"
-      />
+      <div class="search-wrap">
+        {#if searchGhostSuffix()}
+          <div class="ghost-overlay search-ghost" aria-hidden="true">
+            <span class="ghost-typed">{query}</span><span class="ghost-text">{searchGhostSuffix()}</span>
+          </div>
+        {/if}
+        <input
+          type="text"
+          class="search"
+          placeholder="Type to search..."
+          bind:value={query}
+          bind:this={inputEl}
+          use:focusInput
+          autocomplete="off"
+          spellcheck="false"
+        />
+      </div>
       {#if filteredSlash.length > 0}
         <div class="results">
           {#each filteredSlash as cmd, i}
@@ -429,6 +460,16 @@
     height: 100%;
     background: #1e1e2e;
     overflow: hidden;
+  }
+
+  .search-wrap {
+    position: relative;
+    width: 100%;
+  }
+
+  .search-ghost {
+    padding: 16px 20px;
+    font-size: 18px;
   }
 
   .search {
