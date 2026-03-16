@@ -3,6 +3,19 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
+pub enum SearchMode {
+    Fuzzy,  // ファジー検索 (デフォルト)
+    Exact,  // 部分一致
+}
+
+impl Default for SearchMode {
+    fn default() -> Self {
+        SearchMode::Fuzzy
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub enum SortOrder {
     CountFirst,   // 回数 -> 直近 -> アルファベット (デフォルト)
     RecentFirst,  // 直近 -> 回数 -> アルファベット
@@ -18,6 +31,8 @@ impl Default for SortOrder {
 pub struct Config {
     #[serde(default)]
     pub keybindings: Keybindings,
+    #[serde(default)]
+    pub search_mode: SearchMode,
     #[serde(default)]
     pub sort_order: SortOrder,
     #[serde(default)]
@@ -109,6 +124,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             keybindings: Keybindings::default(),
+            search_mode: SearchMode::default(),
             sort_order: SortOrder::default(),
             apps: vec![],
             scan_dirs: vec![],
@@ -142,7 +158,10 @@ pub fn load_config() -> Config {
 }
 
 fn default_config_toml() -> String {
-    r#"# 履歴のソート順: "count_first" (回数→直近→名前) / "recent_first" (直近→回数→名前)
+    r#"# 検索モード: "fuzzy" (ファジー検索) / "exact" (部分一致)
+search_mode = "fuzzy"
+
+# 履歴のソート順: "count_first" (回数→直近→名前) / "recent_first" (直近→回数→名前)
 sort_order = "count_first"
 
 [keybindings]

@@ -4,6 +4,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 mod apps;
 mod config;
 mod history;
+mod search;
 
 #[tauri::command]
 fn get_config() -> config::Config {
@@ -29,6 +30,32 @@ fn get_apps() -> Vec<apps::LaunchItem> {
     });
 
     items
+}
+
+#[tauri::command]
+fn search_items(query: String) -> Vec<apps::LaunchItem> {
+    let config = config::load_config();
+    let hist = history::load();
+    let mut items = apps::collect_items(&config);
+
+    // 履歴ソート
+    items.sort_by(|a, b| {
+        let (ac, at) = history::sort_key(&hist, &a.path);
+        let (bc, bt) = history::sort_key(&hist, &b.path);
+        if ac == 0 && bc == 0 {
+            return a.name.to_lowercase().cmp(&b.name.to_lowercase());
+        }
+        match config.sort_order {
+            config::SortOrder::CountFirst  => bc.cmp(&ac).then(bt.cmp(&at)),
+            config::SortOrder::RecentFirst => bt.cmp(&at).then(bc.cmp(&ac)),
+        }
+    });
+
+    if query.is_empty() {
+        return items;
+    }
+
+    search::filter(&items, &query, &config.search_mode)
 }
 
 #[tauri::command]
@@ -64,7 +91,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_config, get_apps, launch_item])
+        .invoke_handler(tauri::generate_handler![get_config, get_apps, search_items, launch_item])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

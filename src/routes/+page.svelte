@@ -16,13 +16,7 @@
 
   let query = $state("");
   let allItems = $state([]);
-  let filtered = $derived(
-    query.trim() === ""
-      ? allItems
-      : allItems.filter((item) =>
-          item.name.toLowerCase().includes(query.toLowerCase())
-        )
-  );
+  let filtered = $state([]);
   let selectedIndex = $state(0);
   let inputEl = $state(null);
 
@@ -35,12 +29,8 @@
 
   onMount(async () => {
     await listen("show-launcher", async () => {
-      allItems = await invoke("get_apps");
       query = "";
-      setTimeout(() => {
-        inputEl?.focus();
-        resizeWindow(allItems.length);
-      }, 30);
+      setTimeout(() => inputEl?.focus(), 30);
     });
 
     allItems = await invoke("get_apps");
@@ -64,15 +54,11 @@
   }
 
   $effect(() => {
-    // query が変わったら選択を先頭に戻す
-    query;
-    selectedIndex = 0;
-  });
-
-  $effect(() => {
-    const len = filtered.length;
-    resizeWindow(len);
-    selectedIndex = Math.min(selectedIndex, Math.max(0, len - 1));
+    invoke("search_items", { query }).then((results) => {
+      filtered = results;
+      selectedIndex = 0;
+      resizeWindow(results.length);
+    });
   });
 
   async function launchItem(item) {
