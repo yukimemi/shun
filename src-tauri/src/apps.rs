@@ -24,6 +24,7 @@ pub enum ItemSource {
     ScanDir,
     System,
     Url,
+    Path,
 }
 
 pub fn launch_with_extra(item: &LaunchItem, extra_args: Vec<String>) -> Result<(), String> {

@@ -15,6 +15,16 @@
 
   const win = getCurrentWindow();
 
+  function isPathQuery(q) {
+    return q === "~" || q.startsWith("~/") || q.startsWith("~\\") ||
+      q.startsWith("/") || /^[a-zA-Z]:[/\\]/.test(q);
+  }
+
+  function makePathItem(p) {
+    return { name: p, path: p, args: [], workdir: null, allow_extra_args: false,
+             source: "Path", completion: "none", completion_list: [], completion_command: null };
+  }
+
   const SLASH_COMMANDS = [
     { name: "/exit",   description: "アプリを終了" },
     { name: "/config", description: "設定ファイルを開く" },
@@ -188,7 +198,13 @@
       if (filteredSlash.length > 0) {
         runSlashCommand(filteredSlash[selectedIndex] ?? filteredSlash[0]);
       } else if (filtered[selectedIndex]) {
-        launchItem(filtered[selectedIndex], null);
+        const item = filtered[selectedIndex];
+        if (item.source === "Path" && item.path.endsWith("/")) {
+          // ディレクトリ → クエリを更新してナビゲート
+          query = item.path;
+        } else {
+          launchItem(item, null);
+        }
       }
     }
   }
@@ -205,6 +221,17 @@
       filtered = [{ name: query, path: query, args: [], workdir: null, allow_extra_args: false, source: "Url", completion: "none", completion_list: [], completion_command: null }];
       selectedIndex = 0;
       resizeForSearch(1);
+      return;
+    }
+    if (isPathQuery(query)) {
+      invoke("complete_path", { input: query, completionType: "path", completionList: [], completionCommand: null, workdir: null })
+        .then((result) => {
+          filtered = result.completions.length > 0
+            ? result.completions.map(makePathItem)
+            : [makePathItem(query)];
+          selectedIndex = 0;
+          resizeForSearch(filtered.length);
+        });
       return;
     }
     invoke("search_items", { query }).then((results) => {
@@ -543,5 +570,9 @@
 
   :global(.item-source[data-source="Url"]) {
     color: #89b4fa;
+  }
+
+  :global(.item-source[data-source="Path"]) {
+    color: #a6e3a1;
   }
 </style>
