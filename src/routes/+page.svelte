@@ -167,10 +167,13 @@
       win.hide();
     } else if (e.key === "ArrowDown" || (e.ctrlKey && e.key === "n")) {
       e.preventDefault();
-      selectedIndex = Math.min(selectedIndex + 1, filtered.length - 1);
+      const len = filteredSlash.length > 0 ? filteredSlash.length : filtered.length;
+      selectedIndex = Math.min(selectedIndex + 1, len - 1);
     } else if (e.key === "ArrowUp" || (e.ctrlKey && e.key === "p")) {
       e.preventDefault();
       selectedIndex = Math.max(selectedIndex - 1, 0);
+    } else if (e.ctrlKey && e.key === "f") {
+      e.preventDefault();
     } else if (e.key === "Tab") {
       e.preventDefault();
       const item = filtered[selectedIndex];
