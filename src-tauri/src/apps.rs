@@ -48,12 +48,17 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
     // Windows の .lnk / .cmd / .bat ファイルは cmd /c で起動
     #[cfg(target_os = "windows")]
     let mut cmd = {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
         let p = path.to_lowercase();
         if p.ends_with(".lnk") {
+            // .lnk は start 経由: cmd 自体は非表示でよい
             let mut c = std::process::Command::new("cmd");
             c.args(["/c", "start", "", &path]);
+            c.creation_flags(CREATE_NO_WINDOW);
             c
         } else if p.ends_with(".cmd") || p.ends_with(".bat") {
+            // .cmd/.bat はコンソール表示が必要な場合があるのでそのまま
             let mut c = std::process::Command::new("cmd");
             c.args(["/c", &path]);
             if !item.args.is_empty() {
@@ -67,13 +72,6 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
             cmd
         }
     };
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
 
     cmd.spawn().map_err(|e| e.to_string())?;
     Ok(())
