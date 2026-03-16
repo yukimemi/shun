@@ -115,8 +115,8 @@ fn complete_command(
     let output = {
         #[cfg(target_os = "windows")]
         {
-            let mut cmd = std::process::Command::new("cmd");
-            cmd.args(["/c", cmd_str]);
+            let mut cmd = std::process::Command::new("powershell");
+            cmd.args(["-NoProfile", "-NonInteractive", "-Command", cmd_str]);
             if let Some(dir) = workdir {
                 cmd.current_dir(crate::utils::expand_path(dir));
             }
