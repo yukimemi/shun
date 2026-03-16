@@ -70,6 +70,19 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
                 c.current_dir(crate::utils::expand_path(workdir));
             }
             c
+        } else if p.ends_with(".ps1") {
+            // .ps1 は新しいコンソールウィンドウで powershell 起動
+            const CREATE_NEW_CONSOLE: u32 = 0x00000010;
+            let mut c = std::process::Command::new("powershell");
+            c.args(["-NoProfile", "-ExecutionPolicy", "ByPass", "-File", &path]);
+            c.creation_flags(CREATE_NEW_CONSOLE);
+            if !item.args.is_empty() {
+                c.args(&item.args);
+            }
+            if let Some(workdir) = &item.workdir {
+                c.current_dir(crate::utils::expand_path(workdir));
+            }
+            c
         } else {
             cmd
         }
