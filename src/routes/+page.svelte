@@ -15,6 +15,11 @@
 
   const win = getCurrentWindow();
 
+  const SLASH_COMMANDS = [
+    { name: "/exit",   description: "アプリを終了" },
+    { name: "/config", description: "設定ファイルを開く" },
+  ];
+
   // モード: "search" | "args"
   let mode = $state("search");
   let query = $state("");
@@ -177,7 +182,9 @@
       }
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (filtered[selectedIndex]) {
+      if (filteredSlash.length > 0) {
+        runSlashCommand(filteredSlash[selectedIndex] ?? filteredSlash[0]);
+      } else if (filtered[selectedIndex]) {
         launchItem(filtered[selectedIndex], null);
       }
     }
@@ -185,6 +192,12 @@
 
   // search モード: クエリで絞り込み
   $effect(() => {
+    if (query.startsWith("/")) {
+      filtered = [];
+      selectedIndex = 0;
+      resizeForSearch(filteredSlash.length);
+      return;
+    }
     invoke("search_items", { query }).then((results) => {
       filtered = results;
       selectedIndex = 0;
@@ -216,6 +229,23 @@
     });
   });
 
+  // スラッシュコマンドの絞り込み
+  let filteredSlash = $derived(
+    query.startsWith("/")
+      ? SLASH_COMMANDS.filter((c) => c.name.startsWith(query.toLowerCase()))
+      : []
+  );
+
+  async function runSlashCommand(cmd) {
+    win.hide();
+    resetToSearch();
+    if (cmd.name === "/exit") {
+      await invoke("exit_app");
+    } else if (cmd.name === "/config") {
+      await invoke("open_config");
+    }
+  }
+
   async function launchItem(item, args) {
     const extraArgsList = args ? args.trim().split(/\s+/).filter(Boolean) : [];
     await invoke("launch_item", { item, extraArgs: extraArgsList });
@@ -243,7 +273,23 @@
         autocomplete="off"
         spellcheck="false"
       />
-      {#if filtered.length > 0}
+      {#if filteredSlash.length > 0}
+        <div class="results">
+          {#each filteredSlash as cmd, i}
+            <div
+              class="item"
+              class:selected={i === selectedIndex}
+              onmouseenter={() => (selectedIndex = i)}
+              onclick={() => runSlashCommand(cmd)}
+              role="option"
+              aria-selected={i === selectedIndex}
+            >
+              <span class="item-name slash-name">{cmd.name}</span>
+              <span class="item-source">{cmd.description}</span>
+            </div>
+          {/each}
+        </div>
+      {:else if filtered.length > 0}
         {@const winStart = Math.max(0, Math.min(selectedIndex - Math.floor(MAX_ITEMS / 2), filtered.length - MAX_ITEMS))}
         {@const visible = filtered.slice(winStart, winStart + MAX_ITEMS)}
         <div class="results">
@@ -477,6 +523,12 @@
   .empty {
     padding: 16px 20px;
     color: #585b70;
+    font-size: 14px;
+  }
+
+  .slash-name {
+    color: #cba6f7;
+    font-family: monospace;
     font-size: 14px;
   }
 </style>

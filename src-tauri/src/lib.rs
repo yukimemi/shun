@@ -85,6 +85,18 @@ fn launch_item(item: apps::LaunchItem, extra_args: Option<Vec<String>>) -> Resul
     apps::launch_with_extra(&item, extra_args.unwrap_or_default())
 }
 
+#[tauri::command]
+fn exit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
+fn open_config(_app: tauri::AppHandle) -> Result<(), String> {
+    let path = config::config_path();
+    tauri_plugin_opener::open_path(path, None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let config = config::load_config();
@@ -112,7 +124,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_config, get_apps, search_items, launch_item, complete_path])
+        .invoke_handler(tauri::generate_handler![get_config, get_apps, search_items, launch_item, complete_path, exit_app, open_config])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
