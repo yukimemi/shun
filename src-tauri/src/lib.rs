@@ -6,6 +6,7 @@ mod complete;
 mod config;
 mod history;
 mod search;
+mod utils;
 
 #[tauri::command]
 fn get_config() -> config::Config {

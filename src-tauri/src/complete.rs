@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::config::CompletionType;
 
@@ -29,7 +29,7 @@ fn complete_path(input: &str) -> (String, Vec<String>) {
         return (prefix, vec![]);
     }
 
-    let expanded = expand_tilde(partial);
+    let expanded = crate::utils::expand_path(partial);
     let expanded_path = Path::new(&expanded);
 
     let (dir, stem) = if expanded.ends_with('/') || expanded.ends_with('\\') {
@@ -118,7 +118,7 @@ fn complete_command(
             let mut cmd = std::process::Command::new("cmd");
             cmd.args(["/c", cmd_str]);
             if let Some(dir) = workdir {
-                cmd.current_dir(dir);
+                cmd.current_dir(crate::utils::expand_path(dir));
             }
             cmd.output()
         }
@@ -127,7 +127,7 @@ fn complete_command(
             let mut cmd = std::process::Command::new("sh");
             cmd.args(["-c", cmd_str]);
             if let Some(dir) = workdir {
-                cmd.current_dir(dir);
+                cmd.current_dir(crate::utils::expand_path(dir));
             }
             cmd.output()
         }
@@ -180,11 +180,3 @@ fn split_last_token(input: &str) -> (String, &str) {
     }
 }
 
-fn expand_tilde(path: &str) -> String {
-    if path.starts_with("~/") || path == "~" {
-        let home = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        path.replacen("~", &home.to_string_lossy().replace('\\', "/"), 1)
-    } else {
-        path.to_string()
-    }
-}

@@ -35,20 +35,21 @@ pub fn launch_with_extra(item: &LaunchItem, extra_args: Vec<String>) -> Result<(
 }
 
 pub fn launch(item: &LaunchItem) -> Result<(), String> {
-    let mut cmd = std::process::Command::new(&item.path);
+    let path = crate::utils::expand_path(&item.path);
+    let mut cmd = std::process::Command::new(&path);
 
     if !item.args.is_empty() {
         cmd.args(&item.args);
     }
     if let Some(workdir) = &item.workdir {
-        cmd.current_dir(workdir);
+        cmd.current_dir(crate::utils::expand_path(workdir));
     }
 
     // Windows の .lnk ファイルは cmd /c start で起動
     #[cfg(target_os = "windows")]
-    let mut cmd = if item.path.to_lowercase().ends_with(".lnk") {
+    let mut cmd = if path.to_lowercase().ends_with(".lnk") {
         let mut c = std::process::Command::new("cmd");
-        c.args(["/c", "start", "", &item.path]);
+        c.args(["/c", "start", "", &path]);
         c
     } else {
         cmd
@@ -92,7 +93,7 @@ fn launch_item_from_entry(app: &AppEntry) -> LaunchItem {
 }
 
 fn scan_directory(scan_dir: &ScanDir) -> Vec<LaunchItem> {
-    let path = expand_tilde(&scan_dir.path);
+    let path = crate::utils::expand_path(&scan_dir.path);
     let path = Path::new(&path);
     if !path.exists() {
         return vec![];
@@ -152,14 +153,6 @@ fn collect_files(
     }
 }
 
-fn expand_tilde(path: &str) -> String {
-    if path.starts_with("~/") || path == "~" {
-        let home = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        path.replacen("~", &home.to_string_lossy(), 1)
-    } else {
-        path.to_string()
-    }
-}
 
 #[cfg(target_os = "windows")]
 fn collect_system_apps() -> Vec<LaunchItem> {
