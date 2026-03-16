@@ -2,6 +2,7 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 mod apps;
+mod complete;
 mod config;
 mod history;
 mod search;
@@ -58,10 +59,22 @@ fn search_items(query: String) -> Vec<apps::LaunchItem> {
     search::filter(&items, &query, &config.search_mode)
 }
 
+#[derive(serde::Serialize)]
+struct CompleteResult {
+    prefix: String,
+    completions: Vec<String>,
+}
+
 #[tauri::command]
-fn launch_item(item: apps::LaunchItem) -> Result<(), String> {
+fn complete_path(input: String) -> CompleteResult {
+    let (prefix, completions) = complete::complete(&input);
+    CompleteResult { prefix, completions }
+}
+
+#[tauri::command]
+fn launch_item(item: apps::LaunchItem, extra_args: Option<Vec<String>>) -> Result<(), String> {
     history::record(&item.path);
-    apps::launch(&item)
+    apps::launch_with_extra(&item, extra_args.unwrap_or_default())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -91,7 +104,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_config, get_apps, search_items, launch_item])
+        .invoke_handler(tauri::generate_handler![get_config, get_apps, search_items, launch_item, complete_path])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

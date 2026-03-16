@@ -20,6 +20,15 @@ pub enum ItemSource {
     System,
 }
 
+pub fn launch_with_extra(item: &LaunchItem, extra_args: Vec<String>) -> Result<(), String> {
+    let mut all_args = item.args.clone();
+    all_args.extend(extra_args);
+
+    let mut item_with_args = item.clone();
+    item_with_args.args = all_args;
+    launch(&item_with_args)
+}
+
 pub fn launch(item: &LaunchItem) -> Result<(), String> {
     let mut cmd = std::process::Command::new(&item.path);
 
