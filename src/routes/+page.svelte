@@ -222,7 +222,9 @@
       if (filteredSlash.length > 0) {
         runSlashCommand(filteredSlash[selectedIndex] ?? filteredSlash[0]);
       } else if (filtered[selectedIndex]) {
-        const item = filtered[selectedIndex];
+        const item = isPathQuery(query)
+          ? makePathItem(query)
+          : filtered[selectedIndex];
         launchItem(item, null);
       }
     }
