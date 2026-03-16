@@ -34,7 +34,8 @@
   }
 
   onMount(async () => {
-    await listen("show-launcher", () => {
+    await listen("show-launcher", async () => {
+      allItems = await invoke("get_apps");
       query = "";
       setTimeout(() => {
         inputEl?.focus();

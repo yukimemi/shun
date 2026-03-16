@@ -1,10 +1,25 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SortOrder {
+    CountFirst,   // 回数 -> 直近 -> アルファベット (デフォルト)
+    RecentFirst,  // 直近 -> 回数 -> アルファベット
+}
+
+impl Default for SortOrder {
+    fn default() -> Self {
+        SortOrder::CountFirst
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub keybindings: Keybindings,
+    #[serde(default)]
+    pub sort_order: SortOrder,
     #[serde(default)]
     pub apps: Vec<AppEntry>,
     #[serde(default)]
@@ -94,6 +109,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             keybindings: Keybindings::default(),
+            sort_order: SortOrder::default(),
             apps: vec![],
             scan_dirs: vec![],
         }
@@ -126,7 +142,10 @@ pub fn load_config() -> Config {
 }
 
 fn default_config_toml() -> String {
-    r#"[keybindings]
+    r#"# 履歴のソート順: "count_first" (回数→直近→名前) / "recent_first" (直近→回数→名前)
+sort_order = "count_first"
+
+[keybindings]
 launch      = "Alt+Space"
 next        = "Ctrl+n"
 prev        = "Ctrl+p"

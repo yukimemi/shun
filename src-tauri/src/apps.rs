@@ -30,11 +30,11 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
         cmd.current_dir(workdir);
     }
 
-    // Windows の .lnk ファイルは explorer.exe で起動
+    // Windows の .lnk ファイルは cmd /c start で起動
     #[cfg(target_os = "windows")]
     let mut cmd = if item.path.to_lowercase().ends_with(".lnk") {
-        let mut c = std::process::Command::new("explorer.exe");
-        c.arg(&item.path);
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/c", "start", "", &item.path]);
         c
     } else {
         cmd
