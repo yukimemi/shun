@@ -1,10 +1,18 @@
-# shun (瞬)
+<div align="center">
+  <img src="src-tauri/icons/icon.png" width="128" alt="shun icon" />
 
-> A cross-platform, keyboard-driven minimal launcher — like Alfred/Raycast, but yours.
+  # shun (瞬)
+
+  > A cross-platform, keyboard-driven minimal launcher — like Alfred/Raycast, but yours.
+</div>
+
+<div align="center">
 
 [![Release](https://img.shields.io/github/v/release/yukimemi/shun?style=flat-square)](https://github.com/yukimemi/shun/releases)
 [![License](https://img.shields.io/github/license/yukimemi/shun?style=flat-square)](LICENSE)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri-blue?style=flat-square)](https://tauri.app)
+
+</div>
 
 ## Features
 
