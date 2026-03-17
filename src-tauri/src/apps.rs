@@ -115,6 +115,9 @@ pub fn collect_items(config: &Config) -> Vec<LaunchItem> {
     // OS 標準アプリ
     items.extend(collect_system_apps());
 
+    // 履歴にある URL / Path アイテムを復元
+    items.extend(history_items());
+
     // [[overrides]] を name (大文字小文字無視) でマッチして上書き
     for item in &mut items {
         if let Some(ov) = config.overrides.iter().find(|o| o.name.to_lowercase() == item.name.to_lowercase()) {
@@ -127,6 +130,54 @@ pub fn collect_items(config: &Config) -> Vec<LaunchItem> {
     }
 
     items
+}
+
+fn is_url(s: &str) -> bool {
+    s.starts_with("http://") || s.starts_with("https://")
+}
+
+fn is_path(s: &str) -> bool {
+    s == "~"
+        || s.starts_with("~/")
+        || s.starts_with("~\\")
+        || s.starts_with('/')
+        || (s.len() >= 3 && s.chars().next().map_or(false, |c| c.is_ascii_alphabetic()) && s[1..].starts_with(":/"))
+        || (s.len() >= 3 && s.chars().next().map_or(false, |c| c.is_ascii_alphabetic()) && s[1..].starts_with(":\\"))
+}
+
+fn history_items() -> Vec<LaunchItem> {
+    let history = crate::history::load();
+    history
+        .entries
+        .keys()
+        .filter_map(|key| {
+            if is_url(key) {
+                Some(LaunchItem {
+                    name: key.clone(),
+                    path: key.clone(),
+                    args: vec![],
+                    workdir: None,
+                    source: ItemSource::Url,
+                    completion: CompletionType::None,
+                    completion_list: vec![],
+                    completion_command: None,
+                })
+            } else if is_path(key) {
+                Some(LaunchItem {
+                    name: key.clone(),
+                    path: key.clone(),
+                    args: vec![],
+                    workdir: None,
+                    source: ItemSource::Path,
+                    completion: CompletionType::None,
+                    completion_list: vec![],
+                    completion_command: None,
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn launch_item_from_entry(app: &AppEntry) -> LaunchItem {

@@ -244,9 +244,14 @@
       return;
     }
     if (query.startsWith("http://") || query.startsWith("https://")) {
-      filtered = [{ name: query, path: query, args: [], workdir: null, source: "Url", completion: "none", completion_list: [], completion_command: null }];
-      selectedIndex = 0;
-      resizeForSearch(1);
+      invoke("search_items", { query }).then((results) => {
+        // 入力中の URL が候補にない場合は先頭に追加
+        const typed = { name: query, path: query, args: [], workdir: null, source: "Url", completion: "none", completion_list: [], completion_command: null };
+        const hasExact = results.some((r) => r.path === query);
+        filtered = hasExact ? results : [typed, ...results];
+        selectedIndex = 0;
+        resizeForSearch(filtered.length);
+      });
       return;
     }
     if (isPathQuery(query)) {
