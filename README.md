@@ -63,16 +63,15 @@ next        = "Ctrl+n"
 prev        = "Ctrl+p"
 confirm     = "Enter"
 arg_mode    = "Tab"
-word_accept = "Ctrl+f"
-line_accept = "Ctrl+e"
+accept_word = "Ctrl+f"
+accept_line = "Ctrl+e"
 close       = "Escape"
 
 # Open editor with file path completion
 [[apps]]
-name             = "Neovide"
-path             = "neovide"
-allow_extra_args = true
-completion       = "path"       # "path" | "none" | "list" | "command"
+name       = "Neovide"
+path       = "neovide"
+completion = "path"       # "path" | "none" | "list" | "command"
 
 # Open a URL directly
 [[apps]]
@@ -81,17 +80,15 @@ path = "https://github.com"
 
 # run with free-form arguments (no completion)
 [[apps]]
-name             = "systemctl"
-path             = "systemctl"
-allow_extra_args = true
-completion       = "none"
+name       = "systemctl"
+path       = "systemctl"
+completion = "none"
 
 # docker exec into a running container (completion from docker ps)
 [[apps]]
 name               = "docker exec"
 path               = "docker"
 args               = ["exec", "-it"]
-allow_extra_args   = true
 completion         = "command"
 completion_command = "docker ps --format '{{.Names}}'"
 
@@ -100,7 +97,6 @@ completion_command = "docker ps --format '{{.Names}}'"
 name               = "git checkout"
 path               = "git"
 args               = ["checkout"]
-allow_extra_args   = true
 completion         = "command"
 completion_command = "git branch --format='%(refname:short)'"
 workdir            = "~/src/myproject"
@@ -122,7 +118,7 @@ extensions = ["sh", "py", "ps1", "cmd"]
 | `Ctrl+n` / `↓` | Next item |
 | `Ctrl+p` / `↑` | Previous item |
 | `Enter` | Launch selected item |
-| `Tab` | Enter args mode (if `allow_extra_args = true`) |
+| `Tab` | Enter args mode |
 | `Escape` | Hide launcher |
 
 ### Args mode

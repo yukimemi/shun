@@ -55,10 +55,10 @@ pub struct Keybindings {
     pub confirm: String,
     #[serde(default = "default_arg_mode")]
     pub arg_mode: String,
-    #[serde(default = "default_word_accept")]
-    pub word_accept: String,
-    #[serde(default = "default_line_accept")]
-    pub line_accept: String,
+    #[serde(default = "default_accept_word")]
+    pub accept_word: String,
+    #[serde(default = "default_accept_line")]
+    pub accept_line: String,
     #[serde(default = "default_close")]
     pub close: String,
 }
@@ -78,10 +78,10 @@ fn default_confirm() -> String {
 fn default_arg_mode() -> String {
     "Tab".to_string()
 }
-fn default_word_accept() -> String {
+fn default_accept_word() -> String {
     "Ctrl+f".to_string()
 }
-fn default_line_accept() -> String {
+fn default_accept_line() -> String {
     "Ctrl+e".to_string()
 }
 fn default_close() -> String {
@@ -96,8 +96,8 @@ impl Default for Keybindings {
             prev: default_prev(),
             confirm: default_confirm(),
             arg_mode: default_arg_mode(),
-            word_accept: default_word_accept(),
-            line_accept: default_line_accept(),
+            accept_word: default_accept_word(),
+            accept_line: default_accept_line(),
             close: default_close(),
         }
     }
@@ -203,8 +203,8 @@ next        = "Ctrl+n"
 prev        = "Ctrl+p"
 confirm     = "Enter"
 arg_mode    = "Tab"
-word_accept = "Ctrl+f"
-line_accept = "Ctrl+e"
+accept_word = "Ctrl+f"
+accept_line = "Ctrl+e"
 close       = "Escape"
 
 # アプリ・スクリプトの個別登録
