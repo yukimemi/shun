@@ -105,21 +105,24 @@
     completionIndex = idx;
   }
 
+  function firstSepIdx(s) {
+    const spaceIdx = s.indexOf(" ");
+    const slashIdx = s.indexOf("/");
+    const candidates = [spaceIdx, slashIdx].filter((i) => i !== -1);
+    return candidates.length === 0 ? -1 : Math.min(...candidates);
+  }
+
   function acceptWord() {
     if (extraArgs === "" && lastArgsGhost) {
-      const slashIdx = lastArgsGhost.indexOf("/");
-      extraArgs = slashIdx === -1 ? lastArgsGhost : lastArgsGhost.slice(0, slashIdx + 1);
+      const sep = firstSepIdx(lastArgsGhost);
+      extraArgs = sep === -1 ? lastArgsGhost : lastArgsGhost.slice(0, sep + 1);
       lastArgsGhost = "";
       return;
     }
     if (!ghostSuffix()) return;
     const suffix = ghostSuffix();
-    const slashIdx = suffix.indexOf("/");
-    if (slashIdx === -1) {
-      extraArgs = extraArgs + suffix;
-    } else {
-      extraArgs = extraArgs + suffix.slice(0, slashIdx + 1);
-    }
+    const sep = firstSepIdx(suffix);
+    extraArgs = extraArgs + (sep === -1 ? suffix : suffix.slice(0, sep + 1));
   }
 
   function acceptLine() {
