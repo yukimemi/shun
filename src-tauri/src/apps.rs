@@ -56,6 +56,12 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
             // .lnk は start 経由: cmd 自体は非表示でよい
             let mut c = std::process::Command::new("cmd");
             c.args(["/c", "start", "", &path]);
+            if !item.args.is_empty() {
+                c.args(&item.args);
+            }
+            if let Some(workdir) = &item.workdir {
+                c.current_dir(crate::utils::expand_path(workdir));
+            }
             c.creation_flags(CREATE_NO_WINDOW);
             c
         } else if p.ends_with(".cmd") || p.ends_with(".bat") {
