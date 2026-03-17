@@ -110,7 +110,7 @@ fn complete_path(
 }
 
 #[tauri::command]
-fn launch_item(item: apps::LaunchItem, extra_args: Option<Vec<String>>) -> Result<(), String> {
+fn launch_item(item: apps::LaunchItem, extra_args: Option<Vec<String>>, state: tauri::State<CacheState>) -> Result<(), String> {
     let extra = extra_args.unwrap_or_default();
 
     // history 記録: history_key があればそれを使う（History アイテムの再実行）
@@ -122,6 +122,9 @@ fn launch_item(item: apps::LaunchItem, extra_args: Option<Vec<String>>) -> Resul
         let all_args: Vec<String> = item.args.iter().chain(extra.iter()).cloned().collect();
         history::record_args(&item.path, &all_args);
     }
+
+    // 起動後にキャッシュを更新（次回表示時に history items が反映される）
+    refresh_cache_bg(Arc::clone(state.inner()));
 
     let path = &item.path;
     if path.starts_with("http://") || path.starts_with("https://") {
