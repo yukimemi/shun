@@ -36,6 +36,8 @@ pub struct Config {
     #[serde(default)]
     pub sort_order: SortOrder,
     #[serde(default)]
+    pub hide_on_blur: bool,
+    #[serde(default)]
     pub apps: Vec<AppEntry>,
     #[serde(default)]
     pub scan_dirs: Vec<ScanDir>,
@@ -158,6 +160,7 @@ impl Default for Config {
             keybindings: Keybindings::default(),
             search_mode: SearchMode::default(),
             sort_order: SortOrder::default(),
+            hide_on_blur: false,
             apps: vec![],
             scan_dirs: vec![],
             overrides: vec![],
@@ -196,6 +199,9 @@ search_mode = "fuzzy"
 
 # 履歴のソート順: "count_first" (回数→直近→名前) / "recent_first" (直近→回数→名前)
 sort_order = "count_first"
+
+# フォーカスが外れたら自動で非表示にする (true / false)
+hide_on_blur = false
 
 [keybindings]
 launch      = "Alt+Space"

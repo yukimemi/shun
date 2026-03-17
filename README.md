@@ -57,6 +57,9 @@ search_mode = "fuzzy"
 # Sort order: "count_first" (default) | "recent_first"
 sort_order = "recent_first"
 
+# Auto-hide when the launcher loses focus
+hide_on_blur = false
+
 [keybindings]
 launch      = "Alt+Space"   # Global hotkey to show/hide
 next        = "Ctrl+n"

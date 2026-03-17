@@ -238,6 +238,19 @@ pub fn run() {
             window.hide().ok();
 
             let cache = Arc::clone(app.state::<CacheState>().inner());
+
+            // hide_on_blur: フォーカスが外れたら自動非表示
+            if config.hide_on_blur {
+                let window_blur = window.clone();
+                let cache_blur = Arc::clone(&cache);
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::Focused(false) = event {
+                        window_blur.hide().ok();
+                        refresh_cache_bg(Arc::clone(&cache_blur));
+                    }
+                });
+            }
+
             let shortcut: Shortcut = launch_shortcut.parse().expect("invalid shortcut");
             app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
                 if event.state == ShortcutState::Pressed {
