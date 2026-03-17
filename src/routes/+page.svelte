@@ -3,6 +3,7 @@
   import { LogicalSize } from "@tauri-apps/api/dpi";
   import { listen } from "@tauri-apps/api/event";
   import { invoke } from "@tauri-apps/api/core";
+  import { getVersion } from "@tauri-apps/api/app";
   import { onMount } from "svelte";
   import { firstSepIdx, isPathQuery, matchKey } from "$lib/utils.js";
 
@@ -38,11 +39,14 @@
     return item?.source !== "Url" && item?.source !== "Path" && item?.source !== "History";
   }
 
-  const SLASH_COMMANDS = [
-    { name: "/exit",   description: "アプリを終了" },
-    { name: "/config", description: "設定ファイルを開く" },
-    { name: "/rescan", description: "アプリ一覧を再スキャン" },
-  ];
+  let appVersion = $state("");
+
+  let SLASH_COMMANDS = $derived([
+    { name: "/exit",    description: "アプリを終了" },
+    { name: "/config",  description: "設定ファイルを開く" },
+    { name: "/rescan",  description: "アプリ一覧を再スキャン" },
+    { name: "/version", description: appVersion ? `v${appVersion}` : "バージョン情報" },
+  ]);
 
   // モード: "search" | "args"
   let mode = $state("search");
@@ -170,6 +174,7 @@
   onMount(async () => {
     const cfg = await invoke("get_config");
     if (cfg?.keybindings) keybindings = { ...keybindings, ...cfg.keybindings };
+    appVersion = await getVersion();
 
     await listen("show-launcher", async () => {
       mode = "search";
@@ -372,6 +377,10 @@
   );
 
   async function runSlashCommand(cmd) {
+    if (cmd.name === "/version") {
+      query = `/version — v${appVersion}`;
+      return;
+    }
     win.hide();
     resetToSearch();
     if (cmd.name === "/exit") {
