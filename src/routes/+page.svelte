@@ -46,6 +46,10 @@
       q.startsWith("/") || /^[a-zA-Z]:[/\\]/.test(q);
   }
 
+  function isUrlQuery(q) {
+    return q.startsWith("http://") || q.startsWith("https://");
+  }
+
   function makePathItem(p) {
     return { name: p, path: p, args: [], workdir: null,
              source: "Path", completion: "none", completion_list: [], completion_command: null };
@@ -89,9 +93,9 @@
     return "";
   });
 
-  // search モード パス補完の ghost suffix
+  // search モード パス/URL補完の ghost suffix
   let searchGhostSuffix = $derived(() => {
-    if (!isPathQuery(query) || filtered.length === 0) return "";
+    if ((!isPathQuery(query) && !isUrlQuery(query)) || filtered.length === 0) return "";
     const candidate = filtered[selectedIndex]?.path ?? filtered[0]?.path ?? "";
     if (candidate.toLowerCase().startsWith(query.toLowerCase())) {
       return candidate.slice(query.length);
@@ -270,14 +274,14 @@
       selectedIndex = Math.max(selectedIndex - 1, 0);
     } else if (matchKey(e, keybindings.accept_word)) {
       e.preventDefault();
-      if (isPathQuery(query) && searchGhostSuffix()) {
+      if ((isPathQuery(query) || isUrlQuery(query)) && searchGhostSuffix()) {
         const suffix = searchGhostSuffix();
         const sep = firstSepIdx(suffix);
         query = sep === -1 ? query + suffix : query + suffix.slice(0, sep + 1);
       }
     } else if (matchKey(e, keybindings.accept_line)) {
       e.preventDefault();
-      if (isPathQuery(query) && searchGhostSuffix()) {
+      if ((isPathQuery(query) || isUrlQuery(query)) && searchGhostSuffix()) {
         query = query + searchGhostSuffix();
       }
     } else if (matchKey(e, keybindings.arg_mode)) {
@@ -322,10 +326,10 @@
     }
     if (query.startsWith("http://") || query.startsWith("https://")) {
       invoke("search_items", { query }).then((results) => {
-        // 入力中の URL が候補にない場合は先頭に追加
+        // history 候補を先頭に、入力中の URL が候補にない場合は末尾に追加
         const typed = { name: query, path: query, args: [], workdir: null, source: "Url", completion: "none", completion_list: [], completion_command: null };
         const hasExact = results.some((r) => r.path === query);
-        filtered = hasExact ? results : [typed, ...results];
+        filtered = hasExact ? results : [...results, typed];
         selectedIndex = 0;
         resizeForSearch(filtered.length);
       });
