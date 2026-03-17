@@ -39,6 +39,8 @@ pub struct Config {
     pub apps: Vec<AppEntry>,
     #[serde(default)]
     pub scan_dirs: Vec<ScanDir>,
+    #[serde(default)]
+    pub overrides: Vec<AppOverride>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,6 +142,19 @@ pub struct ScanDir {
     pub extensions: Option<Vec<String>>,
 }
 
+/// スキャンで登録されたアイテムへの上書き設定。name で大文字小文字を無視してマッチする。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppOverride {
+    pub name: String,
+    pub allow_extra_args: Option<bool>,
+    pub completion: Option<CompletionType>,
+    #[serde(default)]
+    pub completion_list: Vec<String>,
+    pub completion_command: Option<String>,
+    pub args: Option<Vec<String>>,
+    pub workdir: Option<String>,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -148,6 +163,7 @@ impl Default for Config {
             sort_order: SortOrder::default(),
             apps: vec![],
             scan_dirs: vec![],
+            overrides: vec![],
         }
     }
 }

@@ -110,6 +110,18 @@ pub fn collect_items(config: &Config) -> Vec<LaunchItem> {
     // OS 標準アプリ
     items.extend(collect_system_apps());
 
+    // [[overrides]] を name (大文字小文字無視) でマッチして上書き
+    for item in &mut items {
+        if let Some(ov) = config.overrides.iter().find(|o| o.name.to_lowercase() == item.name.to_lowercase()) {
+            if let Some(v) = ov.allow_extra_args { item.allow_extra_args = v; }
+            if let Some(ref v) = ov.completion { item.completion = v.clone(); }
+            if !ov.completion_list.is_empty() { item.completion_list = ov.completion_list.clone(); }
+            if ov.completion_command.is_some() { item.completion_command = ov.completion_command.clone(); }
+            if let Some(ref v) = ov.args { item.args = v.clone(); }
+            if ov.workdir.is_some() { item.workdir = ov.workdir.clone(); }
+        }
+    }
+
     items
 }
 
