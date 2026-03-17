@@ -15,6 +15,30 @@
 
   const win = getCurrentWindow();
 
+  // keybindings (config から取得、デフォルトはハードコード値)
+  let keybindings = $state({
+    next:        "Ctrl+n",
+    prev:        "Ctrl+p",
+    confirm:     "Enter",
+    arg_mode:    "Tab",
+    accept_word: "Ctrl+f",
+    accept_line: "Ctrl+e",
+    close:       "Escape",
+  });
+
+  // "Ctrl+f" / "Alt+Space" / "Enter" 等を KeyboardEvent と照合
+  function matchKey(e, binding) {
+    const parts = binding.split("+");
+    const keyPart = parts[parts.length - 1];
+    const ctrl  = parts.includes("Ctrl");
+    const alt   = parts.includes("Alt");
+    const shift = parts.includes("Shift");
+    const meta  = parts.includes("Meta") || parts.includes("Cmd");
+    const eventKey = keyPart === "Space" ? " " : keyPart;
+    return e.ctrlKey === ctrl && e.altKey === alt && e.shiftKey === shift && e.metaKey === meta
+      && (e.key === eventKey || e.key.toLowerCase() === eventKey.toLowerCase());
+  }
+
   function isPathQuery(q) {
     return q === "~" || q.startsWith("~/") || q.startsWith("~\\") ||
       q.startsWith("/") || /^[a-zA-Z]:[/\\]/.test(q);
@@ -146,6 +170,9 @@
   }
 
   onMount(async () => {
+    const cfg = await invoke("get_config");
+    if (cfg?.keybindings) keybindings = { ...keybindings, ...cfg.keybindings };
+
     await listen("show-launcher", async () => {
       mode = "search";
       argItem = null;
@@ -160,42 +187,41 @@
 
   function onKeydown(e) {
     if (mode === "args") {
-      if (e.key === "Escape") {
+      if (matchKey(e, keybindings.close)) {
         e.preventDefault();
         if (allCompletions.length > 0) {
           allCompletions = [];
         } else {
           resetToSearch();
         }
-      } else if (e.key === "Enter") {
+      } else if (matchKey(e, keybindings.confirm)) {
         e.preventDefault();
         if (allCompletions.length > 0) {
           const candidate = allCompletions[completionIndex];
           applySelectedCompletion();
-          // ファイル（ディレクトリでない）なら即起動
           if (!candidate.endsWith('/') && argItem) {
             launchItem(argItem, extraArgs);
           }
         } else if (argItem) {
           launchItem(argItem, extraArgs);
         }
-      } else if (e.key === "Tab") {
+      } else if (matchKey(e, keybindings.arg_mode)) {
         e.preventDefault();
         if (allCompletions.length > 0) {
           applySelectedCompletion();
         }
-      } else if (e.ctrlKey && e.key === "e") {
+      } else if (matchKey(e, keybindings.accept_line)) {
         e.preventDefault();
         acceptLine();
-      } else if (e.ctrlKey && e.key === "f") {
+      } else if (matchKey(e, keybindings.accept_word)) {
         e.preventDefault();
         acceptWord();
-      } else if (e.ctrlKey && e.key === "n") {
+      } else if (matchKey(e, keybindings.next)) {
         e.preventDefault();
         if (allCompletions.length > 0) {
           completionIndex = (completionIndex + 1) % allCompletions.length;
         }
-      } else if (e.ctrlKey && e.key === "p") {
+      } else if (matchKey(e, keybindings.prev)) {
         e.preventDefault();
         if (allCompletions.length > 0) {
           completionIndex = (completionIndex - 1 + allCompletions.length) % allCompletions.length;
@@ -205,28 +231,28 @@
     }
 
     // search モード
-    if (e.key === "Escape") {
+    if (matchKey(e, keybindings.close)) {
       win.hide();
-    } else if (e.key === "ArrowDown" || (e.ctrlKey && e.key === "n")) {
+    } else if (e.key === "ArrowDown" || matchKey(e, keybindings.next)) {
       e.preventDefault();
       const len = filteredSlash.length > 0 ? filteredSlash.length : filtered.length;
       selectedIndex = Math.min(selectedIndex + 1, len - 1);
-    } else if (e.key === "ArrowUp" || (e.ctrlKey && e.key === "p")) {
+    } else if (e.key === "ArrowUp" || matchKey(e, keybindings.prev)) {
       e.preventDefault();
       selectedIndex = Math.max(selectedIndex - 1, 0);
-    } else if (e.ctrlKey && e.key === "f") {
+    } else if (matchKey(e, keybindings.accept_word)) {
       e.preventDefault();
       if (isPathQuery(query) && searchGhostSuffix()) {
         const suffix = searchGhostSuffix();
-        const slashIdx = suffix.indexOf("/");
-        query = slashIdx === -1 ? query + suffix : query + suffix.slice(0, slashIdx + 1);
+        const sep = firstSepIdx(suffix);
+        query = sep === -1 ? query + suffix : query + suffix.slice(0, sep + 1);
       }
-    } else if (e.ctrlKey && e.key === "e") {
+    } else if (matchKey(e, keybindings.accept_line)) {
       e.preventDefault();
       if (isPathQuery(query) && searchGhostSuffix()) {
         query = query + searchGhostSuffix();
       }
-    } else if (e.key === "Tab") {
+    } else if (matchKey(e, keybindings.arg_mode)) {
       e.preventDefault();
       if (isPathQuery(query) && filtered[selectedIndex]) {
         query = filtered[selectedIndex].path;
@@ -245,7 +271,7 @@
           });
         }
       }
-    } else if (e.key === "Enter") {
+    } else if (matchKey(e, keybindings.confirm)) {
       e.preventDefault();
       if (filteredSlash.length > 0) {
         runSlashCommand(filteredSlash[selectedIndex] ?? filteredSlash[0]);
