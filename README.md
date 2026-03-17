@@ -20,10 +20,12 @@
 - **Fuzzy / exact search** — powered by [nucleo-matcher](https://github.com/helix-editor/nucleo) (the same engine as Helix editor)
 - **Launch history** — frecency sorting (count-first or recent-first)
 - **Args mode** — press `Tab` to pass extra arguments to any app
-- **Path completion** — ghost text + dropdown with `Ctrl-n/p`, `Ctrl-f/e`
+- **Path & URL completion** — ghost text + dropdown, navigate with `Ctrl-n/p`, confirm with `Ctrl-f/e`
+- **Args history** — previous argument combinations remembered and suggested as ghost text
 - **Configurable completion** — `path` / `list` / `command` / `none` per app
 - **URL & path navigation** — type `https://...` or `~/...` to open directly
-- **Slash commands** — `/exit`, `/config`
+- **Slash commands** — `/exit`, `/config`, `/rescan`
+- **Auto-hide on blur** — optionally hide when focus leaves the launcher
 - **Multi-monitor** — appears on the monitor where your cursor is
 - **Minimal UI** — borderless, transparent, always-on-top
 - **Cross-platform** — Windows, macOS, Linux
@@ -55,7 +57,7 @@ Config file is created automatically on first launch:
 search_mode = "fuzzy"
 
 # Sort order: "count_first" (default) | "recent_first"
-sort_order = "recent_first"
+sort_order = "count_first"
 
 # Auto-hide when the launcher loses focus
 hide_on_blur = false
@@ -66,8 +68,10 @@ next        = "Ctrl+n"
 prev        = "Ctrl+p"
 confirm     = "Enter"
 arg_mode    = "Tab"
-accept_word = "Ctrl+f"
-accept_line = "Ctrl+e"
+accept_word = "Ctrl+f"      # Accept next word/segment of ghost text
+accept_line = "Ctrl+e"      # Accept full ghost text
+delete_word = "Ctrl+w"      # Delete word before cursor (args mode)
+delete_line = "Ctrl+u"      # Delete to beginning of line (args mode)
 close       = "Escape"
 
 # Open editor with file path completion
@@ -81,7 +85,7 @@ completion = "path"       # "path" | "none" | "list" | "command"
 name = "GitHub"
 path = "https://github.com"
 
-# run with free-form arguments (no completion)
+# Run with free-form arguments (no completion)
 [[apps]]
 name       = "systemctl"
 path       = "systemctl"
@@ -104,6 +108,12 @@ completion         = "command"
 completion_command = "git branch --format='%(refname:short)'"
 workdir            = "~/src/myproject"
 
+# Override completion settings for scan_dirs items
+[[overrides]]
+name               = "scoop"
+completion         = "list"
+completion_list    = ["install", "uninstall", "update", "search", "info"]
+
 # Auto-register scripts from a directory
 [[scan_dirs]]
 path       = "~/.local/bin"
@@ -113,6 +123,8 @@ extensions = ["sh", "py", "ps1", "cmd"]
 
 ## Keybindings
 
+All keybindings are configurable via `[keybindings]` in `config.toml`.
+
 ### Search mode
 
 | Key | Action |
@@ -121,7 +133,9 @@ extensions = ["sh", "py", "ps1", "cmd"]
 | `Ctrl+n` / `↓` | Next item |
 | `Ctrl+p` / `↑` | Previous item |
 | `Enter` | Launch selected item |
-| `Tab` | Enter args mode |
+| `Tab` | Enter args mode / apply path completion |
+| `Ctrl+f` | Accept next word/segment of ghost text |
+| `Ctrl+e` | Accept full ghost text |
 | `Escape` | Hide launcher |
 
 ### Args mode
@@ -131,18 +145,11 @@ extensions = ["sh", "py", "ps1", "cmd"]
 | `Enter` | Launch with args (file completion → launch immediately) |
 | `Tab` | Apply selected completion |
 | `Ctrl+n` / `Ctrl+p` | Navigate completion list |
-| `Ctrl+f` | Accept next path segment (ghost text) |
-| `Ctrl+e` | Accept full completion (ghost text) |
+| `Ctrl+f` | Accept next word/segment of ghost text |
+| `Ctrl+e` | Accept full ghost text |
+| `Ctrl+w` | Delete word before cursor |
+| `Ctrl+u` | Delete to beginning of line |
 | `Escape` | Back to search |
-
-### Path navigation (type `~/` or `C:/`)
-
-| Key | Action |
-|---|---|
-| `Tab` | Apply selected completion |
-| `Ctrl+f` | Accept next path segment |
-| `Ctrl+e` | Accept full path |
-| `Enter` | Open in file manager |
 
 ### Slash commands
 
@@ -150,14 +157,15 @@ extensions = ["sh", "py", "ps1", "cmd"]
 |---|---|
 | `/exit` | Quit shun |
 | `/config` | Open config file in default editor |
+| `/rescan` | Rescan apps and directories |
 
 ## Special input
 
 | Input | Action |
 |---|---|
-| `https://...` | Open URL in default browser |
+| `https://...` | Open URL in default browser (ghost text + history) |
 | `~/...`, `C:/...` | Browse filesystem, open in file manager |
-| `/exit`, `/config` | Run built-in slash command |
+| `/exit`, `/config`, `/rescan` | Run built-in slash command |
 
 ## Building from source
 
