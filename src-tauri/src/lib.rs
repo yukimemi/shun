@@ -122,6 +122,11 @@ fn launch_item(item: apps::LaunchItem, extra_args: Option<Vec<String>>) -> Resul
 }
 
 #[tauri::command]
+fn rescan(state: tauri::State<CacheState>) {
+    refresh_cache_bg(Arc::clone(state.inner()));
+}
+
+#[tauri::command]
 fn exit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
@@ -194,9 +199,9 @@ pub fn run() {
                 if event.state == ShortcutState::Pressed {
                     if window.is_visible().unwrap_or(false) {
                         window.hide().ok();
-                    } else {
-                        // 表示時にキャッシュをバックグラウンドで更新
+                        // 非表示になったタイミングでキャッシュを更新（次回表示時に即座に使える）
                         refresh_cache_bg(Arc::clone(&cache));
+                    } else {
                         center_on_cursor_monitor(&window);
                         window.show().ok();
                         window.set_focus().ok();
@@ -209,7 +214,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_config, get_apps, search_items, launch_item,
-            complete_path, exit_app, open_config
+            complete_path, exit_app, open_config, rescan
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

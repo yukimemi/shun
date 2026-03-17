@@ -28,6 +28,7 @@
   const SLASH_COMMANDS = [
     { name: "/exit",   description: "アプリを終了" },
     { name: "/config", description: "設定ファイルを開く" },
+    { name: "/rescan", description: "アプリ一覧を再スキャン" },
   ];
 
   // モード: "search" | "args"
@@ -300,6 +301,8 @@
       await invoke("exit_app");
     } else if (cmd.name === "/config") {
       await invoke("open_config");
+    } else if (cmd.name === "/rescan") {
+      await invoke("rescan");
     }
   }
 
