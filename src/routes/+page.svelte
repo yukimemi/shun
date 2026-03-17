@@ -23,6 +23,8 @@
     arg_mode:    "Tab",
     accept_word: "Ctrl+f",
     accept_line: "Ctrl+e",
+    delete_word: "Ctrl+w",
+    delete_line: "Ctrl+u",
     close:       "Escape",
   });
 
@@ -149,6 +151,26 @@
     extraArgs = extraArgs + (sep === -1 ? suffix : suffix.slice(0, sep + 1));
   }
 
+  function deleteWord() {
+    const el = argsEl;
+    if (!el) return;
+    const pos = el.selectionStart ?? extraArgs.length;
+    const val = extraArgs;
+    let i = pos - 1;
+    while (i >= 0 && val[i] === " ") i--;
+    while (i >= 0 && val[i] !== " " && val[i] !== "/") i--;
+    extraArgs = val.slice(0, i + 1) + val.slice(pos);
+    setTimeout(() => { el.selectionStart = el.selectionEnd = i + 1; }, 0);
+  }
+
+  function deleteLine() {
+    const el = argsEl;
+    if (!el) return;
+    const pos = el.selectionStart ?? extraArgs.length;
+    extraArgs = extraArgs.slice(pos);
+    setTimeout(() => { el.selectionStart = el.selectionEnd = 0; }, 0);
+  }
+
   function acceptLine() {
     if (extraArgs === "" && lastArgsGhost) {
       extraArgs = lastArgsGhost;
@@ -216,6 +238,12 @@
       } else if (matchKey(e, keybindings.accept_word)) {
         e.preventDefault();
         acceptWord();
+      } else if (matchKey(e, keybindings.delete_word)) {
+        e.preventDefault();
+        deleteWord();
+      } else if (matchKey(e, keybindings.delete_line)) {
+        e.preventDefault();
+        deleteLine();
       } else if (matchKey(e, keybindings.next)) {
         e.preventDefault();
         if (allCompletions.length > 0) {

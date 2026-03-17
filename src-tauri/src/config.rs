@@ -61,6 +61,10 @@ pub struct Keybindings {
     pub accept_word: String,
     #[serde(default = "default_accept_line")]
     pub accept_line: String,
+    #[serde(default = "default_delete_word")]
+    pub delete_word: String,
+    #[serde(default = "default_delete_line")]
+    pub delete_line: String,
     #[serde(default = "default_close")]
     pub close: String,
 }
@@ -86,6 +90,12 @@ fn default_accept_word() -> String {
 fn default_accept_line() -> String {
     "Ctrl+e".to_string()
 }
+fn default_delete_word() -> String {
+    "Ctrl+w".to_string()
+}
+fn default_delete_line() -> String {
+    "Ctrl+u".to_string()
+}
 fn default_close() -> String {
     "Escape".to_string()
 }
@@ -100,6 +110,8 @@ impl Default for Keybindings {
             arg_mode: default_arg_mode(),
             accept_word: default_accept_word(),
             accept_line: default_accept_line(),
+            delete_word: default_delete_word(),
+            delete_line: default_delete_line(),
             close: default_close(),
         }
     }
@@ -211,6 +223,8 @@ confirm     = "Enter"
 arg_mode    = "Tab"
 accept_word = "Ctrl+f"
 accept_line = "Ctrl+e"
+delete_word = "Ctrl+w"
+delete_line = "Ctrl+u"
 close       = "Escape"
 
 # アプリ・スクリプトの個別登録
