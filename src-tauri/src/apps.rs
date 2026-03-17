@@ -15,6 +15,9 @@ pub struct LaunchItem {
     #[serde(default)]
     pub completion_list: Vec<String>,
     pub completion_command: Option<String>,
+    /// history での sort キー。`path\targs` 形式。None なら path を使う。
+    #[serde(default)]
+    pub history_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,6 +27,7 @@ pub enum ItemSource {
     System,
     Url,
     Path,
+    History,
 }
 
 pub fn launch_with_extra(item: &LaunchItem, extra_args: Vec<String>) -> Result<(), String> {
@@ -151,7 +155,28 @@ fn history_items() -> Vec<LaunchItem> {
         .entries
         .keys()
         .filter_map(|key| {
-            if is_url(key) {
+            if let Some(tab_idx) = key.find('\t') {
+                // `path\targs` 形式 → History アイテムとして復元
+                let exe_path = &key[..tab_idx];
+                let args_str = &key[tab_idx + 1..];
+                let args: Vec<String> = args_str.split_whitespace().map(String::from).collect();
+                let app_name = std::path::Path::new(exe_path)
+                    .file_stem()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(exe_path)
+                    .to_string();
+                Some(LaunchItem {
+                    name: format!("{} › {}", app_name, args_str),
+                    path: exe_path.to_string(),
+                    args,
+                    workdir: None,
+                    source: ItemSource::History,
+                    completion: CompletionType::None,
+                    completion_list: vec![],
+                    completion_command: None,
+                    history_key: Some(key.clone()),
+                })
+            } else if is_url(key) {
                 Some(LaunchItem {
                     name: key.clone(),
                     path: key.clone(),
@@ -161,6 +186,7 @@ fn history_items() -> Vec<LaunchItem> {
                     completion: CompletionType::None,
                     completion_list: vec![],
                     completion_command: None,
+                    history_key: None,
                 })
             } else if is_path(key) {
                 Some(LaunchItem {
@@ -172,6 +198,7 @@ fn history_items() -> Vec<LaunchItem> {
                     completion: CompletionType::None,
                     completion_list: vec![],
                     completion_command: None,
+                    history_key: None,
                 })
             } else {
                 None
@@ -190,6 +217,7 @@ fn launch_item_from_entry(app: &AppEntry) -> LaunchItem {
         completion: app.completion.clone(),
         completion_list: app.completion_list.clone(),
         completion_command: app.completion_command.clone(),
+        history_key: None,
     }
 }
 
@@ -248,6 +276,7 @@ fn collect_files(
                 completion: CompletionType::Path,
                 completion_list: vec![],
                 completion_command: None,
+                history_key: None,
             });
         }
     }
@@ -299,6 +328,7 @@ fn collect_lnk_files(dir: &Path, items: &mut Vec<LaunchItem>) {
                 completion: CompletionType::Path,
                 completion_list: vec![],
                 completion_command: None,
+                history_key: None,
             });
         }
     }
@@ -323,10 +353,11 @@ fn collect_system_apps() -> Vec<LaunchItem> {
                         path: path.to_string_lossy().to_string(),
                         args: vec![],
                         workdir: None,
-                                source: ItemSource::System,
+                        source: ItemSource::System,
                         completion: CompletionType::Path,
                         completion_list: vec![],
                         completion_command: None,
+                        history_key: None,
                     });
                 }
             }
@@ -403,10 +434,10 @@ fn parse_desktop_file(path: &Path) -> Option<LaunchItem> {
         path: exec?,
         args: vec![],
         workdir: None,
-        allow_extra_args: false,
         source: ItemSource::System,
         completion: CompletionType::Path,
         completion_list: vec![],
         completion_command: None,
+        history_key: None,
     })
 }

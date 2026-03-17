@@ -76,8 +76,10 @@ fn search_items(query: String, state: tauri::State<CacheState>) -> Vec<apps::Lau
 
 fn sort_items(items: &mut Vec<apps::LaunchItem>, hist: &history::History, config: &config::Config) {
     items.sort_by(|a, b| {
-        let (ac, at) = history::sort_key(hist, &a.path);
-        let (bc, bt) = history::sort_key(hist, &b.path);
+        let a_key = a.history_key.as_deref().unwrap_or(&a.path);
+        let b_key = b.history_key.as_deref().unwrap_or(&b.path);
+        let (ac, at) = history::sort_key(hist, a_key);
+        let (bc, bt) = history::sort_key(hist, b_key);
         if ac == 0 && bc == 0 {
             return a.name.to_lowercase().cmp(&b.name.to_lowercase());
         }
@@ -109,7 +111,18 @@ fn complete_path(
 
 #[tauri::command]
 fn launch_item(item: apps::LaunchItem, extra_args: Option<Vec<String>>) -> Result<(), String> {
-    history::record(&item.path);
+    let extra = extra_args.unwrap_or_default();
+
+    // history 記録: history_key があればそれを使う（History アイテムの再実行）
+    let record_key = item.history_key.as_deref().unwrap_or(&item.path);
+    history::record(record_key);
+
+    // extra_args ありで新規実行の場合は combined key も記録
+    if !extra.is_empty() && item.history_key.is_none() {
+        let all_args: Vec<String> = item.args.iter().chain(extra.iter()).cloned().collect();
+        history::record_args(&item.path, &all_args);
+    }
+
     let path = &item.path;
     if path.starts_with("http://") || path.starts_with("https://") {
         tauri_plugin_opener::open_url(path, None::<&str>).map_err(|e| e.to_string())
@@ -117,8 +130,13 @@ fn launch_item(item: apps::LaunchItem, extra_args: Option<Vec<String>>) -> Resul
         let expanded = utils::expand_path(path.trim_end_matches('/'));
         tauri_plugin_opener::open_path(expanded, None::<&str>).map_err(|e| e.to_string())
     } else {
-        apps::launch_with_extra(&item, extra_args.unwrap_or_default())
+        apps::launch_with_extra(&item, extra)
     }
+}
+
+#[tauri::command]
+fn get_last_args(path: String) -> Option<String> {
+    history::get_last_args(&path)
 }
 
 #[tauri::command]
@@ -214,7 +232,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_config, get_apps, search_items, launch_item,
-            complete_path, exit_app, open_config, rescan
+            complete_path, exit_app, open_config, rescan, get_last_args
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

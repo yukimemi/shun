@@ -26,7 +26,7 @@
   }
 
   function canHaveArgs(item) {
-    return item?.source !== "Url" && item?.source !== "Path";
+    return item?.source !== "Url" && item?.source !== "Path" && item?.source !== "History";
   }
 
   const SLASH_COMMANDS = [
@@ -49,6 +49,7 @@
   let completionPrefix = $state("");  // Rust が返す prefix (パス以外の部分)
   let allCompletions = $state([]);    // 全補完候補
   let completionIndex = $state(0);   // 選択中インデックス
+  let lastArgsGhost = $state("");     // 前回使った args の ghost
 
   // 現在の ghost suffix (args モード用)
   let ghostSuffix = $derived(() => {
@@ -94,6 +95,7 @@
     completionPrefix = "";
     allCompletions = [];
     completionIndex = 0;
+    lastArgsGhost = "";
     setTimeout(() => inputEl?.focus(), 10);
   }
 
@@ -102,6 +104,12 @@
   }
 
   function acceptWord() {
+    if (extraArgs === "" && lastArgsGhost) {
+      const slashIdx = lastArgsGhost.indexOf("/");
+      extraArgs = slashIdx === -1 ? lastArgsGhost : lastArgsGhost.slice(0, slashIdx + 1);
+      lastArgsGhost = "";
+      return;
+    }
     if (!ghostSuffix()) return;
     const suffix = ghostSuffix();
     const slashIdx = suffix.indexOf("/");
@@ -113,6 +121,11 @@
   }
 
   function acceptLine() {
+    if (extraArgs === "" && lastArgsGhost) {
+      extraArgs = lastArgsGhost;
+      lastArgsGhost = "";
+      return;
+    }
     if (!ghostSuffix()) return;
     extraArgs = extraArgs + ghostSuffix();
     allCompletions = [];
@@ -218,8 +231,12 @@
         if (canHaveArgs(item)) {
           argItem = item;
           mode = "args";
+          lastArgsGhost = "";
           win.setSize(new LogicalSize(WINDOW_WIDTH, INPUT_HEIGHT));
           setTimeout(() => argsEl?.focus(), 10);
+          invoke("get_last_args", { path: item.path }).then((la) => {
+            if (la) lastArgsGhost = la;
+          });
         }
       }
     } else if (e.key === "Enter") {
@@ -404,7 +421,7 @@
         <span class="args-sep">›</span>
         <div class="args-input-wrap">
           <div class="ghost-overlay" aria-hidden="true">
-            <span class="ghost-typed">{extraArgs}</span><span class="ghost-text">{ghostSuffix()}</span>
+            <span class="ghost-typed">{extraArgs}</span><span class="ghost-text">{extraArgs === "" && lastArgsGhost ? lastArgsGhost : ghostSuffix()}</span>
           </div>
           <input
             type="text"
@@ -624,5 +641,9 @@
 
   :global(.item-source[data-source="Path"]) {
     color: #a6e3a1;
+  }
+
+  :global(.item-source[data-source="History"]) {
+    color: #f38ba8;
   }
 </style>
