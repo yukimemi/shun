@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
@@ -7,6 +9,30 @@ mod config;
 mod history;
 mod search;
 mod utils;
+
+// --- キャッシュ ---
+
+struct ItemCache {
+    config: config::Config,
+    items: Vec<apps::LaunchItem>,
+}
+
+type CacheState = Arc<Mutex<Option<ItemCache>>>;
+
+fn build_cache() -> ItemCache {
+    let config = config::load_config();
+    let items = apps::collect_items(&config);
+    ItemCache { config, items }
+}
+
+fn refresh_cache_bg(cache: CacheState) {
+    std::thread::spawn(move || {
+        let new = build_cache();
+        *cache.lock().unwrap() = Some(new);
+    });
+}
+
+// --- コマンド ---
 
 #[tauri::command]
 fn get_config() -> config::Config {
@@ -18,32 +44,40 @@ fn get_apps() -> Vec<apps::LaunchItem> {
     let config = config::load_config();
     let hist = history::load();
     let mut items = apps::collect_items(&config);
-
-    items.sort_by(|a, b| {
-        let (ac, at) = history::sort_key(&hist, &a.path);
-        let (bc, bt) = history::sort_key(&hist, &b.path);
-        if ac == 0 && bc == 0 {
-            return a.name.to_lowercase().cmp(&b.name.to_lowercase());
-        }
-        match config.sort_order {
-            config::SortOrder::CountFirst  => bc.cmp(&ac).then(bt.cmp(&at)),
-            config::SortOrder::RecentFirst => bt.cmp(&at).then(bc.cmp(&ac)),
-        }
-    });
-
+    sort_items(&mut items, &hist, &config);
     items
 }
 
 #[tauri::command]
-fn search_items(query: String) -> Vec<apps::LaunchItem> {
-    let config = config::load_config();
-    let hist = history::load();
-    let mut items = apps::collect_items(&config);
+fn search_items(query: String, state: tauri::State<CacheState>) -> Vec<apps::LaunchItem> {
+    let (config, mut items) = {
+        let cache = state.lock().unwrap();
+        match cache.as_ref() {
+            Some(c) => (c.config.clone(), c.items.clone()),
+            None => {
+                drop(cache);
+                let c = build_cache();
+                let result = (c.config.clone(), c.items.clone());
+                *state.lock().unwrap() = Some(c);
+                result
+            }
+        }
+    };
 
-    // 履歴ソート
+    // history は軽いので毎回ロード（起動直後も正確な順序に）
+    let hist = history::load();
+    sort_items(&mut items, &hist, &config);
+
+    if query.is_empty() {
+        return items;
+    }
+    search::filter(&items, &query, &config.search_mode)
+}
+
+fn sort_items(items: &mut Vec<apps::LaunchItem>, hist: &history::History, config: &config::Config) {
     items.sort_by(|a, b| {
-        let (ac, at) = history::sort_key(&hist, &a.path);
-        let (bc, bt) = history::sort_key(&hist, &b.path);
+        let (ac, at) = history::sort_key(hist, &a.path);
+        let (bc, bt) = history::sort_key(hist, &b.path);
         if ac == 0 && bc == 0 {
             return a.name.to_lowercase().cmp(&b.name.to_lowercase());
         }
@@ -52,12 +86,6 @@ fn search_items(query: String) -> Vec<apps::LaunchItem> {
             config::SortOrder::RecentFirst => bt.cmp(&at).then(bc.cmp(&ac)),
         }
     });
-
-    if query.is_empty() {
-        return items;
-    }
-
-    search::filter(&items, &query, &config.search_mode)
 }
 
 #[derive(serde::Serialize)]
@@ -148,19 +176,27 @@ pub fn run() {
     let config = config::load_config();
     let launch_shortcut = config.keybindings.launch.clone();
 
+    // 起動時にキャッシュを初期構築（バックグラウンド）
+    let cache: CacheState = Arc::new(Mutex::new(None));
+    refresh_cache_bg(Arc::clone(&cache));
+
     tauri::Builder::default()
+        .manage(cache)
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
             let window = app.get_webview_window("main").unwrap();
             window.hide().ok();
 
+            let cache = Arc::clone(app.state::<CacheState>().inner());
             let shortcut: Shortcut = launch_shortcut.parse().expect("invalid shortcut");
             app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
                 if event.state == ShortcutState::Pressed {
                     if window.is_visible().unwrap_or(false) {
                         window.hide().ok();
                     } else {
+                        // 表示時にキャッシュをバックグラウンドで更新
+                        refresh_cache_bg(Arc::clone(&cache));
                         center_on_cursor_monitor(&window);
                         window.show().ok();
                         window.set_focus().ok();
@@ -171,7 +207,10 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_config, get_apps, search_items, launch_item, complete_path, exit_app, open_config])
+        .invoke_handler(tauri::generate_handler![
+            get_config, get_apps, search_items, launch_item,
+            complete_path, exit_app, open_config
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
