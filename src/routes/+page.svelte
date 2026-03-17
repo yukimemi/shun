@@ -46,10 +46,6 @@
       q.startsWith("/") || /^[a-zA-Z]:[/\\]/.test(q);
   }
 
-  function isUrlQuery(q) {
-    return q.startsWith("http://") || q.startsWith("https://");
-  }
-
   function makePathItem(p) {
     return { name: p, path: p, args: [], workdir: null,
              source: "Path", completion: "none", completion_list: [], completion_command: null };
@@ -93,9 +89,9 @@
     return "";
   });
 
-  // search モード パス/URL補完の ghost suffix
+  // search モード: 選択中候補の path がクエリのプレフィックスならghost表示
   let searchGhostSuffix = $derived(() => {
-    if ((!isPathQuery(query) && !isUrlQuery(query)) || filtered.length === 0) return "";
+    if (!query || filtered.length === 0) return "";
     const candidate = filtered[selectedIndex]?.path ?? filtered[0]?.path ?? "";
     if (candidate.toLowerCase().startsWith(query.toLowerCase())) {
       return candidate.slice(query.length);
@@ -274,14 +270,14 @@
       selectedIndex = Math.max(selectedIndex - 1, 0);
     } else if (matchKey(e, keybindings.accept_word)) {
       e.preventDefault();
-      if ((isPathQuery(query) || isUrlQuery(query)) && searchGhostSuffix()) {
+      if (searchGhostSuffix()) {
         const suffix = searchGhostSuffix();
         const sep = firstSepIdx(suffix);
         query = sep === -1 ? query + suffix : query + suffix.slice(0, sep + 1);
       }
     } else if (matchKey(e, keybindings.accept_line)) {
       e.preventDefault();
-      if ((isPathQuery(query) || isUrlQuery(query)) && searchGhostSuffix()) {
+      if (searchGhostSuffix()) {
         query = query + searchGhostSuffix();
       }
     } else if (matchKey(e, keybindings.arg_mode)) {
