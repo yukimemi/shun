@@ -92,3 +92,60 @@ pub fn sort_key(history: &History, item_path: &str) -> (u32, u64) {
         .map(|e| (e.count, e.last_used))
         .unwrap_or((0, 0))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- sort_key ---
+
+    #[test]
+    fn sort_key_missing_returns_zero() {
+        let hist = History::default();
+        assert_eq!(sort_key(&hist, "anything"), (0, 0));
+    }
+
+    #[test]
+    fn sort_key_returns_count_and_timestamp() {
+        let mut hist = History::default();
+        hist.entries.insert("myapp".to_string(), HistoryEntry {
+            count: 5, last_used: 1000, last_args: None,
+        });
+        assert_eq!(sort_key(&hist, "myapp"), (5, 1000));
+    }
+
+    // --- serde round-trip ---
+
+    #[test]
+    fn history_serde_roundtrip() {
+        let mut hist = History::default();
+        hist.entries.insert("app".to_string(), HistoryEntry {
+            count: 3, last_used: 999, last_args: Some("--flag".to_string()),
+        });
+        let json = serde_json::to_string(&hist).unwrap();
+        let restored: History = serde_json::from_str(&json).unwrap();
+        let entry = &restored.entries["app"];
+        assert_eq!(entry.count, 3);
+        assert_eq!(entry.last_used, 999);
+        assert_eq!(entry.last_args.as_deref(), Some("--flag"));
+    }
+
+    #[test]
+    fn history_last_args_defaults_to_none() {
+        let json = r#"{"entries":{"app":{"count":1,"last_used":100}}}"#;
+        let hist: History = serde_json::from_str(json).unwrap();
+        assert!(hist.entries["app"].last_args.is_none());
+    }
+
+    // --- combined key format (used by history_items parser) ---
+
+    #[test]
+    fn combined_key_tab_separator() {
+        let path = "C:/tools/app.exe";
+        let args = vec!["--verbose".to_string(), "file.txt".to_string()];
+        let key = format!("{}\t{}", path, args.join(" "));
+        let tab_idx = key.find('\t').unwrap();
+        assert_eq!(&key[..tab_idx], path);
+        assert_eq!(&key[tab_idx + 1..], "--verbose file.txt");
+    }
+}

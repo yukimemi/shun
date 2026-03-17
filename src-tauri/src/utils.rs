@@ -73,3 +73,48 @@ fn expand_env_vars(s: &str) -> String {
 
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expand_plain_string_unchanged() {
+        assert_eq!(expand_path("notepad"), "notepad");
+    }
+
+    #[test]
+    fn expand_absolute_path_unchanged() {
+        assert_eq!(expand_path("/usr/bin/bash"), "/usr/bin/bash");
+    }
+
+    #[test]
+    fn expand_percent_style() {
+        std::env::set_var("SHUN_TEST_PCT", "hello");
+        let result = expand_path("%SHUN_TEST_PCT%/world");
+        std::env::remove_var("SHUN_TEST_PCT");
+        assert_eq!(result, "hello/world");
+    }
+
+    #[test]
+    fn expand_dollar_style() {
+        std::env::set_var("SHUN_TEST_DOLLAR", "testval");
+        let result = expand_path("$SHUN_TEST_DOLLAR/path");
+        std::env::remove_var("SHUN_TEST_DOLLAR");
+        assert_eq!(result, "testval/path");
+    }
+
+    #[test]
+    fn expand_dollar_brace_style() {
+        std::env::set_var("SHUN_TEST_BRACE", "braced");
+        let result = expand_path("${SHUN_TEST_BRACE}/end");
+        std::env::remove_var("SHUN_TEST_BRACE");
+        assert_eq!(result, "braced/end");
+    }
+
+    #[test]
+    fn expand_missing_var_keeps_sigil() {
+        let result = expand_path("$SHUN_NONEXISTENT_XYZ_VAR/path");
+        assert!(result.starts_with('$'));
+    }
+}

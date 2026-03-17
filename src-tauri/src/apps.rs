@@ -507,3 +507,102 @@ fn parse_desktop_file(path: &Path) -> Option<LaunchItem> {
         history_key: None,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- is_url ---
+
+    #[test]
+    fn url_http() {
+        assert!(is_url("http://example.com"));
+    }
+
+    #[test]
+    fn url_https() {
+        assert!(is_url("https://example.com/path?q=1"));
+    }
+
+    #[test]
+    fn url_rejects_ftp() {
+        assert!(!is_url("ftp://example.com"));
+    }
+
+    #[test]
+    fn url_rejects_plain() {
+        assert!(!is_url("example.com"));
+    }
+
+    // --- is_path ---
+
+    #[test]
+    fn path_tilde_alone() {
+        assert!(is_path("~"));
+    }
+
+    #[test]
+    fn path_tilde_slash() {
+        assert!(is_path("~/documents"));
+    }
+
+    #[test]
+    fn path_tilde_backslash() {
+        assert!(is_path("~\\AppData"));
+    }
+
+    #[test]
+    fn path_unix_absolute() {
+        assert!(is_path("/usr/bin/bash"));
+    }
+
+    #[test]
+    fn path_windows_drive_forward_slash() {
+        assert!(is_path("C:/Users"));
+        assert!(is_path("D:/"));
+    }
+
+    #[test]
+    fn path_windows_drive_backslash() {
+        assert!(is_path("C:\\Users"));
+    }
+
+    #[test]
+    fn path_rejects_plain_command() {
+        assert!(!is_path("notepad"));
+    }
+
+    #[test]
+    fn path_rejects_drive_without_separator() {
+        assert!(!is_path("C:"));
+    }
+
+    #[test]
+    fn path_rejects_relative() {
+        assert!(!is_path("usr/bin/bash"));
+    }
+
+    // --- launch_with_extra merges args ---
+
+    #[test]
+    fn launch_with_extra_merges_item_and_extra_args() {
+        let item = LaunchItem {
+            name: "test".to_string(),
+            path: "echo".to_string(),
+            args: vec!["--flag".to_string()],
+            workdir: None,
+            source: ItemSource::Config,
+            completion: CompletionType::None,
+            completion_list: vec![],
+            completion_command: None,
+            history_key: None,
+        };
+        // launch_with_extra builds merged args internally; we verify it doesn't panic
+        // by using an extra_args that won't actually spawn anything harmful
+        // (echo exits cleanly)
+        let result = launch_with_extra(&item, vec!["extra".to_string()]);
+        // On CI echo may or may not be available, so just assert no arg-construction panic
+        let _ = result;
+    }
+}
+

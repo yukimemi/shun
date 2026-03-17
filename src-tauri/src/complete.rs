@@ -188,3 +188,164 @@ fn split_last_token(input: &str) -> (String, &str) {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- split_last_token ---
+
+    #[test]
+    fn split_no_space() {
+        assert_eq!(split_last_token("foo"), (String::new(), "foo"));
+    }
+
+    #[test]
+    fn split_with_space() {
+        assert_eq!(split_last_token("--flag foo"), ("--flag ".to_string(), "foo"));
+    }
+
+    #[test]
+    fn split_trailing_space() {
+        let (prefix, last) = split_last_token("foo ");
+        assert_eq!(prefix, "foo ");
+        assert_eq!(last, "");
+    }
+
+    #[test]
+    fn split_empty() {
+        assert_eq!(split_last_token(""), (String::new(), ""));
+    }
+
+    #[test]
+    fn split_multiple_spaces_uses_last() {
+        let (prefix, last) = split_last_token("a b c");
+        assert_eq!(prefix, "a b ");
+        assert_eq!(last, "c");
+    }
+
+    // --- sort_completions ---
+
+    #[test]
+    fn sort_dirs_before_files() {
+        let mut v = vec!["z_file".to_string(), "a_dir/".to_string()];
+        sort_completions(&mut v);
+        assert_eq!(v[0], "a_dir/");
+    }
+
+    #[test]
+    fn sort_dotfiles_after_normal() {
+        let mut v = vec![".hidden".to_string(), "normal".to_string()];
+        sort_completions(&mut v);
+        assert_eq!(v[0], "normal");
+        assert_eq!(v[1], ".hidden");
+    }
+
+    #[test]
+    fn sort_dollar_after_normal() {
+        let mut v = vec!["$ENV".to_string(), "abc".to_string()];
+        sort_completions(&mut v);
+        assert_eq!(v[0], "abc");
+        assert_eq!(v[1], "$ENV");
+    }
+
+    #[test]
+    fn sort_dirs_before_dotdirs() {
+        let mut v = vec![".git/".to_string(), "src/".to_string(), "README.md".to_string()];
+        sort_completions(&mut v);
+        // src/ (normal dir) before README.md (file) before .git/ (dot dir)
+        let src_pos = v.iter().position(|s| s == "src/").unwrap();
+        let readme_pos = v.iter().position(|s| s == "README.md").unwrap();
+        let git_pos = v.iter().position(|s| s == ".git/").unwrap();
+        assert!(src_pos < readme_pos);
+        assert!(readme_pos < git_pos);
+    }
+
+    // --- complete_list ---
+
+    #[test]
+    fn list_prefix_match() {
+        let list = vec!["start".to_string(), "stop".to_string(), "status".to_string()];
+        let (prefix, completions) = complete_list("st", &list);
+        assert_eq!(prefix, "");
+        assert!(completions.contains(&"start".to_string()));
+        assert!(completions.contains(&"stop".to_string()));
+        assert!(completions.contains(&"status".to_string()));
+    }
+
+    #[test]
+    fn list_case_insensitive() {
+        let list = vec!["Start".to_string()];
+        let (_, completions) = complete_list("sta", &list);
+        assert_eq!(completions, vec!["Start"]);
+    }
+
+    #[test]
+    fn list_no_match() {
+        let list = vec!["start".to_string()];
+        let (_, completions) = complete_list("xyz", &list);
+        assert!(completions.is_empty());
+    }
+
+    #[test]
+    fn list_suppressed_after_full_match_plus_space() {
+        let list = vec!["search".to_string(), "settings".to_string()];
+        let (_, completions) = complete_list("search ", &list);
+        assert!(completions.is_empty());
+    }
+
+    #[test]
+    fn list_empty_input_returns_all() {
+        let list = vec!["a".to_string(), "b".to_string()];
+        let (_, completions) = complete_list("", &list);
+        assert_eq!(completions.len(), 2);
+    }
+
+    #[test]
+    fn list_sorted_alphabetically() {
+        let list = vec!["stop".to_string(), "install".to_string(), "add".to_string()];
+        let (_, completions) = complete_list("", &list);
+        assert_eq!(completions, vec!["add", "install", "stop"]);
+    }
+
+    // --- complete_path (tempdir) ---
+
+    #[test]
+    fn path_lists_matching_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("foo.txt"), "").unwrap();
+        std::fs::write(dir.path().join("bar.txt"), "").unwrap();
+
+        let input = format!("{}/fo", dir.path().to_string_lossy().replace('\\', "/"));
+        let (prefix, completions) = complete_path(&input);
+        assert_eq!(prefix, "");
+        assert_eq!(completions.len(), 1);
+        assert!(completions[0].contains("foo.txt"));
+    }
+
+    #[test]
+    fn path_nonexistent_dir_returns_empty() {
+        let (_, completions) = complete_path("/nonexistent_abc_xyz_shun_test/foo");
+        assert!(completions.is_empty());
+    }
+
+    #[test]
+    fn path_appends_slash_for_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("mydir")).unwrap();
+        let input = format!("{}/my", dir.path().to_string_lossy().replace('\\', "/"));
+        let (_, completions) = complete_path(&input);
+        assert!(completions.iter().any(|c| c.ends_with("mydir/")));
+    }
+
+    #[test]
+    fn path_splits_prefix_from_input() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("run.sh"), "").unwrap();
+        let dir_str = dir.path().to_string_lossy().replace('\\', "/");
+        let input = format!("--flag {}/ru", dir_str);
+        let (prefix, completions) = complete_path(&input);
+        assert_eq!(prefix, "--flag ");
+        assert!(!completions.is_empty());
+    }
+}
+

@@ -205,6 +205,125 @@ pub fn load_config() -> Config {
     toml::from_str(&content).unwrap_or_default()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- defaults ---
+
+    #[test]
+    fn config_default_values() {
+        let c = Config::default();
+        assert_eq!(c.search_mode, SearchMode::Fuzzy);
+        assert_eq!(c.sort_order, SortOrder::CountFirst);
+        assert!(!c.hide_on_blur);
+        assert!(c.apps.is_empty());
+        assert!(c.scan_dirs.is_empty());
+        assert!(c.overrides.is_empty());
+    }
+
+    #[test]
+    fn keybindings_default_values() {
+        let kb = Keybindings::default();
+        assert_eq!(kb.launch, "Alt+Space");
+        assert_eq!(kb.next, "Ctrl+n");
+        assert_eq!(kb.prev, "Ctrl+p");
+        assert_eq!(kb.confirm, "Enter");
+        assert_eq!(kb.arg_mode, "Tab");
+        assert_eq!(kb.accept_word, "Ctrl+f");
+        assert_eq!(kb.accept_line, "Ctrl+e");
+        assert_eq!(kb.delete_word, "Ctrl+w");
+        assert_eq!(kb.delete_line, "Ctrl+u");
+        assert_eq!(kb.close, "Escape");
+    }
+
+    // --- TOML parsing ---
+
+    #[test]
+    fn parse_search_mode_and_sort_order() {
+        let toml = r#"search_mode = "exact"
+sort_order = "recent_first""#;
+        let c: Config = toml::from_str(toml).unwrap();
+        assert_eq!(c.search_mode, SearchMode::Exact);
+        assert_eq!(c.sort_order, SortOrder::RecentFirst);
+    }
+
+    #[test]
+    fn parse_hide_on_blur() {
+        let c: Config = toml::from_str("hide_on_blur = true").unwrap();
+        assert!(c.hide_on_blur);
+    }
+
+    #[test]
+    fn parse_partial_keybindings_keeps_defaults() {
+        let toml = r#"
+[keybindings]
+next = "Ctrl+j"
+"#;
+        let c: Config = toml::from_str(toml).unwrap();
+        assert_eq!(c.keybindings.next, "Ctrl+j");
+        assert_eq!(c.keybindings.prev, "Ctrl+p"); // default intact
+        assert_eq!(c.keybindings.close, "Escape");
+    }
+
+    #[test]
+    fn parse_apps_entry() {
+        let toml = r#"
+[[apps]]
+name = "MyApp"
+path = "C:/apps/myapp.exe"
+completion = "list"
+completion_list = ["start", "stop"]
+"#;
+        let c: Config = toml::from_str(toml).unwrap();
+        assert_eq!(c.apps.len(), 1);
+        assert_eq!(c.apps[0].name, "MyApp");
+        assert_eq!(c.apps[0].completion, CompletionType::List);
+        assert_eq!(c.apps[0].completion_list, vec!["start", "stop"]);
+    }
+
+    #[test]
+    fn parse_completion_type_variants() {
+        let toml = r#"
+[[apps]]
+name = "A"
+path = "/a"
+completion = "none"
+
+[[apps]]
+name = "B"
+path = "/b"
+completion = "command"
+completion_command = "echo foo"
+"#;
+        let c: Config = toml::from_str(toml).unwrap();
+        assert_eq!(c.apps[0].completion, CompletionType::None);
+        assert_eq!(c.apps[1].completion, CompletionType::Command);
+        assert_eq!(c.apps[1].completion_command.as_deref(), Some("echo foo"));
+    }
+
+    #[test]
+    fn parse_overrides_entry() {
+        let toml = r#"
+[[overrides]]
+name = "scoop"
+completion = "list"
+completion_list = ["install", "update"]
+"#;
+        let c: Config = toml::from_str(toml).unwrap();
+        assert_eq!(c.overrides.len(), 1);
+        assert_eq!(c.overrides[0].name, "scoop");
+        assert_eq!(c.overrides[0].completion_list, vec!["install", "update"]);
+    }
+
+    #[test]
+    fn invalid_toml_falls_back_to_default() {
+        let bad = "NOT VALID TOML !!!@#$";
+        let c: Config = toml::from_str(bad).unwrap_or_default();
+        assert_eq!(c.search_mode, SearchMode::Fuzzy);
+    }
+}
+
 fn default_config_toml() -> String {
     r#"# 検索モード: "fuzzy" (ファジー検索) / "exact" (部分一致)
 search_mode = "fuzzy"

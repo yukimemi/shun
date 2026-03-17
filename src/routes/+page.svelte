@@ -4,6 +4,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { invoke } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
+  import { firstSepIdx, isPathQuery, matchKey } from "$lib/utils.js";
 
   const WINDOW_WIDTH = 620;
   const INPUT_HEIGHT = 52;
@@ -15,7 +16,7 @@
 
   const win = getCurrentWindow();
 
-  // keybindings (config から取得、デフォルトはハードコード値)
+  // keybindings (config から取得、デフォルトはハードコード値) ※matchKey は $lib/utils.js
   let keybindings = $state({
     next:        "Ctrl+n",
     prev:        "Ctrl+p",
@@ -27,24 +28,6 @@
     delete_line: "Ctrl+u",
     close:       "Escape",
   });
-
-  // "Ctrl+f" / "Alt+Space" / "Enter" 等を KeyboardEvent と照合
-  function matchKey(e, binding) {
-    const parts = binding.split("+");
-    const keyPart = parts[parts.length - 1];
-    const ctrl  = parts.includes("Ctrl");
-    const alt   = parts.includes("Alt");
-    const shift = parts.includes("Shift");
-    const meta  = parts.includes("Meta") || parts.includes("Cmd");
-    const eventKey = keyPart === "Space" ? " " : keyPart;
-    return e.ctrlKey === ctrl && e.altKey === alt && e.shiftKey === shift && e.metaKey === meta
-      && (e.key === eventKey || e.key.toLowerCase() === eventKey.toLowerCase());
-  }
-
-  function isPathQuery(q) {
-    return q === "~" || q.startsWith("~/") || q.startsWith("~\\") ||
-      q.startsWith("/") || /^[a-zA-Z]:[/\\]/.test(q);
-  }
 
   function makePathItem(p) {
     return { name: p, path: p, args: [], workdir: null,
@@ -129,13 +112,6 @@
 
   function selectCompletion(idx) {
     completionIndex = idx;
-  }
-
-  function firstSepIdx(s) {
-    const spaceIdx = s.indexOf(" ");
-    const slashIdx = s.indexOf("/");
-    const candidates = [spaceIdx, slashIdx].filter((i) => i !== -1);
-    return candidates.length === 0 ? -1 : Math.min(...candidates);
   }
 
   function acceptWord() {
