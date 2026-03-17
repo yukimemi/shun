@@ -294,9 +294,19 @@
     if (mode !== "args") return;
     const input = extraArgs;
     if (!input) {
+      // extraArgs が空のときは history candidates を表示
       completionPrefix = "";
       allCompletions = [];
-      resizeForArgs(0);
+      completionIndex = 0;
+      if (argItem?.path) {
+        invoke("get_args_history", { path: argItem.path }).then((candidates) => {
+          allCompletions = candidates;
+          completionIndex = 0;
+          resizeForArgs(candidates.length);
+        });
+      } else {
+        resizeForArgs(0);
+      }
       return;
     }
     invoke("complete_path", {
@@ -426,7 +436,7 @@
           <input
             type="text"
             class="args-input"
-            placeholder={extraArgs ? "" : "extra args..."}
+            placeholder={extraArgs || lastArgsGhost ? "" : "extra args..."}
             bind:value={extraArgs}
             bind:this={argsEl}
             autocomplete="off"

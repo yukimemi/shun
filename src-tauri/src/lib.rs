@@ -143,6 +143,29 @@ fn get_last_args(path: String) -> Option<String> {
 }
 
 #[tauri::command]
+fn get_args_history(path: String) -> Vec<String> {
+    let hist = history::load();
+    let config = config::load_config();
+    let prefix = format!("{}\t", path);
+
+    let mut entries: Vec<(String, u32, u64)> = hist
+        .entries
+        .iter()
+        .filter_map(|(key, entry)| {
+            key.strip_prefix(&prefix)
+                .map(|args| (args.to_string(), entry.count, entry.last_used))
+        })
+        .collect();
+
+    entries.sort_by(|(_, ac, at), (_, bc, bt)| match config.sort_order {
+        config::SortOrder::CountFirst  => bc.cmp(ac).then(bt.cmp(at)),
+        config::SortOrder::RecentFirst => bt.cmp(at).then(bc.cmp(ac)),
+    });
+
+    entries.into_iter().map(|(args, _, _)| args).collect()
+}
+
+#[tauri::command]
 fn rescan(state: tauri::State<CacheState>) {
     refresh_cache_bg(Arc::clone(state.inner()));
 }
@@ -235,7 +258,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_config, get_apps, search_items, launch_item,
-            complete_path, exit_app, open_config, rescan, get_last_args
+            complete_path, exit_app, open_config, rescan, get_last_args, get_args_history
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
