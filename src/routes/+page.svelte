@@ -50,14 +50,15 @@
   let allCompletions = $state([]);    // 全補完候補
   let completionIndex = $state(0);   // 選択中インデックス
   let lastArgsGhost = $state("");     // 前回使った args の ghost
+  let historyArgs = $state([]);       // args 履歴（sort_order 順）
 
   // 現在の ghost suffix (args モード用)
+  // allCompletions はフル文字列なので extraArgs との差分をそのまま返す
   let ghostSuffix = $derived(() => {
     if (!allCompletions.length) return "";
     const candidate = allCompletions[completionIndex];
-    const partial = extraArgs.slice(completionPrefix.length);
-    if (candidate.toLowerCase().startsWith(partial.toLowerCase())) {
-      return candidate.slice(partial.length);
+    if (candidate.toLowerCase().startsWith(extraArgs.toLowerCase())) {
+      return candidate.slice(extraArgs.length);
     }
     return "";
   });
@@ -96,6 +97,7 @@
     allCompletions = [];
     completionIndex = 0;
     lastArgsGhost = "";
+    historyArgs = [];
     setTimeout(() => inputEl?.focus(), 10);
   }
 
@@ -134,9 +136,8 @@
   function applySelectedCompletion() {
     if (!allCompletions.length) return;
     const candidate = allCompletions[completionIndex];
-    const partial = extraArgs.slice(completionPrefix.length);
-    if (candidate.toLowerCase().startsWith(partial.toLowerCase())) {
-      extraArgs = completionPrefix + candidate;
+    if (candidate.toLowerCase().startsWith(extraArgs.toLowerCase())) {
+      extraArgs = candidate;
     }
     allCompletions = [];
   }
@@ -232,10 +233,12 @@
           argItem = item;
           mode = "args";
           lastArgsGhost = "";
+          historyArgs = [];
           win.setSize(new LogicalSize(WINDOW_WIDTH, INPUT_HEIGHT));
           setTimeout(() => argsEl?.focus(), 10);
-          invoke("get_last_args", { path: item.path }).then((la) => {
-            if (la) lastArgsGhost = la;
+          invoke("get_args_history", { path: item.path }).then((candidates) => {
+            historyArgs = candidates;
+            if (candidates.length > 0) lastArgsGhost = candidates[0];
           });
         }
       }
@@ -289,26 +292,27 @@
     });
   });
 
-  // args モード: extraArgs 変化で補完を更新
+  // args モード: extraArgs / historyArgs 変化で補完を更新
+  // allCompletions はすべて「extraArgs に直接セットできるフル文字列」で統一
   $effect(() => {
     if (mode !== "args") return;
     const input = extraArgs;
+
+    // historyArgs を入力でフィルタ（前方一致・大文字小文字無視）
+    const filteredHistory = historyArgs.filter((h) =>
+      h.toLowerCase().startsWith(input.toLowerCase())
+    );
+
     if (!input) {
-      // extraArgs が空のときは history candidates を表示
+      // 未入力: history のみ表示
       completionPrefix = "";
-      allCompletions = [];
+      allCompletions = filteredHistory;
       completionIndex = 0;
-      if (argItem?.path) {
-        invoke("get_args_history", { path: argItem.path }).then((candidates) => {
-          allCompletions = candidates;
-          completionIndex = 0;
-          resizeForArgs(candidates.length);
-        });
-      } else {
-        resizeForArgs(0);
-      }
+      resizeForArgs(filteredHistory.length);
       return;
     }
+
+    // 入力あり: path/command 補完と history をマージ
     invoke("complete_path", {
       input,
       completionType: argItem?.completion ?? "path",
@@ -316,10 +320,14 @@
       completionCommand: argItem?.completion_command ?? null,
       workdir: argItem?.workdir ?? null,
     }).then((result) => {
-      completionPrefix = result.prefix;
-      allCompletions = result.completions;
+      // path 補完はフル文字列に展開（prefix + item）
+      const pathFull = result.completions.map((c) => result.prefix + c);
+      // history と重複するものを除外して後ろに追加
+      const deduped = pathFull.filter((p) => !filteredHistory.includes(p));
+      completionPrefix = "";
+      allCompletions = [...filteredHistory, ...deduped];
       completionIndex = 0;
-      resizeForArgs(result.completions.length);
+      resizeForArgs(allCompletions.length);
     });
   });
 
