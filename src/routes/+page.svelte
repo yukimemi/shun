@@ -448,7 +448,7 @@
           <input
             type="text"
             class="args-input"
-            placeholder={extraArgs || lastArgsGhost ? "" : "extra args..."}
+            placeholder={extraArgs || lastArgsGhost || allCompletions.length > 0 ? "" : "extra args..."}
             bind:value={extraArgs}
             bind:this={argsEl}
             autocomplete="off"
