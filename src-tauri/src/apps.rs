@@ -9,7 +9,6 @@ pub struct LaunchItem {
     pub path: String,
     pub args: Vec<String>,
     pub workdir: Option<String>,
-    pub allow_extra_args: bool,
     pub source: ItemSource,
     #[serde(default)]
     pub completion: CompletionType,
@@ -113,7 +112,6 @@ pub fn collect_items(config: &Config) -> Vec<LaunchItem> {
     // [[overrides]] を name (大文字小文字無視) でマッチして上書き
     for item in &mut items {
         if let Some(ov) = config.overrides.iter().find(|o| o.name.to_lowercase() == item.name.to_lowercase()) {
-            if let Some(v) = ov.allow_extra_args { item.allow_extra_args = v; }
             if let Some(ref v) = ov.completion { item.completion = v.clone(); }
             if !ov.completion_list.is_empty() { item.completion_list = ov.completion_list.clone(); }
             if ov.completion_command.is_some() { item.completion_command = ov.completion_command.clone(); }
@@ -131,7 +129,6 @@ fn launch_item_from_entry(app: &AppEntry) -> LaunchItem {
         path: app.path.clone(),
         args: app.args.clone(),
         workdir: app.workdir.clone(),
-        allow_extra_args: app.allow_extra_args,
         source: ItemSource::Config,
         completion: app.completion.clone(),
         completion_list: app.completion_list.clone(),
@@ -190,7 +187,6 @@ fn collect_files(
                 path: path.to_string_lossy().to_string(),
                 args: vec![],
                 workdir: None,
-                allow_extra_args: false,
                 source: ItemSource::ScanDir,
                 completion: CompletionType::Path,
                 completion_list: vec![],
@@ -242,7 +238,6 @@ fn collect_lnk_files(dir: &Path, items: &mut Vec<LaunchItem>) {
                 path: path.to_string_lossy().to_string(),
                 args: vec![],
                 workdir: None,
-                allow_extra_args: false,
                 source: ItemSource::System,
                 completion: CompletionType::Path,
                 completion_list: vec![],
@@ -271,8 +266,7 @@ fn collect_system_apps() -> Vec<LaunchItem> {
                         path: path.to_string_lossy().to_string(),
                         args: vec![],
                         workdir: None,
-                        allow_extra_args: false,
-                        source: ItemSource::System,
+                                source: ItemSource::System,
                         completion: CompletionType::Path,
                         completion_list: vec![],
                         completion_command: None,

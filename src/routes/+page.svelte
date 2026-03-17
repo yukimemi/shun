@@ -21,8 +21,12 @@
   }
 
   function makePathItem(p) {
-    return { name: p, path: p, args: [], workdir: null, allow_extra_args: false,
+    return { name: p, path: p, args: [], workdir: null,
              source: "Path", completion: "none", completion_list: [], completion_command: null };
+  }
+
+  function canHaveArgs(item) {
+    return item?.source !== "Url" && item?.source !== "Path";
   }
 
   const SLASH_COMMANDS = [
@@ -211,7 +215,7 @@
         query = filtered[selectedIndex].path;
       } else {
         const item = filtered[selectedIndex];
-        if (item?.allow_extra_args) {
+        if (canHaveArgs(item)) {
           argItem = item;
           mode = "args";
           win.setSize(new LogicalSize(WINDOW_WIDTH, INPUT_HEIGHT));
@@ -240,7 +244,7 @@
       return;
     }
     if (query.startsWith("http://") || query.startsWith("https://")) {
-      filtered = [{ name: query, path: query, args: [], workdir: null, allow_extra_args: false, source: "Url", completion: "none", completion_list: [], completion_command: null }];
+      filtered = [{ name: query, path: query, args: [], workdir: null, source: "Url", completion: "none", completion_list: [], completion_command: null }];
       selectedIndex = 0;
       resizeForSearch(1);
       return;
@@ -372,7 +376,7 @@
             >
               <span class="item-name">{item.name}</span>
               <div class="item-right">
-                {#if item.allow_extra_args}
+                {#if canHaveArgs(item)}
                   <span class="item-tab-hint">tab</span>
                 {/if}
                 {#if filtered.length > MAX_ITEMS}

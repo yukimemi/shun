@@ -126,8 +126,6 @@ pub struct AppEntry {
     pub args: Vec<String>,
     pub workdir: Option<String>,
     #[serde(default)]
-    pub allow_extra_args: bool,
-    #[serde(default)]
     pub completion: CompletionType,
     #[serde(default)]
     pub completion_list: Vec<String>,
@@ -146,7 +144,6 @@ pub struct ScanDir {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppOverride {
     pub name: String,
-    pub allow_extra_args: Option<bool>,
     pub completion: Option<CompletionType>,
     #[serde(default)]
     pub completion_list: Vec<String>,
