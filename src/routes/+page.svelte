@@ -352,7 +352,11 @@
 
   async function launchItem(item, args) {
     const extraArgsList = args ? args.trim().split(/\s+/).filter(Boolean) : [];
-    await invoke("launch_item", { item, extraArgs: extraArgsList });
+    try {
+      await invoke("launch_item", { item, extraArgs: extraArgsList });
+    } catch (e) {
+      console.error("launch failed:", e);
+    }
     win.hide();
     resetToSearch();
   }

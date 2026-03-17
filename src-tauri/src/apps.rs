@@ -95,12 +95,78 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
             }
             c
         } else {
-            cmd
+            // 拡張子なしのコマンド（scoop, npm, git など）は PATHEXT で解決
+            match resolve_windows_cmd(&path) {
+                ResolvedCmd::Cmd(resolved) | ResolvedCmd::Bat(resolved) => {
+                    const CREATE_NEW_CONSOLE: u32 = 0x00000010;
+                    let mut c = std::process::Command::new("cmd");
+                    c.args(["/c", &resolved]);
+                    c.creation_flags(CREATE_NEW_CONSOLE);
+                    if !item.args.is_empty() { c.args(&item.args); }
+                    if let Some(workdir) = &item.workdir {
+                        c.current_dir(crate::utils::expand_path(workdir));
+                    }
+                    c
+                }
+                ResolvedCmd::Ps1(resolved) => {
+                    const CREATE_NEW_CONSOLE: u32 = 0x00000010;
+                    let mut c = std::process::Command::new("powershell");
+                    c.args(["-NoProfile", "-ExecutionPolicy", "ByPass", "-File", &resolved]);
+                    c.creation_flags(CREATE_NEW_CONSOLE);
+                    if !item.args.is_empty() { c.args(&item.args); }
+                    if let Some(workdir) = &item.workdir {
+                        c.current_dir(crate::utils::expand_path(workdir));
+                    }
+                    c
+                }
+                ResolvedCmd::Other => cmd,
+            }
         }
     };
 
     cmd.spawn().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+enum ResolvedCmd {
+    Cmd(String),
+    Bat(String),
+    Ps1(String),
+    Other,
+}
+
+/// 拡張子なしのコマンド名を PATHEXT で解決する
+#[cfg(target_os = "windows")]
+fn resolve_windows_cmd(name: &str) -> ResolvedCmd {
+    use std::path::Path;
+    // すでに拡張子がある or パス区切りを含む場合はそのまま
+    let p = Path::new(name);
+    if p.extension().is_some() || name.contains('/') || name.contains('\\') {
+        return ResolvedCmd::Other;
+    }
+    let pathext = std::env::var("PATHEXT")
+        .unwrap_or_else(|_| ".EXE;.CMD;.BAT;.PS1".to_string());
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    for dir in std::env::split_paths(&path_var) {
+        for ext in pathext.split(';') {
+            let full = dir.join(format!("{}{}", name, ext));
+            if full.exists() {
+                let resolved = full.to_string_lossy().to_string();
+                let ext_lower = ext.to_lowercase();
+                return if ext_lower == ".cmd" {
+                    ResolvedCmd::Cmd(resolved)
+                } else if ext_lower == ".bat" {
+                    ResolvedCmd::Bat(resolved)
+                } else if ext_lower == ".ps1" {
+                    ResolvedCmd::Ps1(resolved)
+                } else {
+                    ResolvedCmd::Other
+                };
+            }
+        }
+    }
+    ResolvedCmd::Other
 }
 
 pub fn collect_items(config: &Config) -> Vec<LaunchItem> {

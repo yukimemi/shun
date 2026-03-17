@@ -86,15 +86,20 @@ fn complete_path(input: &str) -> (String, Vec<String>) {
 // --- list 補完 ---
 
 fn complete_list(input: &str, list: &[String]) -> (String, Vec<String>) {
-    let (prefix, partial) = split_last_token(input);
-    let partial_lower = partial.to_lowercase();
+    // list 補完はサブコマンド（最初のワード）向けなので split しない。
+    // 入力がすでに完全な list アイテム + スペース で始まっていたら補完しない
+    // (例: "search " や "search hoge" は補完不要)
+    let input_lower = input.to_lowercase();
+    if list.iter().any(|item| input_lower.starts_with(&format!("{} ", item.to_lowercase()))) {
+        return (String::new(), vec![]);
+    }
     let mut completions: Vec<String> = list
         .iter()
-        .filter(|s| s.to_lowercase().starts_with(&partial_lower))
+        .filter(|s| s.to_lowercase().starts_with(&input_lower))
         .cloned()
         .collect();
     completions.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
-    (prefix, completions)
+    (String::new(), completions)
 }
 
 // --- command 補完 ---
