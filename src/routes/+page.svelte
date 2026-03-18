@@ -42,10 +42,10 @@
   let appVersion = $state("");
 
   let SLASH_COMMANDS = $derived([
-    { name: "/exit",    description: "アプリを終了" },
-    { name: "/config",  description: "設定ファイルを開く" },
-    { name: "/rescan",  description: "アプリ一覧を再スキャン" },
-    { name: "/version", description: appVersion ? `v${appVersion}` : "バージョン情報" },
+    { name: "/exit",    description: "Quit app" },
+    { name: "/config",  description: "Open config file" },
+    { name: "/rescan",  description: "Rescan apps" },
+    { name: "/version", description: appVersion ? `v${appVersion}` : "Show version" },
   ]);
 
   // モード: "search" | "args"
