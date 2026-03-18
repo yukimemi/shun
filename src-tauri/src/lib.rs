@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use tauri::{Emitter, Manager};
+use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 mod apps;
@@ -176,6 +177,22 @@ fn exit_app(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    match updater.check().await.map_err(|e| e.to_string())? {
+        Some(update) => {
+            update
+                .download_and_install(|_chunk, _total| {}, || {})
+                .await
+                .map_err(|e| e.to_string())?;
+            app.restart();
+        }
+        None => {}
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn open_config(_app: tauri::AppHandle) -> Result<(), String> {
     let path = config::config_path();
     tauri_plugin_opener::open_path(path, None::<&str>)
@@ -233,6 +250,7 @@ pub fn run() {
         .manage(cache)
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             let window = app.get_webview_window("main").unwrap();
             window.hide().ok();
@@ -250,6 +268,16 @@ pub fn run() {
                     }
                 });
             }
+
+            // バックグラウンドでアップデートチェック（起動後に非同期実行）
+            let app_for_update = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Ok(updater) = app_for_update.updater() {
+                    if let Ok(Some(update)) = updater.check().await {
+                        let _ = app_for_update.emit("update-available", update.version.clone());
+                    }
+                }
+            });
 
             let shortcut: Shortcut = launch_shortcut.parse().expect("invalid shortcut");
             app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
@@ -271,7 +299,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_config, get_apps, search_items, launch_item,
-            complete_path, exit_app, open_config, rescan, get_last_args, get_args_history
+            complete_path, exit_app, open_config, rescan, get_last_args, get_args_history,
+            install_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

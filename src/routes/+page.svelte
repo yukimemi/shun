@@ -41,12 +41,14 @@
   }
 
   let appVersion = $state("");
+  let updateVersion = $state("");
 
   let SLASH_COMMANDS = $derived([
     { name: "/exit",    description: "Quit app" },
     { name: "/config",  description: "Open config file" },
     { name: "/rescan",  description: "Rescan apps" },
     { name: "/version", description: appVersion ? `v${appVersion}` : "Show version" },
+    { name: "/update",  description: updateVersion ? `Update to v${updateVersion}` : "Check for updates" },
   ]);
 
   // モード: "search" | "args"
@@ -176,6 +178,10 @@
     const cfg = await invoke("get_config");
     if (cfg?.keybindings) keybindings = { ...keybindings, ...cfg.keybindings };
     appVersion = await getVersion();
+
+    await listen("update-available", (event) => {
+      updateVersion = event.payload;
+    });
 
     await listen("show-launcher", async () => {
       mode = "search";
@@ -389,6 +395,11 @@
   async function runSlashCommand(cmd) {
     if (cmd.name === "/version") {
       query = `/version — v${appVersion}`;
+      return;
+    }
+    if (cmd.name === "/update") {
+      query = updateVersion ? `/update — installing v${updateVersion}...` : `/update — checking...`;
+      await invoke("install_update");
       return;
     }
     win.hide();
