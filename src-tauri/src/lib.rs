@@ -1,5 +1,7 @@
 use std::sync::{Arc, Mutex};
 
+use futures_util::StreamExt;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -192,8 +194,17 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         let updater = app.updater().map_err(|e| e.to_string())?;
         match updater.check().await.map_err(|e| e.to_string())? {
             Some(update) => {
+                let app_prog = app.clone();
+                let downloaded = Arc::new(AtomicU64::new(0));
+                let downloaded_c = Arc::clone(&downloaded);
                 update
-                    .download_and_install(|_chunk, _total| {}, || {})
+                    .download_and_install(
+                        move |chunk, total| {
+                            let d = downloaded_c.fetch_add(chunk as u64, Ordering::SeqCst) + chunk as u64;
+                            let _ = app_prog.emit("update-progress", serde_json::json!({ "downloaded": d, "total": total }));
+                        },
+                        || {},
+                    )
                     .await
                     .map_err(|e| e.to_string())?;
                 app.restart();
@@ -214,24 +225,30 @@ async fn install_update_portable(app: &tauri::AppHandle) -> Result<(), String> {
     let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let exe_dir = current_exe.parent().ok_or("cannot find exe dir")?.to_path_buf();
 
-    // GitHub の latest release から portable zip をダウンロード
+    // GitHub の latest release から portable zip をストリーミングダウンロード
     let client = reqwest::Client::builder()
         .user_agent("shun-updater")
         .build()
         .map_err(|e| e.to_string())?;
 
     let zip_url = "https://github.com/yukimemi/shun/releases/latest/download/shun-windows-x64.zip";
-    let bytes = client
+    let response = client
         .get(zip_url)
         .send()
         .await
-        .map_err(|e| e.to_string())?
-        .bytes()
-        .await
         .map_err(|e| e.to_string())?;
-
+    let total = response.content_length();
+    let mut downloaded: u64 = 0;
+    let mut buf = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        downloaded += chunk.len() as u64;
+        buf.extend_from_slice(&chunk);
+        let _ = app.emit("update-progress", serde_json::json!({ "downloaded": downloaded, "total": total }));
+    }
     // zip から shun.exe を取り出す
-    let cursor = std::io::Cursor::new(bytes);
+    let cursor = std::io::Cursor::new(buf);
     let mut archive = zip::ZipArchive::new(cursor).map_err(|e| e.to_string())?;
 
     let exe_index = (0..archive.len())

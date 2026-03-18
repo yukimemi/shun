@@ -183,6 +183,18 @@
       updateVersion = event.payload;
     });
 
+    await listen("update-progress", (event) => {
+      const { downloaded, total } = event.payload;
+      const mb = (downloaded / 1024 / 1024).toFixed(1);
+      if (total) {
+        const pct = Math.round((downloaded / total) * 100);
+        const totalMb = (total / 1024 / 1024).toFixed(1);
+        query = `/update — ${pct}% (${mb} / ${totalMb} MB)`;
+      } else {
+        query = `/update — ${mb} MB downloaded`;
+      }
+    });
+
     await listen("show-launcher", async () => {
       mode = "search";
       argItem = null;
@@ -398,7 +410,7 @@
       return;
     }
     if (cmd.name === "/update") {
-      query = updateVersion ? `/update — installing v${updateVersion}...` : `/update — checking...`;
+      query = updateVersion ? `/update — starting download...` : `/update — checking...`;
       try {
         await invoke("install_update");
         // ここに到達 = 更新なし（更新ありの場合は app.restart() で戻ってこない）
