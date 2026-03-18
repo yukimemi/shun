@@ -399,7 +399,15 @@
     }
     if (cmd.name === "/update") {
       query = updateVersion ? `/update — installing v${updateVersion}...` : `/update — checking...`;
-      await invoke("install_update");
+      try {
+        await invoke("install_update");
+        // ここに到達 = 更新なし（更新ありの場合は app.restart() で戻ってこない）
+        query = `/update — already up to date`;
+        setTimeout(() => { query = ""; }, 2000);
+      } catch (e) {
+        query = `/update — error: ${e}`;
+        setTimeout(() => { query = ""; }, 3000);
+      }
       return;
     }
     win.hide();
