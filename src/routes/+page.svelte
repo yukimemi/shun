@@ -443,7 +443,7 @@
         <input
           type="text"
           class="search"
-          placeholder="Type to search..."
+          placeholder={updateVersion ? `Update available: v${updateVersion} — /update` : "Type to search..."}
           bind:value={query}
           bind:this={inputEl}
           use:focusInput
