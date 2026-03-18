@@ -72,6 +72,7 @@ accept_word = "Ctrl+f"      # Accept next word/segment of ghost text
 accept_line = "Ctrl+e"      # Accept full ghost text
 delete_word = "Ctrl+w"      # Delete word before cursor (args mode)
 delete_line = "Ctrl+u"      # Delete to beginning of line (args mode)
+run_query   = "Shift+Enter" # Run typed query directly (skip history results)
 close       = "Escape"
 
 # Open editor with file path completion
@@ -132,7 +133,8 @@ All keybindings are configurable via `[keybindings]` in `config.toml`.
 | `Alt+Space` | Show / hide launcher |
 | `Ctrl+n` / `↓` | Next item |
 | `Ctrl+p` / `↑` | Previous item |
-| `Enter` | Launch selected item |
+| `Enter` | Launch selected item (history-first) |
+| `Shift+Enter` | Launch typed query as base item (skip history) |
 | `Tab` | Enter args mode / apply path completion |
 | `Ctrl+f` | Accept next word/segment of ghost text |
 | `Ctrl+e` | Accept full ghost text |
