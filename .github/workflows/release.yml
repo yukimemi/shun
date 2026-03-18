@@ -135,7 +135,7 @@ jobs:
             | Windows | `.msi` (installer) or `shun-windows-x64.zip` (portable) |
             | macOS | `.dmg` |
             | Linux | `.AppImage` or `.deb` |
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
 
