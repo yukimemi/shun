@@ -127,9 +127,11 @@ Do not mock these — they are pure functions with no Tauri dependencies.
 - Signing key: `~/.tauri/shun.key` (pubkey in `tauri.conf.json`; private key in `TAURI_SIGNING_PRIVATE_KEY` GitHub secret, no password)
 - `latest.json` is auto-generated and uploaded by tauri-action to each release
 
-## Current status (2026-03-18)
+## Current status (2026-03-19)
 
-- Latest tag: **v1.0.7** — GHA in progress (verifying `latest.json` is generated)
-- v1.0.5/1.0.6 releases exist but do NOT have `latest.json` (updater won't work for those versions)
-- v1.0.7 should be the first release with working auto-update
-- Once v1.0.7 GHA completes, test by: running v1.0.5 installer → should show "Update available: v1.0.7" in placeholder on next launch
+- Latest tag: **v1.0.13**
+- Auto-update fully working (v1.0.7+): `latest.json` generated, signatures present
+- Portable self-update working (v1.0.8+): `portable.txt` in zip triggers zip-download path
+- Download progress display working (v1.0.13+): `update-progress` events shown in query
+- Renovate auto-merge enabled for patch/minor updates (v1.0.12+)
+- Version files (package.json, tauri.conf.json, Cargo.toml) auto-committed back to main after each release

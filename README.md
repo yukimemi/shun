@@ -25,7 +25,8 @@
 - **Configurable completion** — `path` / `list` / `command` / `none` per app
 - **URL & path navigation** — type `https://...` or `~/...` to open directly
 - **Slash commands** — `/exit`, `/config`, `/rescan`, `/update`
-- **Auto-update** — checks for new releases on startup; install in one keystroke
+- **Auto-update** — checks for new releases on startup; install in one keystroke with download progress
+- **Portable friendly** — portable zip includes self-update (no admin rights required)
 - **Auto-hide on blur** — optionally hide when focus leaves the launcher
 - **Multi-monitor** — appears on the monitor where your cursor is
 - **Minimal UI** — borderless, transparent, always-on-top
@@ -37,7 +38,7 @@ Download the latest installer from [Releases](https://github.com/yukimemi/shun/r
 
 | Platform | File |
 |---|---|
-| Windows | `.msi` (recommended) or `.exe` |
+| Windows | `.msi` (recommended) or `shun-windows-x64.zip` (portable, no admin required) |
 | macOS | `.dmg` (universal — Apple Silicon + Intel) |
 | Linux | `.AppImage` or `.deb` |
 
