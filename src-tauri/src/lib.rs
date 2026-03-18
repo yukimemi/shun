@@ -176,19 +176,85 @@ fn exit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+fn is_portable() -> bool {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|d| d.join("portable.txt")))
+        .map(|p| p.exists())
+        .unwrap_or(false)
+}
+
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
-    let updater = app.updater().map_err(|e| e.to_string())?;
-    match updater.check().await.map_err(|e| e.to_string())? {
-        Some(update) => {
-            update
-                .download_and_install(|_chunk, _total| {}, || {})
-                .await
-                .map_err(|e| e.to_string())?;
-            app.restart();
+    if is_portable() {
+        install_update_portable(&app).await
+    } else {
+        let updater = app.updater().map_err(|e| e.to_string())?;
+        match updater.check().await.map_err(|e| e.to_string())? {
+            Some(update) => {
+                update
+                    .download_and_install(|_chunk, _total| {}, || {})
+                    .await
+                    .map_err(|e| e.to_string())?;
+                app.restart();
+            }
+            None => {}
         }
-        None => {}
+        Ok(())
     }
+}
+
+async fn install_update_portable(app: &tauri::AppHandle) -> Result<(), String> {
+    let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe_dir = current_exe.parent().ok_or("cannot find exe dir")?.to_path_buf();
+
+    // GitHub の latest release から portable zip をダウンロード
+    let client = reqwest::Client::builder()
+        .user_agent("shun-updater")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let zip_url = "https://github.com/yukimemi/shun/releases/latest/download/shun-windows-x64.zip";
+    let bytes = client
+        .get(zip_url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .bytes()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // zip から shun.exe を取り出す
+    let cursor = std::io::Cursor::new(bytes);
+    let mut archive = zip::ZipArchive::new(cursor).map_err(|e| e.to_string())?;
+
+    let exe_index = (0..archive.len())
+        .find(|&i| {
+            archive
+                .by_index(i)
+                .map(|f| f.name().ends_with("shun.exe"))
+                .unwrap_or(false)
+        })
+        .ok_or("shun.exe not found in zip")?;
+
+    let new_exe_path = exe_dir.join("shun_update.exe");
+    {
+        let mut zip_file = archive.by_index(exe_index).map_err(|e| e.to_string())?;
+        let mut out = std::fs::File::create(&new_exe_path).map_err(|e| e.to_string())?;
+        std::io::copy(&mut zip_file, &mut out).map_err(|e| e.to_string())?;
+    }
+
+    // 旧 exe をリネーム（Windows は実行中でもリネーム可）→ 新 exe を配置
+    let old_exe_path = exe_dir.join("shun_old.exe");
+    let _ = std::fs::remove_file(&old_exe_path); // 前回残留をクリーンアップ
+    std::fs::rename(&current_exe, &old_exe_path).map_err(|e| e.to_string())?;
+    std::fs::rename(&new_exe_path, &current_exe).map_err(|e| e.to_string())?;
+
+    // 新 exe を起動して自分は終了
+    std::process::Command::new(&current_exe)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    app.exit(0);
     Ok(())
 }
 
@@ -267,6 +333,13 @@ pub fn run() {
                         refresh_cache_bg(Arc::clone(&cache_blur));
                     }
                 });
+            }
+
+            // portable 更新後の残留ファイルをクリーンアップ
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(dir) = exe.parent() {
+                    let _ = std::fs::remove_file(dir.join("shun_old.exe"));
+                }
             }
 
             // バックグラウンドでアップデートチェック（起動後に非同期実行）

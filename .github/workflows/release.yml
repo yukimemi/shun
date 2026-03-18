@@ -149,5 +149,8 @@ jobs:
         run: |
           $version = "${{ github.ref_name }}"
           $zipName = "shun-windows-x64.zip"
-          Compress-Archive -Path "src-tauri/target/release/shun.exe" -DestinationPath $zipName
+          # exe と portable.txt をカレントディレクトリにコピーしてルートに配置
+          Copy-Item "src-tauri/target/release/shun.exe" "shun.exe"
+          "portable" | Out-File -FilePath "portable.txt" -Encoding utf8 -NoNewline
+          Compress-Archive -Path "shun.exe","portable.txt" -DestinationPath $zipName -Force
           gh release upload $version $zipName --clobber
