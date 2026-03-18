@@ -501,7 +501,7 @@
               role="option"
               aria-selected={globalIdx === selectedIndex}
             >
-              <span class="item-name">{item.name}</span>
+              <span class="item-name" title={item.name}>{item.name}</span>
               <div class="item-right">
                 {#if canHaveArgs(item)}
                   <span class="item-tab-hint">tab</span>
@@ -694,7 +694,14 @@
 
   .item.selected { background: #313244; }
 
-  .item-name { font-size: 14px; }
+  .item-name {
+    font-size: 14px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
   .completion-path {
     font-size: 13px;
