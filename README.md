@@ -24,7 +24,8 @@
 - **Args history** — previous argument combinations remembered and suggested as ghost text
 - **Configurable completion** — `path` / `list` / `command` / `none` per app
 - **URL & path navigation** — type `https://...` or `~/...` to open directly
-- **Slash commands** — `/exit`, `/config`, `/rescan`
+- **Slash commands** — `/exit`, `/config`, `/rescan`, `/update`
+- **Auto-update** — checks for new releases on startup; install in one keystroke
 - **Auto-hide on blur** — optionally hide when focus leaves the launcher
 - **Multi-monitor** — appears on the monitor where your cursor is
 - **Minimal UI** — borderless, transparent, always-on-top
@@ -74,6 +75,8 @@ delete_word = "Ctrl+w"      # Delete word before cursor (args mode)
 delete_line = "Ctrl+u"      # Delete to beginning of line (args mode)
 run_query   = "Shift+Enter" # Run typed query directly (skip history results)
 close       = "Escape"
+
+
 
 # Open editor with file path completion
 [[apps]]
@@ -134,7 +137,7 @@ All keybindings are configurable via `[keybindings]` in `config.toml`.
 | `Ctrl+n` / `↓` | Next item |
 | `Ctrl+p` / `↑` | Previous item |
 | `Enter` | Launch selected item (history-first) |
-| `Shift+Enter` | Launch typed query as base item (skip history) |
+| `Shift+Enter` | Launch typed query as base item (skip history results) |
 | `Tab` | Enter args mode / apply path completion |
 | `Ctrl+f` | Accept next word/segment of ghost text |
 | `Ctrl+e` | Accept full ghost text |
@@ -160,6 +163,8 @@ All keybindings are configurable via `[keybindings]` in `config.toml`.
 | `/exit` | Quit shun |
 | `/config` | Open config file in default editor |
 | `/rescan` | Rescan apps and directories |
+| `/update` | Install latest release (shows version if update available) |
+| `/version` | Show current version |
 
 ## Special input
 
