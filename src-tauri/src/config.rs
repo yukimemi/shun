@@ -360,7 +360,6 @@ close       = "Escape"
 # path             = "/path/to/script.sh"
 # args             = ["--flag"]
 # workdir          = "/path/to/dir"
-# allow_extra_args = true
 # completion       = "path"     # "path" | "none" | "list" | "command"
 # completion_list  = ["start", "stop", "restart"]   # completion = "list" の時
 # completion_command = "git branch --format='%(refname:short)'"  # completion = "command" の時
