@@ -178,8 +178,6 @@ fn exit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
-const UPDATE_CHECK_INTERVAL_SECS: u64 = 3600; // 1時間
-
 fn last_update_check_path() -> std::path::PathBuf {
     config::config_path()
         .parent()
@@ -187,12 +185,15 @@ fn last_update_check_path() -> std::path::PathBuf {
         .join("last_update_check")
 }
 
-fn should_check_update() -> bool {
+fn should_check_update(interval_secs: u64) -> bool {
+    if interval_secs == 0 {
+        return false;
+    }
     let path = last_update_check_path();
     let Ok(meta) = std::fs::metadata(&path) else { return true };
     let Ok(modified) = meta.modified() else { return true };
     let Ok(elapsed) = modified.elapsed() else { return true };
-    elapsed.as_secs() > UPDATE_CHECK_INTERVAL_SECS
+    elapsed.as_secs() > interval_secs
 }
 
 fn record_update_check() {
@@ -387,10 +388,11 @@ pub fn run() {
                 }
             }
 
-            // バックグラウンドでアップデートチェック（1時間に1回）
+            // バックグラウンドでアップデートチェック（設定した間隔で）
+            let interval = config.update_check_interval;
             let app_for_update = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if !should_check_update() {
+                if !should_check_update(interval) {
                     return;
                 }
                 record_update_check();

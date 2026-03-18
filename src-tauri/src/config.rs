@@ -37,6 +37,8 @@ pub struct Config {
     pub sort_order: SortOrder,
     #[serde(default)]
     pub hide_on_blur: bool,
+    #[serde(default = "default_update_check_interval")]
+    pub update_check_interval: u64,
     #[serde(default)]
     pub apps: Vec<AppEntry>,
     #[serde(default)]
@@ -103,6 +105,9 @@ fn default_run_query() -> String {
 }
 fn default_close() -> String {
     "Escape".to_string()
+}
+fn default_update_check_interval() -> u64 {
+    3600
 }
 
 impl Default for Keybindings {
@@ -179,6 +184,7 @@ impl Default for Config {
             search_mode: SearchMode::default(),
             sort_order: SortOrder::default(),
             hide_on_blur: false,
+            update_check_interval: default_update_check_interval(),
             apps: vec![],
             scan_dirs: vec![],
             overrides: vec![],
@@ -223,6 +229,7 @@ mod tests {
         assert_eq!(c.search_mode, SearchMode::Fuzzy);
         assert_eq!(c.sort_order, SortOrder::CountFirst);
         assert!(!c.hide_on_blur);
+        assert_eq!(c.update_check_interval, 3600);
         assert!(c.apps.is_empty());
         assert!(c.scan_dirs.is_empty());
         assert!(c.overrides.is_empty());
@@ -340,6 +347,9 @@ sort_order = "count_first"
 
 # フォーカスが外れたら自動で非表示にする (true / false)
 hide_on_blur = false
+
+# アップデートチェック間隔 (秒) / 0 で無効化
+update_check_interval = 3600
 
 [keybindings]
 launch      = "Alt+Space"

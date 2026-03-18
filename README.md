@@ -64,6 +64,9 @@ sort_order = "count_first"
 # Auto-hide when the launcher loses focus
 hide_on_blur = false
 
+# Update check interval in seconds (0 to disable)
+update_check_interval = 3600
+
 [keybindings]
 launch      = "Alt+Space"   # Global hotkey to show/hide
 next        = "Ctrl+n"
