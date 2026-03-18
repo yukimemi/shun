@@ -345,6 +345,7 @@ pub fn run() {
             if let Ok(exe) = std::env::current_exe() {
                 if let Some(dir) = exe.parent() {
                     let _ = std::fs::remove_file(dir.join("shun_old.exe"));
+                    let _ = std::fs::remove_file(dir.join("shun_update.exe"));
                 }
             }
 
