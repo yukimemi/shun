@@ -118,3 +118,18 @@ Do not mock these — they are pure functions with no Tauri dependencies.
 - Do not use `sed -i` in shell scripts or CI — use `perl -i -pe` for cross-platform compatibility
 - `releaseDraft: false` in tauri-action — tests gate the build so no manual publish needed
 - README keybindings table and `config.toml` example must be kept in sync with `config.rs` defaults whenever keybindings change
+- README slash commands table must be updated whenever a new slash command is added
+
+## Auto-update notes
+
+- `tauri.conf.json` must have `bundle.createUpdaterArtifacts: true` — without this, tauri-action silently skips `latest.json` with "Signature not found"
+- Use `tauri-apps/tauri-action@v0.6` (not `@v0`) — v0.6 properly supports Tauri v2 updater
+- Signing key: `~/.tauri/shun.key` (pubkey in `tauri.conf.json`; private key in `TAURI_SIGNING_PRIVATE_KEY` GitHub secret, no password)
+- `latest.json` is auto-generated and uploaded by tauri-action to each release
+
+## Current status (2026-03-18)
+
+- Latest tag: **v1.0.7** — GHA in progress (verifying `latest.json` is generated)
+- v1.0.5/1.0.6 releases exist but do NOT have `latest.json` (updater won't work for those versions)
+- v1.0.7 should be the first release with working auto-update
+- Once v1.0.7 GHA completes, test by: running v1.0.5 installer → should show "Update available: v1.0.7" in placeholder on next launch
