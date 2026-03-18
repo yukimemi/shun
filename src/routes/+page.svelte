@@ -27,6 +27,7 @@
     accept_line: "Ctrl+e",
     delete_word: "Ctrl+w",
     delete_line: "Ctrl+u",
+    run_query:   "Shift+Enter",
     close:       "Escape",
   });
 
@@ -279,6 +280,15 @@
             if (candidates.length > 0) lastArgsGhost = candidates[0];
           });
         }
+      }
+    } else if (matchKey(e, keybindings.run_query)) {
+      e.preventDefault();
+      if (filteredSlash.length > 0) {
+        runSlashCommand(filteredSlash[selectedIndex] ?? filteredSlash[0]);
+      } else if (query && filtered.length > 0) {
+        // Run the typed query as the base (non-history) item
+        const baseItem = filtered.find((item) => item.source !== "History");
+        launchItem(baseItem ?? filtered[selectedIndex], null);
       }
     } else if (matchKey(e, keybindings.confirm)) {
       e.preventDefault();

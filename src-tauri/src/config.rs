@@ -65,6 +65,8 @@ pub struct Keybindings {
     pub delete_word: String,
     #[serde(default = "default_delete_line")]
     pub delete_line: String,
+    #[serde(default = "default_run_query")]
+    pub run_query: String,
     #[serde(default = "default_close")]
     pub close: String,
 }
@@ -96,6 +98,9 @@ fn default_delete_word() -> String {
 fn default_delete_line() -> String {
     "Ctrl+u".to_string()
 }
+fn default_run_query() -> String {
+    "Shift+Enter".to_string()
+}
 fn default_close() -> String {
     "Escape".to_string()
 }
@@ -112,6 +117,7 @@ impl Default for Keybindings {
             accept_line: default_accept_line(),
             delete_word: default_delete_word(),
             delete_line: default_delete_line(),
+            run_query: default_run_query(),
             close: default_close(),
         }
     }
@@ -234,6 +240,7 @@ mod tests {
         assert_eq!(kb.accept_line, "Ctrl+e");
         assert_eq!(kb.delete_word, "Ctrl+w");
         assert_eq!(kb.delete_line, "Ctrl+u");
+        assert_eq!(kb.run_query, "Shift+Enter");
         assert_eq!(kb.close, "Escape");
     }
 
@@ -344,6 +351,7 @@ accept_word = "Ctrl+f"
 accept_line = "Ctrl+e"
 delete_word = "Ctrl+w"
 delete_line = "Ctrl+u"
+run_query   = "Shift+Enter"
 close       = "Escape"
 
 # アプリ・スクリプトの個別登録
