@@ -111,7 +111,7 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
-          perl -i -pe "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" src-tauri/tauri.conf.json
+          perl -i -pe "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" package.json src-tauri/tauri.conf.json
           perl -i -pe "s/^version = \".*\"/version = \"${VERSION}\"/" src-tauri/Cargo.toml
 
       - name: Build and release
@@ -140,6 +140,22 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Commit version bump to main
+        if: matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout main
+          perl -i -pe "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" package.json src-tauri/tauri.conf.json
+          perl -i -pe "s/^version = \".*\"/version = \"${VERSION}\"/" src-tauri/Cargo.toml
+          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
+          git diff --cached --quiet || git commit -m "chore: bump version to ${VERSION}"
+          git push origin main
 
       - name: Upload Windows portable zip
         if: matrix.platform == 'windows-latest'
