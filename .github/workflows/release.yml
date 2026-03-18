@@ -104,7 +104,7 @@ jobs:
             patchelf
 
       - name: Install npm dependencies
-        run: npm install
+        run: npm ci
 
       - name: Update version from tag
         shell: bash
