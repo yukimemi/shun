@@ -178,6 +178,27 @@ fn exit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+const UPDATE_CHECK_INTERVAL_SECS: u64 = 3600; // 1時間
+
+fn last_update_check_path() -> std::path::PathBuf {
+    config::config_path()
+        .parent()
+        .unwrap_or(&std::path::PathBuf::from("."))
+        .join("last_update_check")
+}
+
+fn should_check_update() -> bool {
+    let path = last_update_check_path();
+    let Ok(meta) = std::fs::metadata(&path) else { return true };
+    let Ok(modified) = meta.modified() else { return true };
+    let Ok(elapsed) = modified.elapsed() else { return true };
+    elapsed.as_secs() > UPDATE_CHECK_INTERVAL_SECS
+}
+
+fn record_update_check() {
+    let _ = std::fs::write(last_update_check_path(), "");
+}
+
 fn is_portable() -> bool {
     std::env::current_exe()
         .ok()
@@ -366,9 +387,13 @@ pub fn run() {
                 }
             }
 
-            // バックグラウンドでアップデートチェック（起動後に非同期実行）
+            // バックグラウンドでアップデートチェック（1時間に1回）
             let app_for_update = app.handle().clone();
             tauri::async_runtime::spawn(async move {
+                if !should_check_update() {
+                    return;
+                }
+                record_update_check();
                 if let Ok(updater) = app_for_update.updater() {
                     if let Ok(Some(update)) = updater.check().await {
                         let _ = app_for_update.emit("update-available", update.version.clone());
