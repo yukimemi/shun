@@ -205,6 +205,12 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 async fn install_update_portable(app: &tauri::AppHandle) -> Result<(), String> {
+    // まずバージョン確認 — 最新版なら何もしない
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    if updater.check().await.map_err(|e| e.to_string())?.is_none() {
+        return Ok(());
+    }
+
     let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let exe_dir = current_exe.parent().ok_or("cannot find exe dir")?.to_path_buf();
 
