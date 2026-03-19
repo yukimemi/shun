@@ -31,6 +31,7 @@
 - **Slash commands** — `/exit`, `/config`, `/rescan`, `/update`
 - **Auto-update** — checks for new releases on startup; install in one keystroke with download progress
 - **Portable friendly** — portable zip includes self-update (no admin rights required)
+- **Local config override** — `config.local.toml` merges machine-specific settings without touching the main config (chezmoi-friendly)
 - **Auto-hide on blur** — optionally hide when focus leaves the launcher
 - **Multi-monitor** — appears on the monitor where your cursor is
 - **Minimal UI** — borderless, transparent, always-on-top
@@ -55,6 +56,38 @@ Config file is created automatically on first launch:
 | Windows | `%APPDATA%\shun\config.toml` |
 | macOS | `~/Library/Application Support/shun/config.toml` |
 | Linux | `~/.config/shun/config.toml` |
+
+### Local override file
+
+Place a `config.local.toml` in the same directory as `config.toml` to add machine-specific settings without modifying the main file. This is useful when managing `config.toml` with a dotfile manager (e.g. chezmoi) while keeping local overrides out of version control.
+
+| Platform | Path |
+|---|---|
+| Windows | `%APPDATA%\shun\config.local.toml` |
+| macOS | `~/Library/Application Support/shun/config.local.toml` |
+| Linux | `~/.config/shun/config.local.toml` |
+
+**Merge rules:**
+
+| Field | Behavior |
+|---|---|
+| `apps`, `scan_dirs`, `overrides` | Entries are **appended** to the main config |
+| `search_mode`, `sort_order`, `hide_on_blur`, `update_check_interval` | Local value **overrides** main (only when explicitly set) |
+| `[keybindings]` | **Per-field override** — only specified keys are overridden |
+
+**Example `config.local.toml`:**
+
+```toml
+# Machine-specific scan directories
+[[scan_dirs]]
+path = "C:/work/projects"
+recursive = true
+extensions = ["exe", "bat", "ps1"]
+
+[[apps]]
+name = "Internal Tool"
+path = "C:/tools/internal.exe"
+```
 
 ### Example `config.toml`
 

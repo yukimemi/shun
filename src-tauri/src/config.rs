@@ -197,6 +197,11 @@ pub fn config_path() -> PathBuf {
     base.join("shun").join("config.toml")
 }
 
+pub fn local_config_path() -> PathBuf {
+    let base = dirs_next::config_dir().unwrap_or_else(|| PathBuf::from("."));
+    base.join("shun").join("config.local.toml")
+}
+
 pub fn load_config() -> Config {
     let path = config_path();
 
@@ -214,7 +219,92 @@ pub fn load_config() -> Config {
         Err(_) => return Config::default(),
     };
 
-    toml::from_str(&content).unwrap_or_default()
+    let mut config: Config = toml::from_str(&content).unwrap_or_default();
+
+    // config.local.toml が存在すればマージする
+    let local_path = local_config_path();
+    if local_path.exists() {
+        if let Ok(local_content) = std::fs::read_to_string(&local_path) {
+            merge_local_config(&mut config, &local_content);
+        }
+    }
+
+    config
+}
+
+/// config.local.toml の内容をベースの Config にマージする。
+///
+/// - Vec 系 (apps, scan_dirs, overrides): ローカルのエントリを追記
+/// - スカラー系: ローカルに明示的に記述されている場合のみ上書き
+/// - keybindings: フィールド単位でローカルが優先
+fn merge_local_config(base: &mut Config, local_content: &str) {
+    let local_val: toml::Value = match toml::from_str(local_content) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    let local: Config = match toml::from_str(local_content) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let Some(table) = local_val.as_table() else {
+        return;
+    };
+
+    // スカラー: ローカルに明示的に書かれている場合のみ上書き
+    if table.contains_key("search_mode") {
+        base.search_mode = local.search_mode;
+    }
+    if table.contains_key("sort_order") {
+        base.sort_order = local.sort_order;
+    }
+    if table.contains_key("hide_on_blur") {
+        base.hide_on_blur = local.hide_on_blur;
+    }
+    if table.contains_key("update_check_interval") {
+        base.update_check_interval = local.update_check_interval;
+    }
+
+    // keybindings: フィールド単位でマージ
+    if let Some(kb_val) = table.get("keybindings").and_then(|v| v.as_table()) {
+        if kb_val.contains_key("launch") {
+            base.keybindings.launch = local.keybindings.launch;
+        }
+        if kb_val.contains_key("next") {
+            base.keybindings.next = local.keybindings.next;
+        }
+        if kb_val.contains_key("prev") {
+            base.keybindings.prev = local.keybindings.prev;
+        }
+        if kb_val.contains_key("confirm") {
+            base.keybindings.confirm = local.keybindings.confirm;
+        }
+        if kb_val.contains_key("arg_mode") {
+            base.keybindings.arg_mode = local.keybindings.arg_mode;
+        }
+        if kb_val.contains_key("accept_word") {
+            base.keybindings.accept_word = local.keybindings.accept_word;
+        }
+        if kb_val.contains_key("accept_line") {
+            base.keybindings.accept_line = local.keybindings.accept_line;
+        }
+        if kb_val.contains_key("delete_word") {
+            base.keybindings.delete_word = local.keybindings.delete_word;
+        }
+        if kb_val.contains_key("delete_line") {
+            base.keybindings.delete_line = local.keybindings.delete_line;
+        }
+        if kb_val.contains_key("run_query") {
+            base.keybindings.run_query = local.keybindings.run_query;
+        }
+        if kb_val.contains_key("close") {
+            base.keybindings.close = local.keybindings.close;
+        }
+    }
+
+    // Vec 系: ローカルのエントリを追記
+    base.apps.extend(local.apps);
+    base.scan_dirs.extend(local.scan_dirs);
+    base.overrides.extend(local.overrides);
 }
 
 #[cfg(test)]
@@ -335,6 +425,73 @@ completion_list = ["install", "update"]
         let bad = "NOT VALID TOML !!!@#$";
         let c: Config = toml::from_str(bad).unwrap_or_default();
         assert_eq!(c.search_mode, SearchMode::Fuzzy);
+    }
+
+    // --- merge_local_config ---
+
+    #[test]
+    fn merge_local_appends_scan_dirs() {
+        let mut base = Config::default();
+        base.scan_dirs.push(ScanDir {
+            path: "~/base".to_string(),
+            recursive: false,
+            extensions: None,
+        });
+        let local = r#"
+[[scan_dirs]]
+path = "~/local"
+recursive = true
+"#;
+        merge_local_config(&mut base, local);
+        assert_eq!(base.scan_dirs.len(), 2);
+        assert_eq!(base.scan_dirs[1].path, "~/local");
+        assert!(base.scan_dirs[1].recursive);
+    }
+
+    #[test]
+    fn merge_local_appends_apps() {
+        let mut base = Config::default();
+        let local = r#"
+[[apps]]
+name = "LocalApp"
+path = "/local/app"
+"#;
+        merge_local_config(&mut base, local);
+        assert_eq!(base.apps.len(), 1);
+        assert_eq!(base.apps[0].name, "LocalApp");
+    }
+
+    #[test]
+    fn merge_local_scalar_overrides_only_when_present() {
+        let mut base = Config::default();
+        base.search_mode = SearchMode::Exact;
+        // hide_on_blur だけ上書き、search_mode はそのまま
+        let local = "hide_on_blur = true";
+        merge_local_config(&mut base, local);
+        assert_eq!(base.search_mode, SearchMode::Exact); // 変わらない
+        assert!(base.hide_on_blur);                      // 上書きされた
+    }
+
+    #[test]
+    fn merge_local_keybinding_partial_override() {
+        let mut base = Config::default();
+        base.keybindings.next = "Ctrl+j".to_string();
+        let local = r#"
+[keybindings]
+prev = "Ctrl+k"
+"#;
+        merge_local_config(&mut base, local);
+        assert_eq!(base.keybindings.next, "Ctrl+j"); // 変わらない
+        assert_eq!(base.keybindings.prev, "Ctrl+k"); // 上書きされた
+        assert_eq!(base.keybindings.close, "Escape"); // デフォルトのまま
+    }
+
+    #[test]
+    fn merge_local_invalid_toml_is_ignored() {
+        let mut base = Config::default();
+        base.search_mode = SearchMode::Exact;
+        merge_local_config(&mut base, "NOT VALID !!!@#$");
+        assert_eq!(base.search_mode, SearchMode::Exact); // 変わらない
     }
 }
 
