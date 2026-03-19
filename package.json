@@ -1,10 +1,6 @@
 {
   "name": "shun",
-<<<<<<< HEAD
   "version": "1.1.1",
-=======
-  "version": "1.1.1",
->>>>>>> 62ac4a0 (chore: bump version to 1.1.1)
   "description": "",
   "type": "module",
   "scripts": {

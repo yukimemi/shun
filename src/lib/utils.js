@@ -16,7 +16,7 @@ export function firstSepIdx(s) {
 
 /**
  * Returns true if the query looks like a filesystem path.
- * Matches: ~, ~/..., ~\..., /..., C:/..., C:\...
+ * Matches: ~, ~/..., ~\..., /..., C:/..., C:\..., \\server\share (UNC)
  */
 export function isPathQuery(q) {
   return (
@@ -24,6 +24,7 @@ export function isPathQuery(q) {
     q.startsWith("~/") ||
     q.startsWith("~\\") ||
     q.startsWith("/") ||
+    q.startsWith("\\\\") ||
     /^[a-zA-Z]:[/\\]/.test(q)
   );
 }

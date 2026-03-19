@@ -211,6 +211,7 @@ fn is_path(s: &str) -> bool {
         || s.starts_with("~/")
         || s.starts_with("~\\")
         || s.starts_with('/')
+        || s.starts_with("\\\\")  // UNC path: \\server\share
         || (s.len() >= 3 && s.chars().next().map_or(false, |c| c.is_ascii_alphabetic()) && s[1..].starts_with(":/"))
         || (s.len() >= 3 && s.chars().next().map_or(false, |c| c.is_ascii_alphabetic()) && s[1..].starts_with(":\\"))
 }
@@ -580,6 +581,12 @@ mod tests {
     #[test]
     fn path_rejects_relative() {
         assert!(!is_path("usr/bin/bash"));
+    }
+
+    #[test]
+    fn path_unc() {
+        assert!(is_path("\\\\server\\share"));
+        assert!(is_path("\\\\server\\share\\folder"));
     }
 
     // --- launch_with_extra merges args ---

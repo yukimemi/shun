@@ -82,6 +82,11 @@ describe("isPathQuery", () => {
   it("rejects empty string", () => {
     expect(isPathQuery("")).toBe(false);
   });
+
+  it("detects UNC path", () => {
+    expect(isPathQuery("\\\\server\\share")).toBe(true);
+    expect(isPathQuery("\\\\server\\share\\folder")).toBe(true);
+  });
 });
 
 // --- matchKey ---
