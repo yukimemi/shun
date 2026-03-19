@@ -14,6 +14,10 @@
 
 </div>
 
+<div align="center">
+  <img src="https://github.com/yukimemi/shun/releases/download/v1.1.1/shun.gif" alt="shun demo" width="640" />
+</div>
+
 ## Features
 
 - **Instant popup** — global hotkey brings up the launcher anywhere
