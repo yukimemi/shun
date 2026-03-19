@@ -1,7 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "shun",
-  "version": "1.0.14",
+<<<<<<< HEAD
+  "version": "1.1.1",
+=======
+  "version": "1.1.1",
+>>>>>>> 62ac4a0 (chore: bump version to 1.1.1)
   "identifier": "com.yukimemi.shun",
   "build": {
     "beforeDevCommand": "npm run dev",
