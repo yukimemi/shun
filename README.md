@@ -133,6 +133,10 @@ extensions = ["sh", "py", "ps1", "cmd"]
 
 All keybindings are configurable via `[keybindings]` in `config.toml`.
 
+**Key name reference:**
+- In-app keybindings (`next`, `confirm`, `close`, etc.) use [KeyboardEvent.key values](https://developer.mozilla.org/en-US/docs/Web/API/UI_Events/Keyboard_event_key_values)
+- The global `launch` shortcut uses [global-hotkey key codes](https://docs.rs/global-hotkey/latest/global_hotkey/hotkey/enum.Code.html)
+
 ### Search mode
 
 | Key | Action |
