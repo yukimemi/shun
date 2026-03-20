@@ -168,6 +168,22 @@ completion = "path"       # "path" | "none" | "list" | "command"
 name = "GitHub"
 path = "https://github.com"
 
+# Search Google with Tab → type query → Enter ({{ args | urlencode }} URL-encodes the input)
+[[apps]]
+name = "Google"
+path = "https://www.google.com/search?q={{ args | urlencode }}"
+
+# Search GitHub code
+[[apps]]
+name = "GitHub Search"
+path = "https://github.com/search?q={{ args | urlencode }}"
+
+# Open a specific note by name ({{ args }} is substituted as-is)
+[[apps]]
+name = "Note"
+path = "notepad"
+args = ["C:/notes/{{ args }}.md"]
+
 # Run with free-form arguments (no completion)
 [[apps]]
 name       = "systemctl"
@@ -203,6 +219,38 @@ path       = "~/.local/bin"
 recursive  = false
 extensions = ["sh", "py", "ps1", "cmd"]
 ```
+
+### Template placeholders in `path` and `args`
+
+You can use [Tera](https://keats.github.io/tera/) template syntax in the `path` and `args` fields of `[[apps]]` entries. Templates are evaluated at launch time when extra args are provided via Args mode (`Tab`).
+
+**Context variables:**
+
+| Variable | Value |
+|---|---|
+| `{{ args }}` | Extra args joined by space (raw) |
+| `{{ args_list }}` | Extra args as an array |
+
+**Any Tera filter can be applied**, e.g.:
+
+| Expression | Result |
+|---|---|
+| `{{ args \| urlencode }}` | URL-encoded (spaces → `%20`) |
+| `{{ args \| upper }}` | UPPERCASED |
+| `{{ args_list \| join(sep=",") }}` | Joined with custom separator |
+
+**Example workflow** — search Google:
+
+1. Register in `config.toml`:
+   ```toml
+   [[apps]]
+   name = "Google"
+   path = "https://www.google.com/search?q={{ args | urlencode }}"
+   ```
+2. Open shun → type `goo` → press `Tab` → type `rust borrow checker` → `Enter`
+3. Opens `https://www.google.com/search?q=rust%20borrow%20checker`
+
+The search query is also saved to history, so next time typing `goo` will show `Google › rust borrow checker` as a candidate.
 
 ## Keybindings
 
