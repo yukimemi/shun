@@ -34,21 +34,30 @@ pub fn render_template(template: &str, ctx: &tera::Context) -> String {
     tera::Tera::one_off(template, ctx, false).unwrap_or_else(|_| template.to_string())
 }
 
-pub fn build_template_context(extra_args: &[String]) -> tera::Context {
+pub fn build_template_context(
+    extra_args: &[String],
+    vars: &std::collections::HashMap<String, String>,
+) -> tera::Context {
     let mut ctx = tera::Context::new();
     ctx.insert("args", &extra_args.join(" "));
     ctx.insert("args_list", extra_args);
     // 環境変数を {{ env.VAR_NAME }} として使えるようにする
     let env_map: std::collections::HashMap<String, String> = std::env::vars().collect();
     ctx.insert("env", &env_map);
+    // ユーザー定義変数を {{ vars.xxx }} として使えるようにする
+    ctx.insert("vars", vars);
     ctx
 }
 
-pub fn launch_with_extra(item: &LaunchItem, extra_args: Vec<String>) -> Result<(), String> {
-    // path か args にテンプレートマーカーがあれば展開（env.* は args なしでも使える）
+pub fn launch_with_extra(
+    item: &LaunchItem,
+    extra_args: Vec<String>,
+    vars: &std::collections::HashMap<String, String>,
+) -> Result<(), String> {
+    // path か args にテンプレートマーカーがあれば展開（env.* / vars.* は args なしでも使える）
     let has_template = item.path.contains("{{") || item.args.iter().any(|a| a.contains("{{"));
     if has_template || !extra_args.is_empty() {
-        let ctx = build_template_context(&extra_args);
+        let ctx = build_template_context(&extra_args, vars);
         let rendered_path = render_template(&item.path, &ctx);
         let rendered_args: Vec<String> =
             item.args.iter().map(|a| render_template(a, &ctx)).collect();
@@ -656,20 +665,21 @@ mod tests {
 
     #[test]
     fn template_args_substitution() {
-        let ctx = build_template_context(&["hello world".to_string()]);
+        let ctx = build_template_context(&["hello world".to_string()], &Default::default());
         assert_eq!(render_template("{{ args }}", &ctx), "hello world");
     }
 
     #[test]
     fn template_args_urlencode() {
-        let ctx = build_template_context(&["hello world".to_string()]);
+        let ctx = build_template_context(&["hello world".to_string()], &Default::default());
         let result = render_template("{{ args | urlencode }}", &ctx);
         assert_eq!(result, "hello%20world");
     }
 
     #[test]
     fn template_args_list() {
-        let ctx = build_template_context(&["foo".to_string(), "bar".to_string()]);
+        let ctx =
+            build_template_context(&["foo".to_string(), "bar".to_string()], &Default::default());
         assert_eq!(
             render_template("{{ args_list | join(sep=',') }}", &ctx),
             "foo,bar"
@@ -678,7 +688,7 @@ mod tests {
 
     #[test]
     fn template_no_placeholder_unchanged() {
-        let ctx = build_template_context(&["something".to_string()]);
+        let ctx = build_template_context(&["something".to_string()], &Default::default());
         assert_eq!(
             render_template("https://example.com", &ctx),
             "https://example.com"
@@ -687,7 +697,7 @@ mod tests {
 
     #[test]
     fn template_url_search() {
-        let ctx = build_template_context(&["rust borrow checker".to_string()]);
+        let ctx = build_template_context(&["rust borrow checker".to_string()], &Default::default());
         let result = render_template(
             "https://www.google.com/search?q={{ args | urlencode }}",
             &ctx,
@@ -701,9 +711,26 @@ mod tests {
     #[test]
     fn template_env_var() {
         std::env::set_var("SHUN_TEST_VAR", "hello");
-        let ctx = build_template_context(&[]);
+        let ctx = build_template_context(&[], &Default::default());
         let result = render_template("{{ env.SHUN_TEST_VAR }}/world", &ctx);
         assert_eq!(result, "hello/world");
+    }
+
+    #[test]
+    fn template_vars_substitution() {
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("src_dir".to_string(), "/home/user/src".to_string());
+        let ctx = build_template_context(&["myproject".to_string()], &vars);
+        let result = render_template("{{ vars.src_dir }}/{{ args }}", &ctx);
+        assert_eq!(result, "/home/user/src/myproject");
+    }
+
+    #[test]
+    fn template_vars_empty_by_default() {
+        let ctx = build_template_context(&[], &Default::default());
+        // 未定義 vars は Tera エラーになるが render_template はそのまま返す
+        let result = render_template("{{ vars.missing | default(value=\"fallback\") }}", &ctx);
+        assert_eq!(result, "fallback");
     }
 
     // --- launch_with_extra merges args ---
@@ -724,7 +751,7 @@ mod tests {
         // launch_with_extra builds merged args internally; we verify it doesn't panic
         // by using an extra_args that won't actually spawn anything harmful
         // (echo exits cleanly)
-        let result = launch_with_extra(&item, vec!["extra".to_string()]);
+        let result = launch_with_extra(&item, vec!["extra".to_string()], &Default::default());
         // On CI echo may or may not be available, so just assert no arg-construction panic
         let _ = result;
     }

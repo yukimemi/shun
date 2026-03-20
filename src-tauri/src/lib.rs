@@ -136,7 +136,7 @@ fn extract_template_base_path(args: &[String]) -> Option<String> {
     if prefix.is_empty() {
         return None;
     }
-    let ctx = apps::build_template_context(&[]);
+    let ctx = apps::build_template_context(&[], &Default::default());
     let rendered = apps::render_template(prefix, &ctx);
     let rendered = rendered.replace('\\', "/");
     if !rendered.ends_with('/') {
@@ -176,8 +176,15 @@ fn launch_item(
     } else {
         item.args.clone()
     };
+    let vars = {
+        let cache = state.lock().unwrap();
+        cache
+            .as_ref()
+            .map(|c| c.config.vars.clone())
+            .unwrap_or_default()
+    };
     let path = if item.path.contains("{{") {
-        let ctx = apps::build_template_context(&template_args);
+        let ctx = apps::build_template_context(&template_args, &vars);
         apps::render_template(&item.path, &ctx)
     } else {
         item.path.clone()
@@ -189,7 +196,7 @@ fn launch_item(
         let expanded = utils::expand_path(path.trim_end_matches('/'));
         tauri_plugin_opener::open_path(expanded, None::<&str>).map_err(|e| e.to_string())
     } else {
-        apps::launch_with_extra(&item, extra)
+        apps::launch_with_extra(&item, extra, &vars)
     }
 }
 

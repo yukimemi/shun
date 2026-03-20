@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -35,6 +36,8 @@ pub struct Config {
     pub max_items: usize,
     #[serde(default = "default_max_completions")]
     pub max_completions: usize,
+    #[serde(default)]
+    pub vars: HashMap<String, String>,
     #[serde(default)]
     pub apps: Vec<AppEntry>,
     #[serde(default)]
@@ -194,6 +197,7 @@ impl Default for Config {
             window_width: default_window_width(),
             max_items: default_max_items(),
             max_completions: default_max_completions(),
+            vars: HashMap::new(),
             apps: vec![],
             scan_dirs: vec![],
             overrides: vec![],
@@ -310,6 +314,9 @@ fn merge_local_config(base: &mut Config, local_content: &str) {
         }
     }
 
+    // vars: ローカルのエントリで上書き・追記
+    base.vars.extend(local.vars);
+
     // Vec 系: ローカルのエントリを追記
     base.apps.extend(local.apps);
     base.scan_dirs.extend(local.scan_dirs);
@@ -332,9 +339,22 @@ mod tests {
         assert_eq!(c.window_width, 620);
         assert_eq!(c.max_items, 8);
         assert_eq!(c.max_completions, 6);
+        assert!(c.vars.is_empty());
         assert!(c.apps.is_empty());
         assert!(c.scan_dirs.is_empty());
         assert!(c.overrides.is_empty());
+    }
+
+    #[test]
+    fn parse_vars_section() {
+        let toml = r#"
+[vars]
+src_dir  = "~/src"
+work_dir = "C:/work"
+"#;
+        let c: Config = toml::from_str(toml).unwrap();
+        assert_eq!(c.vars.get("src_dir").map(|s| s.as_str()), Some("~/src"));
+        assert_eq!(c.vars.get("work_dir").map(|s| s.as_str()), Some("C:/work"));
     }
 
     #[test]
@@ -552,6 +572,11 @@ delete_line = "Ctrl+u"
 run_query   = "Shift+Enter"
 close       = "Escape"
 delete_item = "Ctrl+d"
+
+# テンプレート変数 (path や args 内で {{ vars.my_var }} として参照できる)
+# [vars]
+# src_dir  = "~/src/github.com/yourname"
+# work_dir = "C:/work"
 
 # アプリ・スクリプトの個別登録
 # [[apps]]
