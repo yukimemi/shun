@@ -41,11 +41,6 @@
 
 ### Package managers
 
-**Windows — WinGet**
-```powershell
-winget install yukimemi.shun
-```
-
 **Windows — Scoop**
 ```powershell
 scoop bucket add yukimemi https://github.com/yukimemi/scoop-bucket
