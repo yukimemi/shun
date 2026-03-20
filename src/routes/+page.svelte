@@ -313,7 +313,8 @@
           historyArgs = [];
           win.setSize(new LogicalSize(WINDOW_WIDTH, INPUT_HEIGHT));
           setTimeout(() => argsEl?.focus(), 10);
-          invoke("get_args_history", { path: item.path }).then((candidates) => {
+          // Config アイテム由来の History は name をキーに記録しているので baseName で引く
+          invoke("get_args_history", { path: baseName }).then((candidates) => {
             historyArgs = candidates;
           });
         } else if (canHaveArgs(item)) {
@@ -323,7 +324,9 @@
           historyArgs = [];
           win.setSize(new LogicalSize(WINDOW_WIDTH, INPUT_HEIGHT));
           setTimeout(() => argsEl?.focus(), 10);
-          invoke("get_args_history", { path: item.path }).then((candidates) => {
+          // Config アイテムは name をキーに記録しているので name で引く
+          const histKey = item.source === "Config" ? item.name : item.path;
+          invoke("get_args_history", { path: histKey }).then((candidates) => {
             historyArgs = candidates;
             if (candidates.length > 0) lastArgsGhost = candidates[0];
           });
