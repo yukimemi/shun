@@ -140,6 +140,7 @@
   function deleteWord() {
     const el = mode === "args" ? argsEl : inputEl;
     if (!el) return;
+    el.focus();
     const val = mode === "args" ? extraArgs : query;
     const pos = el.selectionStart ?? val.length;
     let i = pos - 1;
@@ -151,13 +152,11 @@
   }
 
   function deleteLine() {
-    const el = mode === "args" ? argsEl : inputEl;
-    if (!el) return;
-    const val = mode === "args" ? extraArgs : query;
-    const pos = el.selectionStart ?? val.length;
-    const newVal = val.slice(pos);
-    if (mode === "args") extraArgs = newVal; else query = newVal;
-    setTimeout(() => { el.selectionStart = el.selectionEnd = 0; }, 0);
+    if (mode === "args") {
+      extraArgs = "";
+    } else {
+      query = "";
+    }
   }
 
   function acceptLine() {
