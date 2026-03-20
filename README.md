@@ -39,6 +39,27 @@
 
 ## Installation
 
+### Package managers
+
+**Windows — WinGet**
+```powershell
+winget install yukimemi.shun
+```
+
+**Windows — Scoop**
+```powershell
+scoop bucket add yukimemi https://github.com/yukimemi/scoop-bucket
+scoop install yukimemi/shun
+```
+
+**macOS — Homebrew**
+```bash
+brew tap yukimemi/tap
+brew install --cask yukimemi/tap/shun
+```
+
+### Direct download
+
 Download the latest installer from [Releases](https://github.com/yukimemi/shun/releases).
 
 | Platform | File |
