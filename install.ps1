@@ -25,13 +25,24 @@ New-Item -ItemType Directory -Path $installDir | Out-Null
 Expand-Archive -Path $tmp -DestinationPath $installDir -Force
 Remove-Item $tmp
 
-# Add to user PATH (no admin required)
-$userPath = [Environment]::GetEnvironmentVariable('PATH', 'User')
-if ($userPath -notlike "*$installDir*") {
-    [Environment]::SetEnvironmentVariable('PATH', "$userPath;$installDir", 'User')
-    Write-Host "Added $installDir to user PATH"
-}
+$exe = "$installDir\shun.exe"
+$wsh = New-Object -ComObject WScript.Shell
+
+# Start Menu shortcut
+$startMenuDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs"
+$shortcut = $wsh.CreateShortcut("$startMenuDir\shun.lnk")
+$shortcut.TargetPath = $exe
+$shortcut.Save()
+Write-Host "Created Start Menu shortcut"
+
+# Startup shortcut (auto-launch on login)
+$startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
+$shortcut = $wsh.CreateShortcut("$startupDir\shun.lnk")
+$shortcut.TargetPath = $exe
+$shortcut.Save()
+Write-Host "Registered shun to run on startup"
 
 Write-Host ""
 Write-Host "shun $version installed successfully!"
-Write-Host "Restart your terminal, then run: shun"
+Write-Host "shun will start automatically on next login."
+Write-Host "To start now: $exe"
