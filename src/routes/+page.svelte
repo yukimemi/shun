@@ -642,7 +642,7 @@
               role="option"
               aria-selected={globalIdx === completionIndex}
             >
-              <span class="item-name completion-path">{comp}</span>
+              <span class="item-name completion-path" class:is-dir={comp.endsWith('/')}>{comp}</span>
               {#if allCompletions.length > MAX_COMPLETIONS}
                 <span class="completion-count">{globalIdx + 1}/{allCompletions.length}</span>
               {/if}
@@ -804,8 +804,12 @@
 
   .completion-path {
     font-size: 13px;
-    color: #a6e3a1;
+    color: #cdd6f4;
     font-family: monospace;
+  }
+
+  .completion-path.is-dir {
+    color: #89b4fa;
   }
 
   .completion-count {
