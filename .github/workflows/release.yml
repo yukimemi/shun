@@ -170,3 +170,114 @@ jobs:
           "portable" | Out-File -FilePath "portable.txt" -Encoding utf8 -NoNewline
           Compress-Archive -Path "shun.exe","portable.txt" -DestinationPath $zipName -Force
           gh release upload $version $zipName --clobber
+
+  update-scoop:
+    needs: release
+    if: github.event_name == 'push' && success()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout shun repo
+        uses: actions/checkout@v6
+
+      - name: Download Windows portable zip and compute SHA256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ github.ref_name }}"
+          gh release download "${VERSION}" --pattern "shun-windows-x64.zip" --repo yukimemi/shun
+          SHA256=$(sha256sum shun-windows-x64.zip | awk '{print $1}')
+          echo "SHA256=${SHA256}" >> $GITHUB_ENV
+          echo "VERSION_NO_V=${VERSION#v}" >> $GITHUB_ENV
+
+      - name: Checkout scoop-bucket repo
+        if: secrets.SCOOP_BUCKET_PAT != ''
+        uses: actions/checkout@v6
+        with:
+          repository: yukimemi/scoop-bucket
+          token: ${{ secrets.SCOOP_BUCKET_PAT }}
+          path: scoop-bucket
+
+      - name: Update scoop-bucket manifest
+        if: secrets.SCOOP_BUCKET_PAT != ''
+        run: |
+          cd scoop-bucket
+          python3 - <<'EOF'
+          import json, os, sys
+          version = os.environ["VERSION_NO_V"]
+          sha256 = os.environ["SHA256"]
+          with open("bucket/shun.json", "r") as f:
+              manifest = json.load(f)
+          manifest["version"] = version
+          manifest["architecture"]["64bit"]["url"] = f"https://github.com/yukimemi/shun/releases/download/v{version}/shun-windows-x64.zip"
+          manifest["architecture"]["64bit"]["hash"] = sha256
+          with open("bucket/shun.json", "w") as f:
+              json.dump(manifest, f, indent=2)
+              f.write("\n")
+          EOF
+
+      - name: Commit and push to scoop-bucket
+        if: secrets.SCOOP_BUCKET_PAT != ''
+        run: |
+          cd scoop-bucket
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bucket/shun.json
+          git diff --cached --quiet || git commit -m "chore: update shun to ${{ github.ref_name }}"
+          git push
+
+  update-homebrew:
+    needs: release
+    if: github.event_name == 'push' && success()
+    runs-on: macos-latest
+    steps:
+      - name: Checkout shun repo
+        uses: actions/checkout@v6
+
+      - name: Download macOS DMG and compute SHA256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION_NO_V="${VERSION#v}"
+          gh release download "${VERSION}" --pattern "shun_${VERSION_NO_V}_universal.dmg" --repo yukimemi/shun
+          SHA256=$(shasum -a 256 "shun_${VERSION_NO_V}_universal.dmg" | awk '{print $1}')
+          echo "SHA256=${SHA256}" >> $GITHUB_ENV
+          echo "VERSION_NO_V=${VERSION_NO_V}" >> $GITHUB_ENV
+
+      - name: Checkout homebrew-tap repo
+        if: secrets.HOMEBREW_TAP_PAT != ''
+        uses: actions/checkout@v6
+        with:
+          repository: yukimemi/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_PAT }}
+          path: homebrew-tap
+
+      - name: Update Homebrew cask formula
+        if: secrets.HOMEBREW_TAP_PAT != ''
+        run: |
+          cd homebrew-tap
+          perl -i -pe "s/version \".*\"/version \"${{ env.VERSION_NO_V }}\"/" Casks/shun.rb
+          perl -i -pe "s/sha256 \".*\"/sha256 \"${{ env.SHA256 }}\"/" Casks/shun.rb
+
+      - name: Commit and push to homebrew-tap
+        if: secrets.HOMEBREW_TAP_PAT != ''
+        run: |
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/shun.rb
+          git diff --cached --quiet || git commit -m "chore: update shun to ${{ github.ref_name }}"
+          git push
+
+  submit-winget:
+    needs: release
+    if: github.event_name == 'push' && success()
+    runs-on: windows-latest
+    steps:
+      - name: Submit to WinGet
+        if: secrets.WINGET_TOKEN != ''
+        uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: yukimemi.shun
+          token: ${{ secrets.WINGET_TOKEN }}
+          installers-regex: '\.msi$'
