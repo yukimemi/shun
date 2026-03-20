@@ -109,17 +109,42 @@ fn complete_path(
     completion_list: Vec<String>,
     completion_command: Option<String>,
     workdir: Option<String>,
+    item_args: Option<Vec<String>>,
 ) -> CompleteResult {
+    // テンプレート args から {{ args }} 前の固定部分をベースパスとして抽出
+    let base_path = item_args
+        .as_deref()
+        .and_then(extract_template_base_path);
     let (prefix, completions) = complete::complete(
         &input,
         &completion_type,
         &completion_list,
         &completion_command,
         &workdir,
+        base_path.as_deref(),
     );
     CompleteResult {
         prefix,
         completions,
+    }
+}
+
+/// `args` テンプレートの最初の要素から `{{ args }}` 前の固定プレフィックスを取得・展開する
+/// 例: `["{{ env.USERPROFILE }}/src/{{ args }}"]` → `Some("C:/Users/yukimemi/src/")`
+fn extract_template_base_path(args: &[String]) -> Option<String> {
+    let first = args.first()?;
+    let pos = first.find("{{ args }}")?;
+    let prefix = &first[..pos];
+    if prefix.is_empty() {
+        return None;
+    }
+    let ctx = apps::build_template_context(&[]);
+    let rendered = apps::render_template(prefix, &ctx);
+    let rendered = rendered.replace('\\', "/");
+    if !rendered.ends_with('/') {
+        Some(format!("{}/", rendered))
+    } else {
+        Some(rendered)
     }
 }
 

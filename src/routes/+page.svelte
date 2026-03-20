@@ -459,6 +459,7 @@
       completionList: argItem?.completion_list ?? [],
       completionCommand: argItem?.completion_command ?? null,
       workdir: argItem?.workdir ?? null,
+      itemArgs: argItem?.args ?? null,
     }).then((result) => {
       // path 補完はフル文字列に展開（prefix + item）
       const pathFull = result.completions.map((c) => result.prefix + c);

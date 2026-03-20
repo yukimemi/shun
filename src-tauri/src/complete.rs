@@ -5,17 +5,18 @@ use crate::config::CompletionType;
 /// 補完タイプに応じて候補を返す
 /// 戻り値: (prefix, completions)
 ///   prefix      = 入力のうちパス以外の部分 (例: "--flag ")
-///   completions = 補完候補リスト
+///   completions = 補完候補リスト（base_path がある場合は strip 済み）
 pub fn complete(
     input: &str,
     completion_type: &CompletionType,
     completion_list: &[String],
     completion_command: &Option<String>,
     workdir: &Option<String>,
+    base_path: Option<&str>,
 ) -> (String, Vec<String>) {
     match completion_type {
         CompletionType::None => (String::new(), vec![]),
-        CompletionType::Path => complete_path(input),
+        CompletionType::Path => complete_path(input, base_path),
         CompletionType::List => complete_list(input, completion_list),
         CompletionType::Command => complete_command(input, completion_command, workdir),
     }
@@ -23,13 +24,22 @@ pub fn complete(
 
 // --- path 補完 ---
 
-fn complete_path(input: &str) -> (String, Vec<String>) {
-    let (prefix, partial) = split_last_token(input);
-    if partial.is_empty() {
+fn complete_path(input: &str, base_path: Option<&str>) -> (String, Vec<String>) {
+    // base_path がある場合は base + input を実際のパスとして補完し、結果から base を strip する
+    let effective_input = match base_path {
+        Some(base) => {
+            let base_expanded = crate::utils::expand_path(base).replace('\\', "/");
+            format!("{}{}", base_expanded, input)
+        }
+        None => input.to_string(),
+    };
+
+    let (prefix, partial) = split_last_token(&effective_input);
+    if partial.is_empty() && base_path.is_none() {
         return (prefix, vec![]);
     }
 
-    let expanded = crate::utils::expand_path(partial);
+    let expanded = crate::utils::expand_path(if partial.is_empty() { &effective_input } else { partial });
     let expanded_path = Path::new(&expanded);
 
     let (dir, stem) = if expanded.ends_with('/') || expanded.ends_with('\\') {
@@ -56,6 +66,9 @@ fn complete_path(input: &str) -> (String, Vec<String>) {
         Err(_) => return (prefix, vec![]),
     };
 
+    // base_path の展開済み文字列（strip 用）
+    let base_expanded = base_path.map(|b| crate::utils::expand_path(b).replace('\\', "/"));
+
     let mut completions: Vec<String> = entries
         .flatten()
         .filter_map(|entry| {
@@ -69,6 +82,13 @@ fn complete_path(input: &str) -> (String, Vec<String>) {
             if entry.path().is_dir() {
                 s.push('/');
             }
+            // base_path がある場合は strip して相対パスで返す
+            if let Some(ref base) = base_expanded {
+                let base = base.trim_end_matches('/');
+                if s.starts_with(base) {
+                    return Some(s[base.len()..].trim_start_matches('/').to_string());
+                }
+            }
             if let Some(home) = dirs_next::home_dir() {
                 let home_str = home.to_string_lossy().replace('\\', "/");
                 if s.starts_with(&*home_str) {
@@ -80,7 +100,18 @@ fn complete_path(input: &str) -> (String, Vec<String>) {
         .collect();
 
     sort_completions(&mut completions);
-    (prefix, completions)
+    // base_path がある場合は prefix も strip（ユーザー入力の空白区切り部分のみ残す）
+    let final_prefix = if base_path.is_some() {
+        let base_len = base_expanded.as_deref().map(|b| b.trim_end_matches('/').len() + 1).unwrap_or(0);
+        if prefix.len() > base_len {
+            prefix[base_len..].to_string()
+        } else {
+            String::new()
+        }
+    } else {
+        prefix
+    };
+    (final_prefix, completions)
 }
 
 // --- list 補完 ---
@@ -330,7 +361,7 @@ mod tests {
         std::fs::write(dir.path().join("bar.txt"), "").unwrap();
 
         let input = format!("{}/fo", dir.path().to_string_lossy().replace('\\', "/"));
-        let (prefix, completions) = complete_path(&input);
+        let (prefix, completions) = complete_path(&input, None);
         assert_eq!(prefix, "");
         assert_eq!(completions.len(), 1);
         assert!(completions[0].contains("foo.txt"));
@@ -338,7 +369,7 @@ mod tests {
 
     #[test]
     fn path_nonexistent_dir_returns_empty() {
-        let (_, completions) = complete_path("/nonexistent_abc_xyz_shun_test/foo");
+        let (_, completions) = complete_path("/nonexistent_abc_xyz_shun_test/foo", None);
         assert!(completions.is_empty());
     }
 
@@ -347,7 +378,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("mydir")).unwrap();
         let input = format!("{}/my", dir.path().to_string_lossy().replace('\\', "/"));
-        let (_, completions) = complete_path(&input);
+        let (_, completions) = complete_path(&input, None);
         assert!(completions.iter().any(|c| c.ends_with("mydir/")));
     }
 
@@ -357,7 +388,7 @@ mod tests {
         std::fs::write(dir.path().join("run.sh"), "").unwrap();
         let dir_str = dir.path().to_string_lossy().replace('\\', "/");
         let input = format!("--flag {}/ru", dir_str);
-        let (prefix, completions) = complete_path(&input);
+        let (prefix, completions) = complete_path(&input, None);
         assert_eq!(prefix, "--flag ");
         assert!(!completions.is_empty());
     }
