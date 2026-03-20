@@ -397,7 +397,8 @@
     const _mi = MAX_ITEMS;       // 依存として登録
     const _mc = MAX_COMPLETIONS; // 依存として登録
     if (mode === "search") {
-      resizeForSearch(filtered.length);
+      const count = filteredSlash.length > 0 ? filteredSlash.length : filtered.length;
+      resizeForSearch(count);
     } else {
       resizeForArgs(allCompletions.length);
     }

@@ -177,6 +177,25 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
         }
     };
 
+    // macOS: .app バンドルは `open` コマンド経由で起動する
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        if path.to_lowercase().ends_with(".app") {
+            let mut c = std::process::Command::new("open");
+            c.arg(&path);
+            if !item.args.is_empty() {
+                c.arg("--args");
+                c.args(&item.args);
+            }
+            if let Some(workdir) = &item.workdir {
+                c.current_dir(crate::utils::expand_path(workdir));
+            }
+            c
+        } else {
+            cmd
+        }
+    };
+
     cmd.spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -482,33 +501,54 @@ fn collect_lnk_files(dir: &Path, items: &mut Vec<LaunchItem>) {
 #[cfg(target_os = "macos")]
 fn collect_system_apps() -> Vec<LaunchItem> {
     let mut items = vec![];
-    let apps_dir = Path::new("/Applications");
-    if let Ok(entries) = std::fs::read_dir(apps_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("app") {
-                let name = path
-                    .file_stem()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("")
-                    .to_string();
-                if !name.is_empty() {
-                    items.push(LaunchItem {
-                        name,
-                        path: path.to_string_lossy().to_string(),
-                        args: vec![],
-                        workdir: None,
-                        source: ItemSource::System,
-                        completion: CompletionType::Path,
-                        completion_list: vec![],
-                        completion_command: None,
-                        history_key: None,
-                    });
-                }
+    // macOS 10.15+ ではシステムアプリが /System/Applications に移動した
+    let dirs: Vec<PathBuf> = {
+        let mut v = vec![
+            PathBuf::from("/Applications"),
+            PathBuf::from("/Applications/Utilities"),
+            PathBuf::from("/System/Applications"),
+            PathBuf::from("/System/Applications/Utilities"),
+        ];
+        // ~/Applications (ユーザーインストール)
+        if let Some(home) = dirs_next::home_dir() {
+            v.push(home.join("Applications"));
+        }
+        v
+    };
+    for dir in &dirs {
+        collect_app_bundles(dir, &mut items);
+    }
+    items
+}
+
+#[cfg(target_os = "macos")]
+fn collect_app_bundles(dir: &Path, items: &mut Vec<LaunchItem>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("app") {
+            let name = path
+                .file_stem()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
+            if !name.is_empty() {
+                items.push(LaunchItem {
+                    name,
+                    path: path.to_string_lossy().to_string(),
+                    args: vec![],
+                    workdir: None,
+                    source: ItemSource::System,
+                    completion: CompletionType::None,
+                    completion_list: vec![],
+                    completion_command: None,
+                    history_key: None,
+                });
             }
         }
     }
-    items
 }
 
 #[cfg(target_os = "linux")]
