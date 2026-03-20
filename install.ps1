@@ -5,7 +5,7 @@ $repo = 'yukimemi/shun'
 $installDir = "$env:LOCALAPPDATA\shun"
 
 Write-Host "Fetching latest release..."
-$release = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest" -UseBasicParsing
+$release = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest"
 $version = $release.tag_name
 
 $asset = $release.assets | Where-Object { $_.name -eq 'shun-windows-x64.zip' } | Select-Object -First 1
