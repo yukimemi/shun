@@ -20,6 +20,9 @@ Write-Host "Downloading shun $version..."
 Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $tmp -UseBasicParsing
 
 Write-Host "Installing to $installDir ..."
+# Stop running shun process if any (exe would be locked otherwise)
+Get-Process -Name shun -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Milliseconds 500
 if (Test-Path $installDir) { Remove-Item $installDir -Recurse -Force }
 New-Item -ItemType Directory -Path $installDir | Out-Null
 Expand-Archive -Path $tmp -DestinationPath $installDir -Force
