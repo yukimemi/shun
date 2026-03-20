@@ -138,22 +138,25 @@
   }
 
   function deleteWord() {
-    const el = argsEl;
+    const el = mode === "args" ? argsEl : inputEl;
     if (!el) return;
-    const pos = el.selectionStart ?? extraArgs.length;
-    const val = extraArgs;
+    const val = mode === "args" ? extraArgs : query;
+    const pos = el.selectionStart ?? val.length;
     let i = pos - 1;
     while (i >= 0 && (val[i] === " " || val[i] === "/")) i--;
     while (i >= 0 && val[i] !== " " && val[i] !== "/") i--;
-    extraArgs = val.slice(0, i + 1) + val.slice(pos);
+    const newVal = val.slice(0, i + 1) + val.slice(pos);
+    if (mode === "args") extraArgs = newVal; else query = newVal;
     setTimeout(() => { el.selectionStart = el.selectionEnd = i + 1; }, 0);
   }
 
   function deleteLine() {
-    const el = argsEl;
+    const el = mode === "args" ? argsEl : inputEl;
     if (!el) return;
-    const pos = el.selectionStart ?? extraArgs.length;
-    extraArgs = extraArgs.slice(pos);
+    const val = mode === "args" ? extraArgs : query;
+    const pos = el.selectionStart ?? val.length;
+    const newVal = val.slice(pos);
+    if (mode === "args") extraArgs = newVal; else query = newVal;
     setTimeout(() => { el.selectionStart = el.selectionEnd = 0; }, 0);
   }
 
@@ -346,6 +349,12 @@
           : filtered[selectedIndex];
         launchItem(item, null);
       }
+    } else if (matchKey(e, keybindings.delete_word)) {
+      e.preventDefault();
+      deleteWord();
+    } else if (matchKey(e, keybindings.delete_line)) {
+      e.preventDefault();
+      deleteLine();
     } else if (matchKey(e, keybindings.delete_item)) {
       e.preventDefault();
       const item = filtered[selectedIndex];
