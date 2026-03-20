@@ -457,7 +457,6 @@ fn collect_system_apps() -> Vec<LaunchItem> {
 
 #[cfg(target_os = "linux")]
 fn collect_system_apps() -> Vec<LaunchItem> {
-
     let xdg_dirs = vec![
         PathBuf::from("/usr/share/applications"),
         PathBuf::from("/usr/local/share/applications"),
