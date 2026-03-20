@@ -78,7 +78,7 @@ fn search_items(query: String, state: tauri::State<CacheState>) -> Vec<apps::Lau
     search::filter(&items, &query, &config.search_mode)
 }
 
-fn sort_items(items: &mut Vec<apps::LaunchItem>, hist: &history::History, config: &config::Config) {
+fn sort_items(items: &mut [apps::LaunchItem], hist: &history::History, config: &config::Config) {
     items.sort_by(|a, b| {
         let a_key = a.history_key.as_deref().unwrap_or(&a.path);
         let b_key = b.history_key.as_deref().unwrap_or(&b.path);
@@ -298,24 +298,21 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
 
         InstallMethod::Standard => {
             let updater = app.updater().map_err(|e| e.to_string())?;
-            match updater.check().await.map_err(|e| e.to_string())? {
-                Some(update) => {
-                    let app_prog = app.clone();
-                    let downloaded = Arc::new(AtomicU64::new(0));
-                    let downloaded_c = Arc::clone(&downloaded);
-                    update
-                        .download_and_install(
-                            move |chunk, total| {
-                                let d = downloaded_c.fetch_add(chunk as u64, Ordering::SeqCst) + chunk as u64;
-                                let _ = app_prog.emit("update-progress", serde_json::json!({ "downloaded": d, "total": total }));
-                            },
-                            || {},
-                        )
-                        .await
-                        .map_err(|e| e.to_string())?;
-                    app.restart();
-                }
-                None => {}
+            if let Some(update) = updater.check().await.map_err(|e| e.to_string())? {
+                let app_prog = app.clone();
+                let downloaded = Arc::new(AtomicU64::new(0));
+                let downloaded_c = Arc::clone(&downloaded);
+                update
+                    .download_and_install(
+                        move |chunk, total| {
+                            let d = downloaded_c.fetch_add(chunk as u64, Ordering::SeqCst) + chunk as u64;
+                            let _ = app_prog.emit("update-progress", serde_json::json!({ "downloaded": d, "total": total }));
+                        },
+                        || {},
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                app.restart();
             }
             Ok(())
         }

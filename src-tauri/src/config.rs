@@ -1,30 +1,20 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchMode {
+    #[default]
     Fuzzy,  // ファジー検索 (デフォルト)
     Exact,  // 部分一致
 }
 
-impl Default for SearchMode {
-    fn default() -> Self {
-        SearchMode::Fuzzy
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SortOrder {
+    #[default]
     CountFirst,   // 回数 -> 直近 -> アルファベット (デフォルト)
     RecentFirst,  // 直近 -> 回数 -> アルファベット
-}
-
-impl Default for SortOrder {
-    fn default() -> Self {
-        SortOrder::CountFirst
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,19 +139,14 @@ impl Default for Keybindings {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CompletionType {
+    #[default]
     Path,     // ファイルシステム補完 (デフォルト)
     None,     // 補完なし
     List,     // completion_list から補完
     Command,  // completion_command の出力から補完
-}
-
-impl Default for CompletionType {
-    fn default() -> Self {
-        CompletionType::Path
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

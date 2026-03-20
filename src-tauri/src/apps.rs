@@ -212,8 +212,8 @@ fn is_path(s: &str) -> bool {
         || s.starts_with("~\\")
         || s.starts_with('/')
         || s.starts_with("\\\\")  // UNC path: \\server\share
-        || (s.len() >= 3 && s.chars().next().map_or(false, |c| c.is_ascii_alphabetic()) && s[1..].starts_with(":/"))
-        || (s.len() >= 3 && s.chars().next().map_or(false, |c| c.is_ascii_alphabetic()) && s[1..].starts_with(":\\"))
+        || (s.len() >= 3 && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) && s[1..].starts_with(":/"))
+        || (s.len() >= 3 && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) && s[1..].starts_with(":\\"))
 }
 
 fn history_items() -> Vec<LaunchItem> {

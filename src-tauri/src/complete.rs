@@ -98,7 +98,7 @@ fn complete_list(input: &str, list: &[String]) -> (String, Vec<String>) {
         .filter(|s| s.to_lowercase().starts_with(&input_lower))
         .cloned()
         .collect();
-    completions.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    completions.sort_by_key(|a| a.to_lowercase());
     (String::new(), completions)
 }
 
@@ -152,16 +152,16 @@ fn complete_command(
         .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty() && l.to_lowercase().starts_with(&partial_lower))
         .collect();
-    completions.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    completions.sort_by_key(|a| a.to_lowercase());
     (prefix, completions)
 }
 
 // --- ユーティリティ ---
 
-fn sort_completions(completions: &mut Vec<String>) {
+fn sort_completions(completions: &mut [String]) {
     completions.sort_by(|a, b| {
-        let a_name = a.trim_end_matches('/').split('/').last().unwrap_or("");
-        let b_name = b.trim_end_matches('/').split('/').last().unwrap_or("");
+        let a_name = a.trim_end_matches('/').split('/').next_back().unwrap_or("");
+        let b_name = b.trim_end_matches('/').split('/').next_back().unwrap_or("");
         let a_special = a_name.starts_with('.') || a_name.starts_with('$');
         let b_special = b_name.starts_with('.') || b_name.starts_with('$');
         let a_dir = a.ends_with('/');
