@@ -104,6 +104,15 @@ hide_on_blur = false
 # Update check interval in seconds (0 to disable)
 update_check_interval = 3600
 
+# Launcher window width in pixels (default: 620)
+window_width = 620
+
+# Max items shown in the results list (default: 8)
+max_items = 8
+
+# Max items shown in the completion dropdown (default: 6)
+max_completions = 6
+
 [keybindings]
 launch      = "Alt+Space"   # Global hotkey to show/hide
 next        = "Ctrl+n"

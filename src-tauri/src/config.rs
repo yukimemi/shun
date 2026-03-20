@@ -39,6 +39,12 @@ pub struct Config {
     pub hide_on_blur: bool,
     #[serde(default = "default_update_check_interval")]
     pub update_check_interval: u64,
+    #[serde(default = "default_window_width")]
+    pub window_width: u32,
+    #[serde(default = "default_max_items")]
+    pub max_items: usize,
+    #[serde(default = "default_max_completions")]
+    pub max_completions: usize,
     #[serde(default)]
     pub apps: Vec<AppEntry>,
     #[serde(default)]
@@ -108,6 +114,15 @@ fn default_close() -> String {
 }
 fn default_update_check_interval() -> u64 {
     3600
+}
+fn default_window_width() -> u32 {
+    620
+}
+fn default_max_items() -> usize {
+    8
+}
+fn default_max_completions() -> usize {
+    6
 }
 
 impl Default for Keybindings {
@@ -185,6 +200,9 @@ impl Default for Config {
             sort_order: SortOrder::default(),
             hide_on_blur: false,
             update_check_interval: default_update_check_interval(),
+            window_width: default_window_width(),
+            max_items: default_max_items(),
+            max_completions: default_max_completions(),
             apps: vec![],
             scan_dirs: vec![],
             overrides: vec![],
@@ -320,9 +338,21 @@ mod tests {
         assert_eq!(c.sort_order, SortOrder::CountFirst);
         assert!(!c.hide_on_blur);
         assert_eq!(c.update_check_interval, 3600);
+        assert_eq!(c.window_width, 620);
+        assert_eq!(c.max_items, 8);
+        assert_eq!(c.max_completions, 6);
         assert!(c.apps.is_empty());
         assert!(c.scan_dirs.is_empty());
         assert!(c.overrides.is_empty());
+    }
+
+    #[test]
+    fn parse_window_and_list_settings() {
+        let toml = "window_width = 900\nmax_items = 12\nmax_completions = 10";
+        let c: Config = toml::from_str(toml).unwrap();
+        assert_eq!(c.window_width, 900);
+        assert_eq!(c.max_items, 12);
+        assert_eq!(c.max_completions, 10);
     }
 
     #[test]
@@ -507,6 +537,15 @@ hide_on_blur = false
 
 # アップデートチェック間隔 (秒) / 0 で無効化
 update_check_interval = 3600
+
+# ランチャーウィンドウの幅 (px)
+window_width = 620
+
+# 候補リストに表示するアイテム数の上限
+max_items = 8
+
+# 補完ドロップダウンに表示するアイテム数の上限
+max_completions = 6
 
 [keybindings]
 launch      = "Alt+Space"

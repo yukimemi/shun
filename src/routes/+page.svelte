@@ -7,13 +7,13 @@
   import { onMount } from "svelte";
   import { firstSepIdx, isPathQuery, matchKey } from "$lib/utils.js";
 
-  const WINDOW_WIDTH = 620;
+  let WINDOW_WIDTH = $state(620);
   const INPUT_HEIGHT = 52;
   const ITEM_HEIGHT = 38;
   const BORDER_HEIGHT = 1;
   const RESULTS_PADDING = 8;
-  const MAX_ITEMS = 8;
-  const MAX_COMPLETIONS = 6;
+  let MAX_ITEMS = $state(8);
+  let MAX_COMPLETIONS = $state(6);
 
   const win = getCurrentWindow();
 
@@ -177,6 +177,9 @@
   onMount(async () => {
     const cfg = await invoke("get_config");
     if (cfg?.keybindings) keybindings = { ...keybindings, ...cfg.keybindings };
+    if (cfg?.window_width)    WINDOW_WIDTH    = cfg.window_width;
+    if (cfg?.max_items)       MAX_ITEMS       = cfg.max_items;
+    if (cfg?.max_completions) MAX_COMPLETIONS = cfg.max_completions;
     appVersion = await getVersion();
 
     await listen("update-available", (event) => {
@@ -320,6 +323,30 @@
       }
     }
   }
+
+  // 選択アイテムの name が truncate されている場合に scrollLeft でスクロール
+  $effect(() => {
+    const item = filtered[selectedIndex]; // 依存として登録
+    if (mode !== "search" || !item) return;
+
+    const el = document.querySelector(".item-name.scrolling");
+    if (!el || el.scrollWidth <= el.clientWidth) return;
+
+    const maxScroll = el.scrollWidth - el.clientWidth;
+    let pos = 0;
+    let direction = 1;
+    let pause = 20; // 開始時に少し待つ
+
+    const id = setInterval(() => {
+      if (pause > 0) { pause--; return; }
+      pos += direction * 2;
+      if (pos >= maxScroll) { pos = maxScroll; direction = -1; pause = 20; }
+      else if (pos <= 0)    { pos = 0;         direction =  1; pause = 20; }
+      el.scrollLeft = pos;
+    }, 16);
+
+    return () => { clearInterval(id); if (el) el.scrollLeft = 0; };
+  });
 
   // search モード: クエリで絞り込み
   $effect(() => {
@@ -501,7 +528,7 @@
               role="option"
               aria-selected={globalIdx === selectedIndex}
             >
-              <span class="item-name" title={item.name}>{item.name}</span>
+              <span class="item-name" class:scrolling={globalIdx === selectedIndex}>{item.name}</span>
               <div class="item-right">
                 {#if canHaveArgs(item)}
                   <span class="item-tab-hint">tab</span>
@@ -703,6 +730,16 @@
     white-space: nowrap;
   }
 
+  .item-name.scrolling {
+    overflow: auto;
+    text-overflow: clip;
+    scrollbar-width: none;
+  }
+
+  .item-name.scrolling::-webkit-scrollbar {
+    display: none;
+  }
+
   .completion-path {
     font-size: 13px;
     color: #a6e3a1;
@@ -758,4 +795,6 @@
   :global(.item-source[data-source="History"]) {
     color: #f38ba8;
   }
+
+
 </style>
