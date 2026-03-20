@@ -177,10 +177,13 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
         }
     };
 
-    // macOS: .app バンドルは `open` コマンド経由で起動する
+    // macOS: System アイテム (.app バンドル等) と Path アイテム (ファイル/ディレクトリ) は
+    // `open` コマンド経由で起動する。Config/ScanDir のコマンドは直接 spawn する。
     #[cfg(target_os = "macos")]
     let mut cmd = {
-        if path.to_lowercase().ends_with(".app") {
+        let use_open = matches!(item.source, ItemSource::System | ItemSource::Path)
+            || path.to_lowercase().ends_with(".app");
+        if use_open {
             let mut c = std::process::Command::new("open");
             c.arg(&path);
             if !item.args.is_empty() {

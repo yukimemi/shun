@@ -406,7 +406,9 @@
 
   // search モード: クエリで絞り込み
   $effect(() => {
-    if (query.startsWith("/")) {
+    // スラッシュで始まり、かつ一致するスラッシュコマンドがある場合のみスラッシュコマンドモード
+    // （/Applications/... などの Unix パスはスルー）
+    if (query.startsWith("/") && filteredSlash.length > 0) {
       filtered = [];
       selectedIndex = 0;
       resizeForSearch(filteredSlash.length);
