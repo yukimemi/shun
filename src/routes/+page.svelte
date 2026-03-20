@@ -143,7 +143,7 @@
     const pos = el.selectionStart ?? extraArgs.length;
     const val = extraArgs;
     let i = pos - 1;
-    while (i >= 0 && val[i] === " ") i--;
+    while (i >= 0 && (val[i] === " " || val[i] === "/")) i--;
     while (i >= 0 && val[i] !== " " && val[i] !== "/") i--;
     extraArgs = val.slice(0, i + 1) + val.slice(pos);
     setTimeout(() => { el.selectionStart = el.selectionEnd = i + 1; }, 0);
