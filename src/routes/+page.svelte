@@ -29,6 +29,7 @@
     delete_line: "Ctrl+u",
     run_query:   "Shift+Enter",
     close:       "Escape",
+    delete_item: "Ctrl+d",
   });
 
   function makePathItem(p) {
@@ -46,6 +47,7 @@
   let SLASH_COMMANDS = $derived([
     { name: "/exit",    description: "Quit app" },
     { name: "/config",  description: "Open config file" },
+    { name: "/history", description: "Open history file" },
     { name: "/rescan",  description: "Rescan apps" },
     { name: "/version", description: appVersion ? `v${appVersion}` : "Show version" },
     { name: "/update",  description: updateVersion ? `Update to v${updateVersion}` : "Check for updates" },
@@ -321,6 +323,17 @@
           : filtered[selectedIndex];
         launchItem(item, null);
       }
+    } else if (matchKey(e, keybindings.delete_item)) {
+      e.preventDefault();
+      const item = filtered[selectedIndex];
+      if (item?.source === "History") {
+        invoke("delete_history_item", { key: item.path }).then(() => {
+          invoke("rescan");
+        });
+        filtered = filtered.filter((_, i) => i !== selectedIndex);
+        selectedIndex = Math.min(selectedIndex, filtered.length - 1);
+        resizeForSearch(filtered.length);
+      }
     }
   }
 
@@ -455,6 +468,8 @@
       await invoke("exit_app");
     } else if (cmd.name === "/config") {
       await invoke("open_config");
+    } else if (cmd.name === "/history") {
+      await invoke("open_history");
     } else if (cmd.name === "/rescan") {
       await invoke("rescan");
     }

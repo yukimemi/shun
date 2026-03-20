@@ -310,6 +310,18 @@ fn open_config(_app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn open_history(_app: tauri::AppHandle) -> Result<(), String> {
+    let path = history::history_path();
+    tauri_plugin_opener::open_path(path, None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_history_item(key: String) -> Result<(), String> {
+    history::delete(&key).map_err(|e| e.to_string())
+}
+
 fn center_on_cursor_monitor(window: &tauri::WebviewWindow) {
     let cursor = match window.cursor_position() {
         Ok(p) => p,
@@ -423,8 +435,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_config, get_apps, search_items, launch_item,
-            complete_path, exit_app, open_config, rescan, get_last_args, get_args_history,
-            install_update
+            complete_path, exit_app, open_config, open_history, delete_history_item,
+            rescan, get_last_args, get_args_history, install_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

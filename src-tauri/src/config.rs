@@ -77,6 +77,8 @@ pub struct Keybindings {
     pub run_query: String,
     #[serde(default = "default_close")]
     pub close: String,
+    #[serde(default = "default_delete_item")]
+    pub delete_item: String,
 }
 
 fn default_launch() -> String {
@@ -112,6 +114,9 @@ fn default_run_query() -> String {
 fn default_close() -> String {
     "Escape".to_string()
 }
+fn default_delete_item() -> String {
+    "Ctrl+d".to_string()
+}
 fn default_update_check_interval() -> u64 {
     3600
 }
@@ -139,6 +144,7 @@ impl Default for Keybindings {
             delete_line: default_delete_line(),
             run_query: default_run_query(),
             close: default_close(),
+            delete_item: default_delete_item(),
         }
     }
 }
@@ -369,6 +375,7 @@ mod tests {
         assert_eq!(kb.delete_line, "Ctrl+u");
         assert_eq!(kb.run_query, "Shift+Enter");
         assert_eq!(kb.close, "Escape");
+        assert_eq!(kb.delete_item, "Ctrl+d");
     }
 
     // --- TOML parsing ---
@@ -559,6 +566,7 @@ delete_word = "Ctrl+w"
 delete_line = "Ctrl+u"
 run_query   = "Shift+Enter"
 close       = "Escape"
+delete_item = "Ctrl+d"
 
 # アプリ・スクリプトの個別登録
 # [[apps]]

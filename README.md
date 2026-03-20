@@ -125,6 +125,7 @@ delete_word = "Ctrl+w"      # Delete word before cursor (args mode)
 delete_line = "Ctrl+u"      # Delete to beginning of line (args mode)
 run_query   = "Shift+Enter" # Run typed query directly (skip history results)
 close       = "Escape"
+delete_item = "Ctrl+d"     # Delete selected history item
 
 
 
@@ -210,6 +211,12 @@ All keybindings are configurable via `[keybindings]` in `config.toml`.
 | `Ctrl+u` | Delete to beginning of line |
 | `Escape` | Back to search |
 
+### History management
+
+| Key | Action |
+|---|---|
+| `Ctrl+d` | Delete selected **History** item from history |
+
 ### Slash commands
 
 | Command | Action |
@@ -219,6 +226,7 @@ All keybindings are configurable via `[keybindings]` in `config.toml`.
 | `/rescan` | Rescan apps and directories |
 | `/update` | Install latest release (shows version if update available) |
 | `/version` | Show current version |
+| `/history` | Open history file in default editor |
 
 ## Special input
 

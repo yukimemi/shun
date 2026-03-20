@@ -15,7 +15,7 @@ pub struct HistoryEntry {
     pub last_args: Option<String>,
 }
 
-fn history_path() -> PathBuf {
+pub fn history_path() -> PathBuf {
     let base = dirs_next::config_dir().unwrap_or_else(|| PathBuf::from("."));
     base.join("shun").join("history.json")
 }
@@ -83,6 +83,15 @@ pub fn record_args(path: &str, args: &[String]) {
 
 pub fn get_last_args(path: &str) -> Option<String> {
     load().entries.get(path).and_then(|e| e.last_args.clone())
+}
+
+pub fn delete(key: &str) -> Result<(), std::io::Error> {
+    let mut history = load();
+    history.entries.remove(key);
+    let path = history_path();
+    let json = serde_json::to_string_pretty(&history)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    std::fs::write(path, json)
 }
 
 pub fn sort_key(history: &History, item_path: &str) -> (u32, u64) {
