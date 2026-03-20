@@ -230,6 +230,8 @@ You can use [Tera](https://keats.github.io/tera/) template syntax in the `path` 
 |---|---|
 | `{{ args }}` | Extra args joined by space (raw) |
 | `{{ args_list }}` | Extra args as an array |
+| `{{ env.VAR_NAME }}` | Environment variable |
+| `{{ vars.my_var }}` | User-defined variable from `[vars]` in `config.toml` |
 
 **Any Tera filter can be applied**, e.g.:
 
@@ -251,6 +253,40 @@ You can use [Tera](https://keats.github.io/tera/) template syntax in the `path` 
 3. Opens `https://www.google.com/search?q=rust%20borrow%20checker`
 
 The search query is also saved to history, so next time typing `goo` will show `Google › rust borrow checker` as a candidate.
+
+**User-defined variables** — define reusable values in `[vars]` and reference them with `{{ vars.name }}`:
+
+```toml
+[vars]
+src_dir  = "~/src/github.com/yourname"
+work_dir = "C:/work/projects"
+
+[[apps]]
+name       = "Open Project"
+path       = "neovide"
+args       = ["{{ vars.src_dir }}/{{ args }}"]
+completion = "path"
+
+[[apps]]
+name = "Work File"
+path = "neovide"
+args = ["{{ vars.work_dir }}/{{ args }}"]
+```
+
+Machine-specific values can go in `config.local.toml` — local `[vars]` entries override or extend the base config.
+
+**Environment variables** — use `{{ env.VAR_NAME }}` or the Tera built-in `get_env()`:
+
+```toml
+[[apps]]
+name = "Open Project"
+path = "neovide"
+args = ["{{ env.USERPROFILE }}/src/{{ args }}"]
+
+[[apps]]
+name = "Work Dir"
+path = '{{ get_env(name="WORK_DIR", default="~/work") }}/{{ args }}'
+```
 
 ## Keybindings
 
