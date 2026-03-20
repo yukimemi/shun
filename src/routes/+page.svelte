@@ -296,7 +296,19 @@
         query = filtered[selectedIndex].path;
       } else {
         const item = filtered[selectedIndex];
-        if (canHaveArgs(item)) {
+        if (item?.source === "History") {
+          // History アイテム (path\targs) → base exe でargs modeに入り、既存argsをpre-fill
+          argItem = { ...item, args: [], source: "ScanDir", history_key: null };
+          extraArgs = item.args.join(" ");
+          mode = "args";
+          lastArgsGhost = "";
+          historyArgs = [];
+          win.setSize(new LogicalSize(WINDOW_WIDTH, INPUT_HEIGHT));
+          setTimeout(() => argsEl?.focus(), 10);
+          invoke("get_args_history", { path: item.path }).then((candidates) => {
+            historyArgs = candidates;
+          });
+        } else if (canHaveArgs(item)) {
           argItem = item;
           mode = "args";
           lastArgsGhost = "";
