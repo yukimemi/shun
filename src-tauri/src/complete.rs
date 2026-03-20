@@ -89,8 +89,8 @@ fn complete_path(input: &str, base_path: Option<&str>) -> (String, Vec<String>) 
             // base_path がある場合は strip して相対パスで返す
             if let Some(ref base) = base_expanded {
                 let base = base.trim_end_matches('/');
-                if s.starts_with(base) {
-                    return Some(s[base.len()..].trim_start_matches('/').to_string());
+                if let Some(stripped) = s.strip_prefix(base) {
+                    return Some(stripped.trim_start_matches('/').to_string());
                 }
             }
             if let Some(home) = dirs_next::home_dir() {
