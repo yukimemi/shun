@@ -131,14 +131,16 @@ fn launch_item(
 ) -> Result<(), String> {
     let extra = extra_args.unwrap_or_default();
 
-    // history 記録: history_key があればそれを使う（History アイテムの再実行）
-    let record_key = item.history_key.as_deref().unwrap_or(&item.path);
-    history::record(record_key);
-
-    // extra_args ありで新規実行の場合は combined key も記録
+    // history 記録
     if !extra.is_empty() && item.history_key.is_none() {
+        // args ありで新規実行: combined key のみ記録（base は last_args だけ更新）
+        // base も同時に record すると同じ秒になり recent_first の tiebreaker で base が勝ってしまうため
         let all_args: Vec<String> = item.args.iter().chain(extra.iter()).cloned().collect();
         history::record_args(&item.path, &all_args);
+    } else {
+        // args なし or History アイテムの再実行: そのままのキーで記録
+        let record_key = item.history_key.as_deref().unwrap_or(&item.path);
+        history::record(record_key);
     }
 
     // 起動後にキャッシュを更新（次回表示時に history items が反映される）
