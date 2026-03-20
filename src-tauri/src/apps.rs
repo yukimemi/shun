@@ -38,12 +38,16 @@ pub fn build_template_context(extra_args: &[String]) -> tera::Context {
     let mut ctx = tera::Context::new();
     ctx.insert("args", &extra_args.join(" "));
     ctx.insert("args_list", extra_args);
+    // 環境変数を {{ env.VAR_NAME }} として使えるようにする
+    let env_map: std::collections::HashMap<String, String> = std::env::vars().collect();
+    ctx.insert("env", &env_map);
     ctx
 }
 
 pub fn launch_with_extra(item: &LaunchItem, extra_args: Vec<String>) -> Result<(), String> {
-    // extra_args がある場合はテンプレートを展開してから起動
-    if !extra_args.is_empty() {
+    // path か args にテンプレートマーカーがあれば展開（env.* は args なしでも使える）
+    let has_template = item.path.contains("{{") || item.args.iter().any(|a| a.contains("{{"));
+    if has_template || !extra_args.is_empty() {
         let ctx = build_template_context(&extra_args);
         let rendered_path = render_template(&item.path, &ctx);
         let rendered_args: Vec<String> =
@@ -692,6 +696,14 @@ mod tests {
             result,
             "https://www.google.com/search?q=rust%20borrow%20checker"
         );
+    }
+
+    #[test]
+    fn template_env_var() {
+        std::env::set_var("SHUN_TEST_VAR", "hello");
+        let ctx = build_template_context(&[]);
+        let result = render_template("{{ env.SHUN_TEST_VAR }}/world", &ctx);
+        assert_eq!(result, "hello/world");
     }
 
     // --- launch_with_extra merges args ---
