@@ -225,7 +225,7 @@ pub fn collect_items(config: &Config) -> Vec<LaunchItem> {
     items.extend(collect_system_apps());
 
     // 履歴にある URL / Path アイテムを復元
-    items.extend(history_items());
+    items.extend(history_items(config));
 
     // [[overrides]] を name (大文字小文字無視) でマッチして上書き
     for item in &mut items {
@@ -269,7 +269,7 @@ fn is_path(s: &str) -> bool {
         || (s.len() >= 3 && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) && s[1..].starts_with(":\\"))
 }
 
-fn history_items() -> Vec<LaunchItem> {
+fn history_items(config: &Config) -> Vec<LaunchItem> {
     let history = crate::history::load();
     history
         .entries
@@ -280,11 +280,19 @@ fn history_items() -> Vec<LaunchItem> {
                 let exe_path = &key[..tab_idx];
                 let args_str = &key[tab_idx + 1..];
                 let args: Vec<String> = args_str.split_whitespace().map(String::from).collect();
-                let app_name = std::path::Path::new(exe_path)
-                    .file_stem()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or(exe_path)
-                    .to_string();
+                // config [[apps]] でパスが一致するエントリの name を優先して使う
+                let app_name = config
+                    .apps
+                    .iter()
+                    .find(|a| a.path == exe_path)
+                    .map(|a| a.name.clone())
+                    .unwrap_or_else(|| {
+                        std::path::Path::new(exe_path)
+                            .file_stem()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or(exe_path)
+                            .to_string()
+                    });
                 Some(LaunchItem {
                     name: format!("{} › {}", app_name, args_str),
                     path: exe_path.to_string(),
@@ -296,7 +304,8 @@ fn history_items() -> Vec<LaunchItem> {
                     completion_command: None,
                     history_key: Some(key.clone()),
                 })
-            } else if is_url(key) {
+            } else if is_url(key) && !key.contains("{{") {
+                // テンプレート URL（{{ }} を含む）は直接開けないのでスキップ
                 Some(LaunchItem {
                     name: key.clone(),
                     path: key.clone(),

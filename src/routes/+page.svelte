@@ -116,6 +116,7 @@
     completionIndex = 0;
     lastArgsGhost = "";
     historyArgs = [];
+    resizeForSearch(filtered.length);
     setTimeout(() => inputEl?.focus(), 10);
   }
 

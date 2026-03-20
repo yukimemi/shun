@@ -2,6 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use futures_util::StreamExt;
 use std::sync::atomic::{AtomicU64, Ordering};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_updater::UpdaterExt;
@@ -543,6 +545,39 @@ pub fn run() {
                     }
                 }
             });
+
+            // システムトレイ
+            let tray_menu = Menu::with_items(
+                app,
+                &[
+                    &MenuItem::with_id(app, "show", "Show shun", true, None::<&str>)?,
+                    &MenuItem::with_id(app, "config", "Config", true, None::<&str>)?,
+                    &MenuItem::with_id(app, "exit", "Exit", true, None::<&str>)?,
+                ],
+            )?;
+            TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&tray_menu)
+                .tooltip("shun")
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(win) = app.get_webview_window("main") {
+                            center_on_cursor_monitor(&win);
+                            win.show().ok();
+                            win.set_focus().ok();
+                            win.emit("show-launcher", ()).ok();
+                        }
+                    }
+                    "config" => {
+                        let path = config::config_path();
+                        tauri_plugin_opener::open_path(path, None::<&str>).ok();
+                    }
+                    "exit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .build(app)?;
 
             let shortcut: Shortcut = launch_shortcut.parse().expect("invalid shortcut");
             app.global_shortcut()
