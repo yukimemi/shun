@@ -102,7 +102,9 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
                     let mut c = std::process::Command::new("cmd");
                     c.args(["/c", &resolved]);
                     c.creation_flags(CREATE_NEW_CONSOLE);
-                    if !item.args.is_empty() { c.args(&item.args); }
+                    if !item.args.is_empty() {
+                        c.args(&item.args);
+                    }
                     if let Some(workdir) = &item.workdir {
                         c.current_dir(crate::utils::expand_path(workdir));
                     }
@@ -111,9 +113,17 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
                 ResolvedCmd::Ps1(resolved) => {
                     const CREATE_NEW_CONSOLE: u32 = 0x00000010;
                     let mut c = std::process::Command::new("powershell");
-                    c.args(["-NoProfile", "-ExecutionPolicy", "ByPass", "-File", &resolved]);
+                    c.args([
+                        "-NoProfile",
+                        "-ExecutionPolicy",
+                        "ByPass",
+                        "-File",
+                        &resolved,
+                    ]);
                     c.creation_flags(CREATE_NEW_CONSOLE);
-                    if !item.args.is_empty() { c.args(&item.args); }
+                    if !item.args.is_empty() {
+                        c.args(&item.args);
+                    }
                     if let Some(workdir) = &item.workdir {
                         c.current_dir(crate::utils::expand_path(workdir));
                     }
@@ -145,8 +155,7 @@ fn resolve_windows_cmd(name: &str) -> ResolvedCmd {
     if p.extension().is_some() || name.contains('/') || name.contains('\\') {
         return ResolvedCmd::Other;
     }
-    let pathext = std::env::var("PATHEXT")
-        .unwrap_or_else(|_| ".EXE;.CMD;.BAT;.PS1".to_string());
+    let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".EXE;.CMD;.BAT;.PS1".to_string());
     let path_var = std::env::var("PATH").unwrap_or_default();
     for dir in std::env::split_paths(&path_var) {
         for ext in pathext.split(';') {
@@ -190,12 +199,26 @@ pub fn collect_items(config: &Config) -> Vec<LaunchItem> {
 
     // [[overrides]] を name (大文字小文字無視) でマッチして上書き
     for item in &mut items {
-        if let Some(ov) = config.overrides.iter().find(|o| o.name.to_lowercase() == item.name.to_lowercase()) {
-            if let Some(ref v) = ov.completion { item.completion = v.clone(); }
-            if !ov.completion_list.is_empty() { item.completion_list = ov.completion_list.clone(); }
-            if ov.completion_command.is_some() { item.completion_command = ov.completion_command.clone(); }
-            if let Some(ref v) = ov.args { item.args = v.clone(); }
-            if ov.workdir.is_some() { item.workdir = ov.workdir.clone(); }
+        if let Some(ov) = config
+            .overrides
+            .iter()
+            .find(|o| o.name.to_lowercase() == item.name.to_lowercase())
+        {
+            if let Some(ref v) = ov.completion {
+                item.completion = v.clone();
+            }
+            if !ov.completion_list.is_empty() {
+                item.completion_list = ov.completion_list.clone();
+            }
+            if ov.completion_command.is_some() {
+                item.completion_command = ov.completion_command.clone();
+            }
+            if let Some(ref v) = ov.args {
+                item.args = v.clone();
+            }
+            if ov.workdir.is_some() {
+                item.workdir = ov.workdir.clone();
+            }
         }
     }
 
@@ -348,7 +371,6 @@ fn collect_files(
         }
     }
 }
-
 
 #[cfg(target_os = "windows")]
 fn collect_system_apps() -> Vec<LaunchItem> {
@@ -612,4 +634,3 @@ mod tests {
         let _ = result;
     }
 }
-

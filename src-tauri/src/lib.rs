@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 use futures_util::StreamExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{Emitter, Manager};
-use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+use tauri_plugin_updater::UpdaterExt;
 use tokio::io::AsyncBufReadExt;
 
 mod apps;
@@ -88,7 +88,7 @@ fn sort_items(items: &mut [apps::LaunchItem], hist: &history::History, config: &
             return a.name.to_lowercase().cmp(&b.name.to_lowercase());
         }
         match config.sort_order {
-            config::SortOrder::CountFirst  => bc.cmp(&ac).then(bt.cmp(&at)),
+            config::SortOrder::CountFirst => bc.cmp(&ac).then(bt.cmp(&at)),
             config::SortOrder::RecentFirst => bt.cmp(&at).then(bc.cmp(&ac)),
         }
     });
@@ -108,13 +108,25 @@ fn complete_path(
     completion_command: Option<String>,
     workdir: Option<String>,
 ) -> CompleteResult {
-    let (prefix, completions) =
-        complete::complete(&input, &completion_type, &completion_list, &completion_command, &workdir);
-    CompleteResult { prefix, completions }
+    let (prefix, completions) = complete::complete(
+        &input,
+        &completion_type,
+        &completion_list,
+        &completion_command,
+        &workdir,
+    );
+    CompleteResult {
+        prefix,
+        completions,
+    }
 }
 
 #[tauri::command]
-fn launch_item(item: apps::LaunchItem, extra_args: Option<Vec<String>>, state: tauri::State<CacheState>) -> Result<(), String> {
+fn launch_item(
+    item: apps::LaunchItem,
+    extra_args: Option<Vec<String>>,
+    state: tauri::State<CacheState>,
+) -> Result<(), String> {
     let extra = extra_args.unwrap_or_default();
 
     // history 記録: history_key があればそれを使う（History アイテムの再実行）
@@ -162,7 +174,7 @@ fn get_args_history(path: String) -> Vec<String> {
         .collect();
 
     entries.sort_by(|(_, ac, at), (_, bc, bt)| match config.sort_order {
-        config::SortOrder::CountFirst  => bc.cmp(ac).then(bt.cmp(at)),
+        config::SortOrder::CountFirst => bc.cmp(ac).then(bt.cmp(at)),
         config::SortOrder::RecentFirst => bt.cmp(at).then(bc.cmp(ac)),
     });
 
@@ -191,9 +203,15 @@ fn should_check_update(interval_secs: u64) -> bool {
         return false;
     }
     let path = last_update_check_path();
-    let Ok(meta) = std::fs::metadata(&path) else { return true };
-    let Ok(modified) = meta.modified() else { return true };
-    let Ok(elapsed) = modified.elapsed() else { return true };
+    let Ok(meta) = std::fs::metadata(&path) else {
+        return true;
+    };
+    let Ok(modified) = meta.modified() else {
+        return true;
+    };
+    let Ok(elapsed) = modified.elapsed() else {
+        return true;
+    };
     elapsed.as_secs() > interval_secs
 }
 
@@ -213,7 +231,8 @@ fn detect_install_method() -> InstallMethod {
     let exe = std::env::current_exe().ok();
 
     // portable.txt が exe の隣にあればポータブルモード
-    if exe.as_ref()
+    if exe
+        .as_ref()
         .and_then(|p| p.parent().map(|d| d.join("portable.txt")))
         .map(|p| p.exists())
         .unwrap_or(false)
@@ -235,7 +254,11 @@ fn detect_install_method() -> InstallMethod {
     }
 }
 
-async fn run_pkg_manager_update(app: &tauri::AppHandle, program: &str, args: &[&str]) -> Result<(), String> {
+async fn run_pkg_manager_update(
+    app: &tauri::AppHandle,
+    program: &str,
+    args: &[&str],
+) -> Result<(), String> {
     run_pkg_manager_update_env(app, program, args, &[]).await
 }
 
@@ -252,7 +275,9 @@ async fn run_pkg_manager_update_env(
     for (k, v) in envs {
         cmd.env(k, v);
     }
-    let mut child = cmd.spawn().map_err(|e| format!("failed to run {program}: {e}"))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("failed to run {program}: {e}"))?;
 
     if let Some(stdout) = child.stdout.take() {
         let mut lines = tokio::io::BufReader::new(stdout).lines();
@@ -276,12 +301,17 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         InstallMethod::Scoop => {
             #[cfg(target_os = "windows")]
             {
-                run_pkg_manager_update(&app, "powershell", &[
-                    "-NoProfile", "-Command", "scoop update shun",
-                ]).await
+                run_pkg_manager_update(
+                    &app,
+                    "powershell",
+                    &["-NoProfile", "-Command", "scoop update shun"],
+                )
+                .await
             }
             #[cfg(not(target_os = "windows"))]
-            { Ok(()) }
+            {
+                Ok(())
+            }
         }
 
         InstallMethod::Homebrew => {
@@ -293,7 +323,8 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                     ("HOMEBREW_NO_AUTO_UPDATE", "1"),
                     ("HOMEBREW_NO_INTERACTIVE", "1"),
                 ],
-            ).await
+            )
+            .await
         }
 
         InstallMethod::Standard => {
@@ -305,8 +336,12 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                 update
                     .download_and_install(
                         move |chunk, total| {
-                            let d = downloaded_c.fetch_add(chunk as u64, Ordering::SeqCst) + chunk as u64;
-                            let _ = app_prog.emit("update-progress", serde_json::json!({ "downloaded": d, "total": total }));
+                            let d = downloaded_c.fetch_add(chunk as u64, Ordering::SeqCst)
+                                + chunk as u64;
+                            let _ = app_prog.emit(
+                                "update-progress",
+                                serde_json::json!({ "downloaded": d, "total": total }),
+                            );
                         },
                         || {},
                     )
@@ -327,7 +362,10 @@ async fn install_update_portable(app: &tauri::AppHandle) -> Result<(), String> {
     }
 
     let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_dir = current_exe.parent().ok_or("cannot find exe dir")?.to_path_buf();
+    let exe_dir = current_exe
+        .parent()
+        .ok_or("cannot find exe dir")?
+        .to_path_buf();
 
     // GitHub の latest release から portable zip をストリーミングダウンロード
     let client = reqwest::Client::builder()
@@ -349,7 +387,10 @@ async fn install_update_portable(app: &tauri::AppHandle) -> Result<(), String> {
         let chunk = chunk.map_err(|e| e.to_string())?;
         downloaded += chunk.len() as u64;
         buf.extend_from_slice(&chunk);
-        let _ = app.emit("update-progress", serde_json::json!({ "downloaded": downloaded, "total": total }));
+        let _ = app.emit(
+            "update-progress",
+            serde_json::json!({ "downloaded": downloaded, "total": total }),
+        );
     }
     // zip から shun.exe を取り出す
     let cursor = std::io::Cursor::new(buf);
@@ -388,15 +429,13 @@ async fn install_update_portable(app: &tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn open_config(_app: tauri::AppHandle) -> Result<(), String> {
     let path = config::config_path();
-    tauri_plugin_opener::open_path(path, None::<&str>)
-        .map_err(|e| e.to_string())
+    tauri_plugin_opener::open_path(path, None::<&str>).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn open_history(_app: tauri::AppHandle) -> Result<(), String> {
     let path = history::history_path();
-    tauri_plugin_opener::open_path(path, None::<&str>)
-        .map_err(|e| e.to_string())
+    tauri_plugin_opener::open_path(path, None::<&str>).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -498,27 +537,38 @@ pub fn run() {
             });
 
             let shortcut: Shortcut = launch_shortcut.parse().expect("invalid shortcut");
-            app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
-                if event.state == ShortcutState::Pressed {
-                    if window.is_visible().unwrap_or(false) {
-                        window.hide().ok();
-                        // 非表示になったタイミングでキャッシュを更新（次回表示時に即座に使える）
-                        refresh_cache_bg(Arc::clone(&cache));
-                    } else {
-                        center_on_cursor_monitor(&window);
-                        window.show().ok();
-                        window.set_focus().ok();
-                        window.emit("show-launcher", ()).ok();
+            app.global_shortcut()
+                .on_shortcut(shortcut, move |_app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        if window.is_visible().unwrap_or(false) {
+                            window.hide().ok();
+                            // 非表示になったタイミングでキャッシュを更新（次回表示時に即座に使える）
+                            refresh_cache_bg(Arc::clone(&cache));
+                        } else {
+                            center_on_cursor_monitor(&window);
+                            window.show().ok();
+                            window.set_focus().ok();
+                            window.emit("show-launcher", ()).ok();
+                        }
                     }
-                }
-            })?;
+                })?;
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            get_config, get_apps, search_items, launch_item,
-            complete_path, exit_app, open_config, open_history, delete_history_item,
-            rescan, get_last_args, get_args_history, install_update
+            get_config,
+            get_apps,
+            search_items,
+            launch_item,
+            complete_path,
+            exit_app,
+            open_config,
+            open_history,
+            delete_history_item,
+            rescan,
+            get_last_args,
+            get_args_history,
+            install_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

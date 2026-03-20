@@ -46,11 +46,14 @@ fn save(history: &History) {
 pub fn record(key: &str) {
     let mut history = load();
     let now = now_secs();
-    let entry = history.entries.entry(key.to_string()).or_insert(HistoryEntry {
-        count: 0,
-        last_used: 0,
-        last_args: None,
-    });
+    let entry = history
+        .entries
+        .entry(key.to_string())
+        .or_insert(HistoryEntry {
+            count: 0,
+            last_used: 0,
+            last_args: None,
+        });
     entry.count += 1;
     entry.last_used = now;
     save(&history);
@@ -59,7 +62,9 @@ pub fn record(key: &str) {
 /// extra_args ありで起動したとき: `path\targs` を別エントリとして記録し、
 /// base path の last_args も更新する。
 pub fn record_args(path: &str, args: &[String]) {
-    if args.is_empty() { return; }
+    if args.is_empty() {
+        return;
+    }
     let args_str = args.join(" ");
     let combined_key = format!("{}\t{}", path, args_str);
     let now = now_secs();
@@ -67,15 +72,22 @@ pub fn record_args(path: &str, args: &[String]) {
 
     // combined entry
     let combined = history.entries.entry(combined_key).or_insert(HistoryEntry {
-        count: 0, last_used: 0, last_args: None,
+        count: 0,
+        last_used: 0,
+        last_args: None,
     });
     combined.count += 1;
     combined.last_used = now;
 
     // base path の last_args を更新
-    let base = history.entries.entry(path.to_string()).or_insert(HistoryEntry {
-        count: 0, last_used: 0, last_args: None,
-    });
+    let base = history
+        .entries
+        .entry(path.to_string())
+        .or_insert(HistoryEntry {
+            count: 0,
+            last_used: 0,
+            last_args: None,
+        });
     base.last_args = Some(args_str);
 
     save(&history);
@@ -89,8 +101,7 @@ pub fn delete(key: &str) -> Result<(), std::io::Error> {
     let mut history = load();
     history.entries.remove(key);
     let path = history_path();
-    let json = serde_json::to_string_pretty(&history)
-        .map_err(std::io::Error::other)?;
+    let json = serde_json::to_string_pretty(&history).map_err(std::io::Error::other)?;
     std::fs::write(path, json)
 }
 
@@ -117,9 +128,14 @@ mod tests {
     #[test]
     fn sort_key_returns_count_and_timestamp() {
         let mut hist = History::default();
-        hist.entries.insert("myapp".to_string(), HistoryEntry {
-            count: 5, last_used: 1000, last_args: None,
-        });
+        hist.entries.insert(
+            "myapp".to_string(),
+            HistoryEntry {
+                count: 5,
+                last_used: 1000,
+                last_args: None,
+            },
+        );
         assert_eq!(sort_key(&hist, "myapp"), (5, 1000));
     }
 
@@ -128,9 +144,14 @@ mod tests {
     #[test]
     fn history_serde_roundtrip() {
         let mut hist = History::default();
-        hist.entries.insert("app".to_string(), HistoryEntry {
-            count: 3, last_used: 999, last_args: Some("--flag".to_string()),
-        });
+        hist.entries.insert(
+            "app".to_string(),
+            HistoryEntry {
+                count: 3,
+                last_used: 999,
+                last_args: Some("--flag".to_string()),
+            },
+        );
         let json = serde_json::to_string(&hist).unwrap();
         let restored: History = serde_json::from_str(&json).unwrap();
         let entry = &restored.entries["app"];

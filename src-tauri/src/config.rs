@@ -5,16 +5,16 @@ use std::path::PathBuf;
 #[serde(rename_all = "snake_case")]
 pub enum SearchMode {
     #[default]
-    Fuzzy,  // ファジー検索 (デフォルト)
-    Exact,  // 部分一致
+    Fuzzy, // ファジー検索 (デフォルト)
+    Exact, // 部分一致
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SortOrder {
     #[default]
-    CountFirst,   // 回数 -> 直近 -> アルファベット (デフォルト)
-    RecentFirst,  // 直近 -> 回数 -> アルファベット
+    CountFirst, // 回数 -> 直近 -> アルファベット (デフォルト)
+    RecentFirst, // 直近 -> 回数 -> アルファベット
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,10 +143,10 @@ impl Default for Keybindings {
 #[serde(rename_all = "snake_case")]
 pub enum CompletionType {
     #[default]
-    Path,     // ファイルシステム補完 (デフォルト)
-    None,     // 補完なし
-    List,     // completion_list から補完
-    Command,  // completion_command の出力から補完
+    Path, // ファイルシステム補完 (デフォルト)
+    None,    // 補完なし
+    List,    // completion_list から補完
+    Command, // completion_command の出力から補完
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -491,7 +491,7 @@ path = "/local/app"
         let local = "hide_on_blur = true";
         merge_local_config(&mut base, local);
         assert_eq!(base.search_mode, SearchMode::Exact); // 変わらない
-        assert!(base.hide_on_blur);                      // 上書きされた
+        assert!(base.hide_on_blur); // 上書きされた
     }
 
     #[test]

@@ -90,7 +90,10 @@ fn complete_list(input: &str, list: &[String]) -> (String, Vec<String>) {
     // 入力がすでに完全な list アイテム + スペース で始まっていたら補完しない
     // (例: "search " や "search hoge" は補完不要)
     let input_lower = input.to_lowercase();
-    if list.iter().any(|item| input_lower.starts_with(&format!("{} ", item.to_lowercase()))) {
+    if list
+        .iter()
+        .any(|item| input_lower.starts_with(&format!("{} ", item.to_lowercase())))
+    {
         return (String::new(), vec![]);
     }
     let mut completions: Vec<String> = list
@@ -201,7 +204,10 @@ mod tests {
 
     #[test]
     fn split_with_space() {
-        assert_eq!(split_last_token("--flag foo"), ("--flag ".to_string(), "foo"));
+        assert_eq!(
+            split_last_token("--flag foo"),
+            ("--flag ".to_string(), "foo")
+        );
     }
 
     #[test]
@@ -250,7 +256,11 @@ mod tests {
 
     #[test]
     fn sort_dirs_before_dotdirs() {
-        let mut v = vec![".git/".to_string(), "src/".to_string(), "README.md".to_string()];
+        let mut v = vec![
+            ".git/".to_string(),
+            "src/".to_string(),
+            "README.md".to_string(),
+        ];
         sort_completions(&mut v);
         // src/ (normal dir) before README.md (file) before .git/ (dot dir)
         let src_pos = v.iter().position(|s| s == "src/").unwrap();
@@ -264,7 +274,11 @@ mod tests {
 
     #[test]
     fn list_prefix_match() {
-        let list = vec!["start".to_string(), "stop".to_string(), "status".to_string()];
+        let list = vec![
+            "start".to_string(),
+            "stop".to_string(),
+            "status".to_string(),
+        ];
         let (prefix, completions) = complete_list("st", &list);
         assert_eq!(prefix, "");
         assert!(completions.contains(&"start".to_string()));
@@ -348,4 +362,3 @@ mod tests {
         assert!(!completions.is_empty());
     }
 }
-
