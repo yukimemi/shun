@@ -110,9 +110,19 @@ fn complete_path(
     completion_command: Option<String>,
     workdir: Option<String>,
     item_args: Option<Vec<String>>,
+    state: tauri::State<CacheState>,
 ) -> CompleteResult {
+    let vars = {
+        let cache = state.lock().unwrap();
+        cache
+            .as_ref()
+            .map(|c| c.config.vars.clone())
+            .unwrap_or_default()
+    };
     // テンプレート args から {{ args }} 前の固定部分をベースパスとして抽出
-    let base_path = item_args.as_deref().and_then(extract_template_base_path);
+    let base_path = item_args
+        .as_deref()
+        .and_then(|a| extract_template_base_path(a, &vars));
     let (prefix, completions) = complete::complete(
         &input,
         &completion_type,
@@ -128,15 +138,18 @@ fn complete_path(
 }
 
 /// `args` テンプレートの最初の要素から `{{ args }}` 前の固定プレフィックスを取得・展開する
-/// 例: `["{{ env.USERPROFILE }}/src/{{ args }}"]` → `Some("C:/Users/yukimemi/src/")`
-fn extract_template_base_path(args: &[String]) -> Option<String> {
+/// 例: `["{{ vars.src_dir }}/{{ args }}"]` → `Some("~/src/")` (vars展開済み)
+fn extract_template_base_path(
+    args: &[String],
+    vars: &std::collections::HashMap<String, String>,
+) -> Option<String> {
     let first = args.first()?;
     let pos = first.find("{{ args }}")?;
     let prefix = &first[..pos];
     if prefix.is_empty() {
         return None;
     }
-    let ctx = apps::build_template_context(&[], &Default::default());
+    let ctx = apps::build_template_context(&[], vars);
     let rendered = apps::render_template(prefix, &ctx);
     let rendered = rendered.replace('\\', "/");
     if !rendered.ends_with('/') {
