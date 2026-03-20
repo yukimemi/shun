@@ -1,5 +1,5 @@
 PackageIdentifier: yukimemi.shun
-PackageVersion: 1.1.5
+PackageVersion: 1.2.2
 PackageLocale: en-US
 Publisher: yukimemi
 PublisherUrl: https://github.com/yukimemi
@@ -22,6 +22,6 @@ Tags:
   - fuzzy-search
   - alfred
   - raycast
-ReleaseNotesUrl: https://github.com/yukimemi/shun/releases/tag/v1.1.5
+ReleaseNotesUrl: https://github.com/yukimemi/shun/releases/tag/v1.2.2
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0
