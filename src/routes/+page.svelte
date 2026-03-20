@@ -361,6 +361,17 @@
     return () => { clearInterval(id); if (el) el.scrollLeft = 0; };
   });
 
+  // MAX_ITEMS / MAX_COMPLETIONS が変わったときにウィンドウサイズを再計算
+  $effect(() => {
+    const _mi = MAX_ITEMS;       // 依存として登録
+    const _mc = MAX_COMPLETIONS; // 依存として登録
+    if (mode === "search") {
+      resizeForSearch(filtered.length);
+    } else {
+      resizeForArgs(allCompletions.length);
+    }
+  });
+
   // search モード: クエリで絞り込み
   $effect(() => {
     if (query.startsWith("/")) {
