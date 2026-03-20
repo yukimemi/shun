@@ -154,12 +154,35 @@ fn launch_item(
 ) -> Result<(), String> {
     let extra = extra_args.unwrap_or_default();
 
+    let vars = {
+        let cache = state.lock().unwrap();
+        cache
+            .as_ref()
+            .map(|c| c.config.vars.clone())
+            .unwrap_or_default()
+    };
+
     // history 記録
     if !extra.is_empty() && item.history_key.is_none() {
         // args ありで新規実行: combined key のみ記録（base は last_args だけ更新）
         // base も同時に record すると同じ秒になり recent_first の tiebreaker で base が勝ってしまうため
-        let all_args: Vec<String> = item.args.iter().chain(extra.iter()).cloned().collect();
-        history::record_args(&item.path, &all_args);
+        // item.args にテンプレートが含まれる場合は展開した結果を記録する
+        let history_args: Vec<String> = if item.args.iter().any(|a| a.contains("{{")) {
+            let ctx = apps::build_template_context(&extra, &vars);
+            item.args
+                .iter()
+                .map(|a| apps::render_template(a, &ctx))
+                .collect()
+        } else {
+            item.args.iter().chain(extra.iter()).cloned().collect()
+        };
+        // Config アイテムは name をキーに記録する（同じ exe を使う別エントリと区別するため）
+        let record_key = if matches!(item.source, apps::ItemSource::Config) {
+            &item.name
+        } else {
+            &item.path
+        };
+        history::record_args(record_key, &history_args);
     } else {
         // args なし or History アイテムの再実行: そのままのキーで記録
         let record_key = item.history_key.as_deref().unwrap_or(&item.path);
@@ -175,13 +198,6 @@ fn launch_item(
         extra.clone()
     } else {
         item.args.clone()
-    };
-    let vars = {
-        let cache = state.lock().unwrap();
-        cache
-            .as_ref()
-            .map(|c| c.config.vars.clone())
-            .unwrap_or_default()
     };
     let path = if item.path.contains("{{") {
         let ctx = apps::build_template_context(&template_args, &vars);

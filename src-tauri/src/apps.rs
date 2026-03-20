@@ -293,22 +293,26 @@ fn history_items(config: &Config) -> Vec<LaunchItem> {
                 let exe_path = &key[..tab_idx];
                 let args_str = &key[tab_idx + 1..];
                 let args: Vec<String> = args_str.split_whitespace().map(String::from).collect();
-                // config [[apps]] でパスが一致するエントリの name を優先して使う
-                let app_name = config
+                // まず name で逆引き（Config アイテムは name をキーに記録）、
+                // 次に path で検索（旧形式との互換性）
+                let app_entry = config
                     .apps
                     .iter()
-                    .find(|a| a.path == exe_path)
-                    .map(|a| a.name.clone())
-                    .unwrap_or_else(|| {
-                        std::path::Path::new(exe_path)
-                            .file_stem()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or(exe_path)
-                            .to_string()
-                    });
+                    .find(|a| a.name == exe_path)
+                    .or_else(|| config.apps.iter().find(|a| a.path == exe_path));
+                let (app_name, launch_path) = if let Some(entry) = app_entry {
+                    (entry.name.clone(), entry.path.clone())
+                } else {
+                    let name = std::path::Path::new(exe_path)
+                        .file_stem()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or(exe_path)
+                        .to_string();
+                    (name, exe_path.to_string())
+                };
                 Some(LaunchItem {
                     name: format!("{} › {}", app_name, args_str),
-                    path: exe_path.to_string(),
+                    path: launch_path,
                     args,
                     workdir: None,
                     source: ItemSource::History,
