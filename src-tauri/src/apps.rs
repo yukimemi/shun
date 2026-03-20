@@ -457,7 +457,6 @@ fn collect_system_apps() -> Vec<LaunchItem> {
 
 #[cfg(target_os = "linux")]
 fn collect_system_apps() -> Vec<LaunchItem> {
-    use std::io::{BufRead, BufReader};
 
     let xdg_dirs = vec![
         PathBuf::from("/usr/share/applications"),
@@ -497,7 +496,7 @@ fn parse_desktop_file(path: &Path) -> Option<LaunchItem> {
     let mut exec = None;
     let mut no_display = false;
 
-    for line in reader.lines().flatten() {
+    for line in reader.lines().map_while(|l| l.ok()) {
         if line.starts_with("Name=") && name.is_none() {
             name = Some(line[5..].to_string());
         } else if line.starts_with("Exec=") && exec.is_none() {

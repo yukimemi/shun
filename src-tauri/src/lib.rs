@@ -254,6 +254,7 @@ fn detect_install_method() -> InstallMethod {
     }
 }
 
+#[cfg(target_os = "windows")]
 async fn run_pkg_manager_update(
     app: &tauri::AppHandle,
     program: &str,
