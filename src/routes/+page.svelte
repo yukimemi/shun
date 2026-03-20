@@ -297,11 +297,12 @@
       } else {
         const item = filtered[selectedIndex];
         if (item?.source === "History") {
-          // History アイテム (path\targs) → base exe でargs modeに入り、既存argsをpre-fill
-          argItem = { ...item, args: [], source: "ScanDir", history_key: null };
-          extraArgs = item.args.join(" ");
+          // History アイテム (path\targs) → base exe でargs modeに入り、既存argsはghost textで提示
+          const baseName = item.name.split(" › ")[0];
+          argItem = { ...item, name: baseName, args: [], source: "ScanDir", history_key: null };
+          extraArgs = "";
           mode = "args";
-          lastArgsGhost = "";
+          lastArgsGhost = item.args.join(" ");
           historyArgs = [];
           win.setSize(new LogicalSize(WINDOW_WIDTH, INPUT_HEIGHT));
           setTimeout(() => argsEl?.focus(), 10);
