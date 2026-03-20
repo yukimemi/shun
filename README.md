@@ -43,12 +43,12 @@
 
 **Windows** (PowerShell, no admin required)
 ```powershell
-irm https://raw.githubusercontent.com/yukimemi/shun/main/install.ps1 | iex
+irm https://yukimemi.github.io/shun/install.ps1 | iex
 ```
 
 **macOS / Linux**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yukimemi/shun/main/install.sh | sh
+curl -fsSL https://yukimemi.github.io/shun/install.sh | sh
 ```
 
 ### Package managers
