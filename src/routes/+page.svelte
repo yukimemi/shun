@@ -9,7 +9,7 @@
 
   let WINDOW_WIDTH = $state(620);
   const INPUT_HEIGHT = 52;
-  const ITEM_HEIGHT = 38;
+  const ITEM_HEIGHT = 40;
   const BORDER_HEIGHT = 1;
   const RESULTS_PADDING = 8;
   let MAX_ITEMS = $state(8);
