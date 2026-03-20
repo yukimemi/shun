@@ -292,6 +292,7 @@ jobs:
     steps:
       - name: Submit to WinGet
         if: env.WINGET_TOKEN != ''
+        continue-on-error: true
         uses: vedantmgoyal9/winget-releaser@v2
         with:
           identifier: yukimemi.shun

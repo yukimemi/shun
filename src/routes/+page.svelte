@@ -332,7 +332,7 @@
       e.preventDefault();
       const item = filtered[selectedIndex];
       if (item?.source === "History") {
-        invoke("delete_history_item", { key: item.path }).then(() => {
+        invoke("delete_history_item", { key: item.history_key ?? item.path }).then(() => {
           invoke("rescan");
         });
         filtered = filtered.filter((_, i) => i !== selectedIndex);
