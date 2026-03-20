@@ -39,7 +39,11 @@ fn complete_path(input: &str, base_path: Option<&str>) -> (String, Vec<String>) 
         return (prefix, vec![]);
     }
 
-    let expanded = crate::utils::expand_path(if partial.is_empty() { &effective_input } else { partial });
+    let expanded = crate::utils::expand_path(if partial.is_empty() {
+        &effective_input
+    } else {
+        partial
+    });
     let expanded_path = Path::new(&expanded);
 
     let (dir, stem) = if expanded.ends_with('/') || expanded.ends_with('\\') {
@@ -102,7 +106,10 @@ fn complete_path(input: &str, base_path: Option<&str>) -> (String, Vec<String>) 
     sort_completions(&mut completions);
     // base_path がある場合は prefix も strip（ユーザー入力の空白区切り部分のみ残す）
     let final_prefix = if base_path.is_some() {
-        let base_len = base_expanded.as_deref().map(|b| b.trim_end_matches('/').len() + 1).unwrap_or(0);
+        let base_len = base_expanded
+            .as_deref()
+            .map(|b| b.trim_end_matches('/').len() + 1)
+            .unwrap_or(0);
         if prefix.len() > base_len {
             prefix[base_len..].to_string()
         } else {

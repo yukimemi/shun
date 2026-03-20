@@ -112,9 +112,7 @@ fn complete_path(
     item_args: Option<Vec<String>>,
 ) -> CompleteResult {
     // テンプレート args から {{ args }} 前の固定部分をベースパスとして抽出
-    let base_path = item_args
-        .as_deref()
-        .and_then(extract_template_base_path);
+    let base_path = item_args.as_deref().and_then(extract_template_base_path);
     let (prefix, completions) = complete::complete(
         &input,
         &completion_type,
