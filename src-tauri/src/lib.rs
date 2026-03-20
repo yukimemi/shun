@@ -145,8 +145,14 @@ fn launch_item(
     refresh_cache_bg(Arc::clone(state.inner()));
 
     // extra_args があればテンプレートを展開してから path を確定
-    let path = if !extra.is_empty() {
-        let ctx = apps::build_template_context(&extra);
+    // History アイテムは extra が空でも item.args にすでに引数が入っているので使う
+    let template_args = if !extra.is_empty() {
+        extra.clone()
+    } else {
+        item.args.clone()
+    };
+    let path = if item.path.contains("{{") {
+        let ctx = apps::build_template_context(&template_args);
         apps::render_template(&item.path, &ctx)
     } else {
         item.path.clone()
