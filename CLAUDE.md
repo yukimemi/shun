@@ -97,7 +97,7 @@ Auto-created at first launch:
 
 ## Testing
 
-### Rust tests (63 total)
+### Rust tests (79 total)
 Each module has a `#[cfg(test)]` block:
 - `config.rs` — defaults, TOML parsing, keybinding overrides
 - `search.rs` — fuzzy/exact filter
@@ -106,7 +106,7 @@ Each module has a `#[cfg(test)]` block:
 - `utils.rs` — expand_path variants
 - `apps.rs` — is_url, is_path, launch_with_extra
 
-### Frontend tests (36 total)
+### Frontend tests (37 total)
 `src/lib/utils.test.js` covers `firstSepIdx`, `isPathQuery`, `matchKey`.
 
 Do not mock these — they are pure functions with no Tauri dependencies.
@@ -127,11 +127,16 @@ Do not mock these — they are pure functions with no Tauri dependencies.
 - Signing key: `~/.tauri/shun.key` (pubkey in `tauri.conf.json`; private key in `TAURI_SIGNING_PRIVATE_KEY` GitHub secret, no password)
 - `latest.json` is auto-generated and uploaded by tauri-action to each release
 
-## Current status (2026-03-19)
+## Current status (2026-03-21)
 
-- Latest tag: **v1.0.13**
-- Auto-update fully working (v1.0.7+): `latest.json` generated, signatures present
-- Portable self-update working (v1.0.8+): `portable.txt` in zip triggers zip-download path
-- Download progress display working (v1.0.13+): `update-progress` events shown in query
-- Renovate auto-merge enabled for patch/minor updates (v1.0.12+)
+- Latest tag: **v1.5.10**
+- Auto-update fully working: `latest.json` generated, signatures present
+- Portable self-update working: `portable.txt` in zip triggers zip-download path
+- Download progress display working: `update-progress` events shown in query
+- Renovate auto-merge enabled for patch/minor updates
 - Version files (package.json, tauri.conf.json, Cargo.toml) auto-committed back to main after each release
+- System tray icon with Show / Config / Exit menu
+- `[vars]` section in config for user-defined Tera template variables (`{{ vars.my_var }}`)
+- Config items use `item.name` as history key (distinguishes apps sharing the same executable)
+- Pre-push hook in `.claude/settings.json`: cargo fmt --check, cargo clippy -D warnings, npm test
+- Rust tests: 79 total / Frontend tests: 37 total
