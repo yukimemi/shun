@@ -175,6 +175,8 @@ jobs:
     needs: release
     if: github.event_name == 'push' && success()
     runs-on: ubuntu-latest
+    env:
+      SCOOP_BUCKET_PAT: ${{ secrets.SCOOP_BUCKET_PAT }}
     steps:
       - name: Checkout shun repo
         uses: actions/checkout@v6
@@ -190,7 +192,7 @@ jobs:
           echo "VERSION_NO_V=${VERSION#v}" >> $GITHUB_ENV
 
       - name: Checkout scoop-bucket repo
-        if: secrets.SCOOP_BUCKET_PAT != ''
+        if: env.SCOOP_BUCKET_PAT != ''
         uses: actions/checkout@v6
         with:
           repository: yukimemi/scoop-bucket
@@ -198,7 +200,7 @@ jobs:
           path: scoop-bucket
 
       - name: Update scoop-bucket manifest
-        if: secrets.SCOOP_BUCKET_PAT != ''
+        if: env.SCOOP_BUCKET_PAT != ''
         run: |
           cd scoop-bucket
           python3 - <<'EOF'
@@ -216,7 +218,7 @@ jobs:
           EOF
 
       - name: Commit and push to scoop-bucket
-        if: secrets.SCOOP_BUCKET_PAT != ''
+        if: env.SCOOP_BUCKET_PAT != ''
         run: |
           cd scoop-bucket
           git config user.name "github-actions[bot]"
@@ -229,6 +231,8 @@ jobs:
     needs: release
     if: github.event_name == 'push' && success()
     runs-on: macos-latest
+    env:
+      HOMEBREW_TAP_PAT: ${{ secrets.HOMEBREW_TAP_PAT }}
     steps:
       - name: Checkout shun repo
         uses: actions/checkout@v6
@@ -245,7 +249,7 @@ jobs:
           echo "VERSION_NO_V=${VERSION_NO_V}" >> $GITHUB_ENV
 
       - name: Checkout homebrew-tap repo
-        if: secrets.HOMEBREW_TAP_PAT != ''
+        if: env.HOMEBREW_TAP_PAT != ''
         uses: actions/checkout@v6
         with:
           repository: yukimemi/homebrew-tap
@@ -253,14 +257,14 @@ jobs:
           path: homebrew-tap
 
       - name: Update Homebrew cask formula
-        if: secrets.HOMEBREW_TAP_PAT != ''
+        if: env.HOMEBREW_TAP_PAT != ''
         run: |
           cd homebrew-tap
           perl -i -pe "s/version \".*\"/version \"${{ env.VERSION_NO_V }}\"/" Casks/shun.rb
           perl -i -pe "s/sha256 \".*\"/sha256 \"${{ env.SHA256 }}\"/" Casks/shun.rb
 
       - name: Commit and push to homebrew-tap
-        if: secrets.HOMEBREW_TAP_PAT != ''
+        if: env.HOMEBREW_TAP_PAT != ''
         run: |
           cd homebrew-tap
           git config user.name "github-actions[bot]"
@@ -273,9 +277,11 @@ jobs:
     needs: release
     if: github.event_name == 'push' && success()
     runs-on: windows-latest
+    env:
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
     steps:
       - name: Submit to WinGet
-        if: secrets.WINGET_TOKEN != ''
+        if: env.WINGET_TOKEN != ''
         uses: vedantmgoyal9/winget-releaser@v2
         with:
           identifier: yukimemi.shun
