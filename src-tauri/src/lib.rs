@@ -200,40 +200,107 @@ fn record_update_check() {
     let _ = std::fs::write(last_update_check_path(), "");
 }
 
-fn is_portable() -> bool {
-    std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|d| d.join("portable.txt")))
+#[derive(Debug, PartialEq)]
+enum InstallMethod {
+    Portable,
+    Scoop,
+    Homebrew,
+    Standard,
+}
+
+fn detect_install_method() -> InstallMethod {
+    let exe = std::env::current_exe().ok();
+
+    // portable.txt が exe の隣にあればポータブルモード
+    if exe.as_ref()
+        .and_then(|p| p.parent().map(|d| d.join("portable.txt")))
         .map(|p| p.exists())
         .unwrap_or(false)
+    {
+        return InstallMethod::Portable;
+    }
+
+    let exe_str = exe
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+
+    if exe_str.contains("\\scoop\\apps\\") {
+        InstallMethod::Scoop
+    } else if exe_str.contains("/homebrew/") || exe_str.contains("/cellar/") {
+        InstallMethod::Homebrew
+    } else {
+        InstallMethod::Standard
+    }
+}
+
+async fn run_pkg_manager_update(app: &tauri::AppHandle, program: &str, args: &[&str]) -> Result<(), String> {
+    use tokio::io::AsyncBufReadExt;
+
+    let mut child = tokio::process::Command::new(program)
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("failed to run {program}: {e}"))?;
+
+    if let Some(stdout) = child.stdout.take() {
+        let mut lines = tokio::io::BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let _ = app.emit("update-log", serde_json::json!({ "line": line }));
+        }
+    }
+
+    let status = child.wait().await.map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err(format!("{program} exited with status {status}"));
+    }
+    Ok(())
 }
 
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
-    if is_portable() {
-        install_update_portable(&app).await
-    } else {
-        let updater = app.updater().map_err(|e| e.to_string())?;
-        match updater.check().await.map_err(|e| e.to_string())? {
-            Some(update) => {
-                let app_prog = app.clone();
-                let downloaded = Arc::new(AtomicU64::new(0));
-                let downloaded_c = Arc::clone(&downloaded);
-                update
-                    .download_and_install(
-                        move |chunk, total| {
-                            let d = downloaded_c.fetch_add(chunk as u64, Ordering::SeqCst) + chunk as u64;
-                            let _ = app_prog.emit("update-progress", serde_json::json!({ "downloaded": d, "total": total }));
-                        },
-                        || {},
-                    )
-                    .await
-                    .map_err(|e| e.to_string())?;
-                app.restart();
+    match detect_install_method() {
+        InstallMethod::Portable => install_update_portable(&app).await,
+
+        InstallMethod::Scoop => {
+            #[cfg(target_os = "windows")]
+            {
+                run_pkg_manager_update(&app, "powershell", &[
+                    "-NoProfile", "-Command", "scoop update shun",
+                ]).await
             }
-            None => {}
+            #[cfg(not(target_os = "windows"))]
+            { Ok(()) }
         }
-        Ok(())
+
+        InstallMethod::Homebrew => {
+            run_pkg_manager_update(&app, "brew", &["upgrade", "--cask", "shun"]).await
+        }
+
+        InstallMethod::Standard => {
+            let updater = app.updater().map_err(|e| e.to_string())?;
+            match updater.check().await.map_err(|e| e.to_string())? {
+                Some(update) => {
+                    let app_prog = app.clone();
+                    let downloaded = Arc::new(AtomicU64::new(0));
+                    let downloaded_c = Arc::clone(&downloaded);
+                    update
+                        .download_and_install(
+                            move |chunk, total| {
+                                let d = downloaded_c.fetch_add(chunk as u64, Ordering::SeqCst) + chunk as u64;
+                                let _ = app_prog.emit("update-progress", serde_json::json!({ "downloaded": d, "total": total }));
+                            },
+                            || {},
+                        )
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    app.restart();
+                }
+                None => {}
+            }
+            Ok(())
+        }
     }
 }
 

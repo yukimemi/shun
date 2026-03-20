@@ -3912,7 +3912,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "shun"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "dirs-next",
  "futures-util",
@@ -3926,6 +3926,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-updater",
  "tempfile",
+ "tokio",
  "toml 1.0.7+spec-1.1.0",
  "zip 8.3.0",
 ]
@@ -4690,6 +4691,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "windows-sys 0.61.2",
 ]

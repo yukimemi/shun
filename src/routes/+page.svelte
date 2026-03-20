@@ -200,6 +200,11 @@
       }
     });
 
+    await listen("update-log", (event) => {
+      const { line } = event.payload;
+      if (line.trim()) query = `/update — ${line.trim()}`;
+    });
+
     await listen("show-launcher", async () => {
       mode = "search";
       argItem = null;

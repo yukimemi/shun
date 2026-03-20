@@ -32,6 +32,7 @@ tauri-plugin-updater = "2"
 reqwest = { version = "0.13", features = ["stream"] }
 futures-util = "0.3"
 zip = "8"
+tokio = { version = "1", features = ["process", "io-util"] }
 
 [dev-dependencies]
 tempfile = "3"

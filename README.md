@@ -39,6 +39,18 @@
 
 ## Installation
 
+### One-liner install
+
+**Windows** (PowerShell, no admin required)
+```powershell
+irm https://raw.githubusercontent.com/yukimemi/shun/main/install.ps1 | iex
+```
+
+**macOS / Linux**
+```bash
+curl -fsSL https://raw.githubusercontent.com/yukimemi/shun/main/install.sh | sh
+```
+
 ### Package managers
 
 **Windows — Scoop**
