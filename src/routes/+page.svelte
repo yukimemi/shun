@@ -4,7 +4,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { invoke } from "@tauri-apps/api/core";
   import { getVersion } from "@tauri-apps/api/app";
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { firstSepIdx, isPathQuery, matchKey } from "$lib/utils.js";
 
   let WINDOW_WIDTH = $state(620);
@@ -214,6 +214,10 @@
       completionPrefix = "";
       allCompletions = [];
       completionIndex = 0;
+      lastArgsGhost = "";
+      historyArgs = [];
+      // 表示時に必ずサイズを正しく戻す（WebView2 の描画キャッシュ対策）
+      resizeForSearch(filtered.length || MAX_ITEMS);
       setTimeout(() => inputEl?.focus(), 30);
     });
   });
@@ -492,8 +496,9 @@
       }
       return;
     }
-    win.hide();
     resetToSearch();
+    await tick();
+    win.hide();
     if (cmd.name === "/exit") {
       await invoke("exit_app");
     } else if (cmd.name === "/config") {
@@ -512,8 +517,11 @@
     } catch (e) {
       console.error("launch failed:", e);
     }
-    win.hide();
+    // reset → tick で描画確定 → hide の順にすることで
+    // WebView2 が正しいサイズ・状態で描画キャッシュを持ったまま隠れる
     resetToSearch();
+    await tick();
+    win.hide();
   }
 
   function focusInput(el) {
