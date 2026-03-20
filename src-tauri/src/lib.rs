@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+use tokio::io::AsyncBufReadExt;
 
 mod apps;
 mod complete;
@@ -235,14 +236,23 @@ fn detect_install_method() -> InstallMethod {
 }
 
 async fn run_pkg_manager_update(app: &tauri::AppHandle, program: &str, args: &[&str]) -> Result<(), String> {
-    use tokio::io::AsyncBufReadExt;
+    run_pkg_manager_update_env(app, program, args, &[]).await
+}
 
-    let mut child = tokio::process::Command::new(program)
-        .args(args)
+async fn run_pkg_manager_update_env(
+    app: &tauri::AppHandle,
+    program: &str,
+    args: &[&str],
+    envs: &[(&str, &str)],
+) -> Result<(), String> {
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.args(args)
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("failed to run {program}: {e}"))?;
+        .stderr(std::process::Stdio::piped());
+    for (k, v) in envs {
+        cmd.env(k, v);
+    }
+    let mut child = cmd.spawn().map_err(|e| format!("failed to run {program}: {e}"))?;
 
     if let Some(stdout) = child.stdout.take() {
         let mut lines = tokio::io::BufReader::new(stdout).lines();
@@ -275,7 +285,15 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         }
 
         InstallMethod::Homebrew => {
-            run_pkg_manager_update(&app, "brew", &["upgrade", "--cask", "shun"]).await
+            run_pkg_manager_update_env(
+                &app,
+                "brew",
+                &["upgrade", "--cask", "shun"],
+                &[
+                    ("HOMEBREW_NO_AUTO_UPDATE", "1"),
+                    ("HOMEBREW_NO_INTERACTIVE", "1"),
+                ],
+            ).await
         }
 
         InstallMethod::Standard => {
