@@ -30,10 +30,40 @@ pub enum ItemSource {
     History,
 }
 
+pub fn render_template(template: &str, ctx: &tera::Context) -> String {
+    tera::Tera::one_off(template, ctx, false).unwrap_or_else(|_| template.to_string())
+}
+
+pub fn build_template_context(extra_args: &[String]) -> tera::Context {
+    let mut ctx = tera::Context::new();
+    ctx.insert("args", &extra_args.join(" "));
+    ctx.insert("args_list", extra_args);
+    ctx
+}
+
 pub fn launch_with_extra(item: &LaunchItem, extra_args: Vec<String>) -> Result<(), String> {
+    // extra_args がある場合はテンプレートを展開してから起動
+    if !extra_args.is_empty() {
+        let ctx = build_template_context(&extra_args);
+        let rendered_path = render_template(&item.path, &ctx);
+        let rendered_args: Vec<String> =
+            item.args.iter().map(|a| render_template(a, &ctx)).collect();
+
+        // テンプレートが展開されていれば extra_args は使わず展開済みで起動
+        let path_rendered = rendered_path != item.path;
+        let args_rendered = rendered_args != item.args;
+
+        if path_rendered || args_rendered {
+            let mut item_rendered = item.clone();
+            item_rendered.path = rendered_path;
+            item_rendered.args = rendered_args;
+            return launch(&item_rendered);
+        }
+    }
+
+    // テンプレートなし: 従来どおり extra_args を末尾に追加
     let mut all_args = item.args.clone();
     all_args.extend(extra_args);
-
     let mut item_with_args = item.clone();
     item_with_args.args = all_args;
     launch(&item_with_args)
@@ -607,6 +637,52 @@ mod tests {
     fn path_unc() {
         assert!(is_path("\\\\server\\share"));
         assert!(is_path("\\\\server\\share\\folder"));
+    }
+
+    // --- render_template ---
+
+    #[test]
+    fn template_args_substitution() {
+        let ctx = build_template_context(&["hello world".to_string()]);
+        assert_eq!(render_template("{{ args }}", &ctx), "hello world");
+    }
+
+    #[test]
+    fn template_args_urlencode() {
+        let ctx = build_template_context(&["hello world".to_string()]);
+        let result = render_template("{{ args | urlencode }}", &ctx);
+        assert_eq!(result, "hello%20world");
+    }
+
+    #[test]
+    fn template_args_list() {
+        let ctx = build_template_context(&["foo".to_string(), "bar".to_string()]);
+        assert_eq!(
+            render_template("{{ args_list | join(sep=',') }}", &ctx),
+            "foo,bar"
+        );
+    }
+
+    #[test]
+    fn template_no_placeholder_unchanged() {
+        let ctx = build_template_context(&["something".to_string()]);
+        assert_eq!(
+            render_template("https://example.com", &ctx),
+            "https://example.com"
+        );
+    }
+
+    #[test]
+    fn template_url_search() {
+        let ctx = build_template_context(&["rust borrow checker".to_string()]);
+        let result = render_template(
+            "https://www.google.com/search?q={{ args | urlencode }}",
+            &ctx,
+        );
+        assert_eq!(
+            result,
+            "https://www.google.com/search?q=rust%20borrow%20checker"
+        );
     }
 
     // --- launch_with_extra merges args ---

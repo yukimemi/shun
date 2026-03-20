@@ -142,9 +142,16 @@ fn launch_item(
     // 起動後にキャッシュを更新（次回表示時に history items が反映される）
     refresh_cache_bg(Arc::clone(state.inner()));
 
-    let path = &item.path;
+    // extra_args があればテンプレートを展開してから path を確定
+    let path = if !extra.is_empty() {
+        let ctx = apps::build_template_context(&extra);
+        apps::render_template(&item.path, &ctx)
+    } else {
+        item.path.clone()
+    };
+
     if path.starts_with("http://") || path.starts_with("https://") {
-        tauri_plugin_opener::open_url(path, None::<&str>).map_err(|e| e.to_string())
+        tauri_plugin_opener::open_url(&path, None::<&str>).map_err(|e| e.to_string())
     } else if matches!(item.source, apps::ItemSource::Path) {
         let expanded = utils::expand_path(path.trim_end_matches('/'));
         tauri_plugin_opener::open_path(expanded, None::<&str>).map_err(|e| e.to_string())
