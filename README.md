@@ -32,6 +32,7 @@
 - **Auto-update** — checks for new releases on startup; install in one keystroke with download progress
 - **Portable friendly** — portable zip includes self-update (no admin rights required)
 - **Theming** — built-in presets (Catppuccin, Nord, Dracula, Tokyo Night) + per-color overrides via `[theme]` in config
+- **Configurable logging** — set log level (`debug` / `info` / `warn` / `error` / `off`) via `[log]` in config; log file at `%APPDATA%\shun\logs\shun.log`
 - **Local config override** — `config.local.toml` merges machine-specific settings without touching the main config (chezmoi-friendly)
 - **Auto-hide on blur** — optionally hide when focus leaves the launcher
 - **Multi-monitor** — appears on the monitor where your cursor is
@@ -104,6 +105,7 @@ Place a `config.local.toml` in the same directory as `config.toml` to add machin
 | `search_mode`, `sort_order`, `hide_on_blur`, `update_check_interval` | Local value **overrides** main (only when explicitly set) |
 | `[keybindings]` | **Per-field override** — only specified keys are overridden |
 | `[theme]` | **Per-field override** — `preset` and individual colors can be overridden independently |
+| `[log]` | **Per-field override** — only specified fields are overridden |
 
 **Example `config.local.toml`:**
 
@@ -156,6 +158,11 @@ delete_line = "Ctrl+u"      # Delete to beginning of line
 run_query   = "Shift+Enter" # Run typed query directly (skip history results)
 close       = "Escape"
 delete_item = "Ctrl+d"      # Delete selected history item
+
+# Logging — level applied to both Rust and JS (via tauri-plugin-log)
+# "debug" | "info" | "warn" (default) | "error" | "off"
+[log]
+level = "warn"
 
 # Theme — preset + optional per-color overrides
 [theme]
