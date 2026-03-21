@@ -325,8 +325,9 @@
           if (preset) {
             applyTheme({ preset });            // CSS 即時適用（同期）
             resetToSearch({ skipFocus: true }); // focus タイマー不要（隠す直前）
+            query = "";                         // query もリセット（/theme が残ると $effect が resize IPC を余分に飛ばす）
             await tick();
-            await win.hide();
+            win.hide();                         // await しない（後続 IPC と競合させない）
             invoke("set_theme_preset", { preset }).catch(e => console.error("set_theme_preset failed:", e));
           }
           return;

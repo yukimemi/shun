@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use futures_util::StreamExt;
+use log::{debug, info, warn};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -26,15 +27,19 @@ struct ItemCache {
 type CacheState = Arc<Mutex<Option<ItemCache>>>;
 
 fn build_cache() -> ItemCache {
+    info!("build_cache: start");
     let config = config::load_config();
     let items = apps::collect_items(&config);
+    info!("build_cache: done ({} items)", items.len());
     ItemCache { config, items }
 }
 
 fn refresh_cache_bg(cache: CacheState) {
+    info!("refresh_cache_bg: spawning background thread");
     std::thread::spawn(move || {
         let new = build_cache();
         *cache.lock().unwrap() = Some(new);
+        info!("refresh_cache_bg: cache updated");
     });
 }
 
@@ -521,7 +526,8 @@ fn delete_history_item(key: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn set_theme_preset(preset: String, state: tauri::State<CacheState>) -> Result<(), String> {
+fn set_theme_preset(preset: String) -> Result<(), String> {
+    info!("set_theme_preset: preset={preset}");
     let local_path = config::local_config_path();
 
     // 既存の config.local.toml を読み込み（なければ空）— toml_edit でコメント・書式を保持
@@ -537,15 +543,15 @@ fn set_theme_preset(preset: String, state: tauri::State<CacheState>) -> Result<(
     if !doc.contains_key("theme") {
         doc["theme"] = toml_edit::Item::Table(toml_edit::Table::new());
     }
-    doc["theme"]["preset"] = toml_edit::value(preset);
+    doc["theme"]["preset"] = toml_edit::value(&preset);
 
     if let Some(parent) = local_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
     std::fs::write(&local_path, doc.to_string()).map_err(|e| e.to_string())?;
+    info!("set_theme_preset: saved to {:?}", local_path);
 
-    // キャッシュ更新
-    refresh_cache_bg(Arc::clone(state.inner()));
+    // テーマ変更はアプリ一覧キャッシュに影響しないため refresh_cache_bg は不要
     Ok(())
 }
 
@@ -598,6 +604,11 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(cache)
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(log::LevelFilter::Debug)
+                .build(),
+        )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -680,10 +691,12 @@ pub fn run() {
                 .on_shortcut(shortcut, move |_app, _shortcut, event| {
                     if event.state == ShortcutState::Pressed {
                         if window.is_visible().unwrap_or(false) {
+                            debug!("shortcut: window visible → hide");
                             window.hide().ok();
                             // 非表示になったタイミングでキャッシュを更新（次回表示時に即座に使える）
                             refresh_cache_bg(Arc::clone(&cache));
                         } else {
+                            debug!("shortcut: window hidden → show");
                             center_on_cursor_monitor(&window);
                             window.show().ok();
                             window.set_focus().ok();
