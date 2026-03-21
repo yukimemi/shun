@@ -108,6 +108,7 @@ struct CompleteResult {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 fn complete_path(
     input: String,
     completion_type: config::CompletionType,
