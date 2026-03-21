@@ -135,6 +135,12 @@ fn default_delete_item() -> String {
 fn default_log_level() -> String {
     "warn".to_string()
 }
+fn default_log_max_file_size_kb() -> u64 {
+    1024 // 1 MB
+}
+fn default_log_rotation() -> String {
+    "keep_one".to_string()
+}
 fn default_update_check_interval() -> u64 {
     3600
 }
@@ -217,12 +223,20 @@ pub struct LogConfig {
     /// ログレベル: "debug" | "info" | "warn" | "error" | "off"
     #[serde(default = "default_log_level")]
     pub level: String,
+    /// ローテーション前の最大ファイルサイズ (KB, デフォルト: 1024 = 1MB)
+    #[serde(default = "default_log_max_file_size_kb")]
+    pub max_file_size_kb: u64,
+    /// ローテーション戦略: "keep_one" (デフォルト) | "keep_all" | 数値 (世代数)
+    #[serde(default = "default_log_rotation")]
+    pub rotation: String,
 }
 
 impl Default for LogConfig {
     fn default() -> Self {
         Self {
             level: default_log_level(),
+            max_file_size_kb: default_log_max_file_size_kb(),
+            rotation: default_log_rotation(),
         }
     }
 }
@@ -236,6 +250,16 @@ impl LogConfig {
             "error" => log::LevelFilter::Error,
             "off" => log::LevelFilter::Off,
             _ => log::LevelFilter::Warn,
+        }
+    }
+
+    pub fn to_rotation_strategy(&self) -> tauri_plugin_log::RotationStrategy {
+        match self.rotation.to_lowercase().as_str() {
+            "keep_all" => tauri_plugin_log::RotationStrategy::KeepAll,
+            s => match s.parse::<usize>() {
+                Ok(n) => tauri_plugin_log::RotationStrategy::KeepSome(n),
+                Err(_) => tauri_plugin_log::RotationStrategy::KeepOne,
+            },
         }
     }
 }

@@ -602,13 +602,18 @@ pub fn run() {
     let cache: CacheState = Arc::new(Mutex::new(None));
     refresh_cache_bg(Arc::clone(&cache));
 
-    let log_level = config::load_config().log.to_level_filter();
+    let log_cfg = config::load_config().log;
+    let log_level = log_cfg.to_level_filter();
+    let log_rotation = log_cfg.to_rotation_strategy();
+    let log_max_size = log_cfg.max_file_size_kb * 1024;
 
     tauri::Builder::default()
         .manage(cache)
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log_level)
+                .rotation_strategy(log_rotation)
+                .max_file_size(log_max_size.into())
                 .build(),
         )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())

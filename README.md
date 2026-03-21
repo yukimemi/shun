@@ -160,9 +160,10 @@ close       = "Escape"
 delete_item = "Ctrl+d"      # Delete selected history item
 
 # Logging — level applied to both Rust and JS (via tauri-plugin-log)
-# "debug" | "info" | "warn" (default) | "error" | "off"
 [log]
-level = "warn"
+level = "warn"            # "debug" | "info" | "warn" (default) | "error" | "off"
+max_file_size_kb = 1024   # rotate when log exceeds this size (default: 1024 = 1 MB)
+rotation = "keep_one"     # "keep_one" (default) | "keep_all" | number (e.g. 5 to keep 5 files)
 
 # Theme — preset + optional per-color overrides
 [theme]
