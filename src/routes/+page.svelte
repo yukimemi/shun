@@ -186,9 +186,7 @@
   function applySelectedCompletion() {
     if (!allCompletions.length) return;
     const candidate = allCompletions[completionIndex];
-    if (candidate.toLowerCase().startsWith(extraArgs.toLowerCase())) {
-      extraArgs = candidate;
-    }
+    extraArgs = candidate;
     allCompletions = [];
   }
 
@@ -373,6 +371,10 @@
       } else if (matchKey(e, keybindings.delete_line)) {
         e.preventDefault();
         deleteLine();
+      } else if (matchKey(e, keybindings.run_query)) {
+        // 補完を無視して入力をそのまま起動
+        e.preventDefault();
+        if (argItem) launchItem(argItem, extraArgs);
       } else if (matchKey(e, keybindings.next)) {
         e.preventDefault();
         if (allCompletions.length > 0) {
