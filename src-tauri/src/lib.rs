@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use futures_util::StreamExt;
-use log::{debug, info, warn};
+use log::{debug, info};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
