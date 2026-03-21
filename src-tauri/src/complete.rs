@@ -22,14 +22,17 @@ fn exact_match(query: &str, target: &str) -> bool {
     target.to_lowercase().contains(&query.to_lowercase())
 }
 
-fn matches(query: &str, target: &str, mode: &SearchMode) -> bool {
+fn matches_re(query: &str, target: &str, mode: &SearchMode, re: Option<&regex::Regex>) -> bool {
     if query.is_empty() {
         return true;
     }
     match mode {
         SearchMode::Fuzzy => fuzzy_match(query, target),
         SearchMode::Exact => exact_match(query, target),
-        SearchMode::Migemo => crate::migemo::matches(query, target),
+        SearchMode::Migemo => match re {
+            Some(r) => r.is_match(target),
+            None => crate::migemo::matches(query, target),
+        },
     }
 }
 
@@ -111,11 +114,14 @@ fn complete_path(
     // base_path の展開済み文字列（strip 用）
     let base_expanded = base_path.map(|b| crate::utils::expand_path(b).replace('\\', "/"));
 
+    // migemo: regex をループ外で1回コンパイル
+    let stem_re = crate::migemo::build_regex(&stem);
+
     let mut completions: Vec<String> = entries
         .flatten()
         .filter_map(|entry| {
             let name = entry.file_name().to_string_lossy().to_string();
-            if !stem.is_empty() && !matches(&stem, &name, search_mode) {
+            if !stem.is_empty() && !matches_re(&stem, &name, search_mode, stem_re.as_ref()) {
                 return None;
             }
             let full = entry.path();
@@ -172,9 +178,10 @@ fn complete_list(input: &str, list: &[String], search_mode: &SearchMode) -> (Str
     {
         return (String::new(), vec![]);
     }
+    let list_re = crate::migemo::build_regex(input);
     let mut completions: Vec<String> = list
         .iter()
-        .filter(|item| matches(input, item, search_mode))
+        .filter(|item| matches_re(input, item, search_mode, list_re.as_ref()))
         .cloned()
         .collect();
     completions.sort_by_key(|a| a.to_lowercase());
@@ -226,10 +233,11 @@ fn complete_command(
     };
 
     let stdout = String::from_utf8_lossy(&output.stdout);
+    let cmd_re = crate::migemo::build_regex(partial);
     let mut completions: Vec<String> = stdout
         .lines()
         .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty() && matches(partial, l, search_mode))
+        .filter(|l| !l.is_empty() && matches_re(partial, l, search_mode, cmd_re.as_ref()))
         .collect();
     completions.sort_by_key(|a| a.to_lowercase());
     (prefix, completions)
