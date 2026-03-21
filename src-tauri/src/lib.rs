@@ -131,7 +131,9 @@ fn complete_path(
         (vars, mode)
     };
     // per-app override があればそちらを、なければグローバル設定を使う
-    let search_mode = completion_search_mode.as_ref().unwrap_or(&global_search_mode);
+    let search_mode = completion_search_mode
+        .as_ref()
+        .unwrap_or(&global_search_mode);
     // テンプレート args から {{ args }} 前の固定部分をベースパスとして抽出
     let base_path = item_args
         .as_deref()

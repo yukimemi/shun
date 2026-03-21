@@ -49,13 +49,19 @@ pub fn complete(
         CompletionType::None => (String::new(), vec![]),
         CompletionType::Path => complete_path(input, base_path, search_mode),
         CompletionType::List => complete_list(input, completion_list, search_mode),
-        CompletionType::Command => complete_command(input, completion_command, workdir, search_mode),
+        CompletionType::Command => {
+            complete_command(input, completion_command, workdir, search_mode)
+        }
     }
 }
 
 // --- path 補完 ---
 
-fn complete_path(input: &str, base_path: Option<&str>, search_mode: &SearchMode) -> (String, Vec<String>) {
+fn complete_path(
+    input: &str,
+    base_path: Option<&str>,
+    search_mode: &SearchMode,
+) -> (String, Vec<String>) {
     // base_path がある場合は base + input を実際のパスとして補完し、結果から base を strip する
     let effective_input = match base_path {
         Some(base) => {
@@ -408,8 +414,11 @@ mod tests {
 
     #[test]
     fn path_nonexistent_dir_returns_empty() {
-        let (_, completions) =
-            complete_path("/nonexistent_abc_xyz_shun_test/foo", None, &SearchMode::Fuzzy);
+        let (_, completions) = complete_path(
+            "/nonexistent_abc_xyz_shun_test/foo",
+            None,
+            &SearchMode::Fuzzy,
+        );
         assert!(completions.is_empty());
     }
 
