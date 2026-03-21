@@ -110,7 +110,7 @@
     }
   }
 
-  function resetToSearch() {
+  function resetToSearch({ skipFocus = false } = {}) {
     mode = "search";
     argItem = null;
     extraArgs = "";
@@ -120,7 +120,7 @@
     lastArgsGhost = "";
     historyArgs = [];
     resizeForSearch(filtered.length);
-    setTimeout(() => inputEl?.focus(), 10);
+    if (!skipFocus) setTimeout(() => inputEl?.focus(), 10);
   }
 
   function selectCompletion(idx) {
@@ -323,10 +323,11 @@
             ? allCompletions[completionIndex]
             : extraArgs.trim();
           if (preset) {
-            await applyThemePreset(preset);
-            resetToSearch();
+            applyTheme({ preset });            // CSS 即時適用（同期）
+            resetToSearch({ skipFocus: true }); // focus タイマー不要（隠す直前）
             await tick();
-            win.hide();
+            await win.hide();
+            invoke("set_theme_preset", { preset }).catch(e => console.error("set_theme_preset failed:", e));
           }
           return;
         }
@@ -616,15 +617,6 @@
       ? SLASH_COMMANDS.filter((c) => c.name.startsWith(query.toLowerCase()))
       : []
   );
-
-  async function applyThemePreset(preset) {
-    applyTheme({ preset });
-    try {
-      await invoke("set_theme_preset", { preset });
-    } catch (e) {
-      console.error("set_theme_preset failed:", e);
-    }
-  }
 
   async function runSlashCommand(cmd) {
     if (cmd.name === "/version") {
