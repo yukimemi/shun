@@ -14,6 +14,7 @@ mod apps;
 mod complete;
 mod config;
 mod history;
+mod migemo;
 mod search;
 mod utils;
 

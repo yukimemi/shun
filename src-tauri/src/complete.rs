@@ -29,6 +29,7 @@ fn matches(query: &str, target: &str, mode: &SearchMode) -> bool {
     match mode {
         SearchMode::Fuzzy => fuzzy_match(query, target),
         SearchMode::Exact => exact_match(query, target),
+        SearchMode::Migemo => crate::migemo::matches(query, target),
     }
 }
 

@@ -24,8 +24,9 @@ pub struct ThemeConfig {
 #[serde(rename_all = "snake_case")]
 pub enum SearchMode {
     #[default]
-    Fuzzy, // ファジー検索 (デフォルト)
-    Exact, // 部分一致
+    Fuzzy,  // ファジー検索 (デフォルト)
+    Exact,  // 部分一致
+    Migemo, // migemo 検索（日本語ローマ字入力で日本語ファイル名を検索）
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -703,7 +704,7 @@ prev = "Ctrl+k"
 }
 
 fn default_config_toml() -> String {
-    r##"# 検索モード: "fuzzy" (ファジー検索) / "exact" (部分一致)
+    r##"# 検索モード: "fuzzy" (ファジー検索) / "exact" (部分一致) / "migemo" (日本語ローマ字検索)
 search_mode = "fuzzy"
 
 # 履歴のソート順: "count_first" (回数→直近→名前) / "recent_first" (直近→回数→名前)
@@ -776,7 +777,7 @@ delete_item = "Ctrl+d"
 # completion       = "path"     # "path" | "none" | "list" | "command"
 # completion_list  = ["start", "stop", "restart"]   # completion = "list" の時
 # completion_command = "git branch --format='%(refname:short)'"  # completion = "command" の時
-# completion_search_mode = "fuzzy"  # "fuzzy" | "exact" (省略時はグローバルの search_mode を使用)
+# completion_search_mode = "fuzzy"  # "fuzzy" | "exact" | "migemo" (省略時はグローバルの search_mode を使用)
 
 # ディレクトリスキャンで自動登録
 # [[scan_dirs]]

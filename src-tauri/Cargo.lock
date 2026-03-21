@@ -4007,6 +4007,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustmigemo"
+version = "0.1.7-dev.0"
+source = "git+https://github.com/oguna/rustmigemo#36a17c4f3e945fdfd7ffc421468f4f90bc50251e"
+dependencies = [
+ "byteorder",
+]
+
+[[package]]
 name = "rustversion"
 version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4360,13 +4368,15 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "shun"
-version = "1.8.1"
+version = "1.8.2"
 dependencies = [
  "dirs-next",
  "futures-util",
  "log",
  "nucleo-matcher",
+ "regex",
  "reqwest",
+ "rustmigemo",
  "serde",
  "serde_json",
  "tauri",

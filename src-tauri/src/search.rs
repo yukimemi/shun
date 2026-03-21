@@ -10,7 +10,19 @@ pub fn filter(items: &[LaunchItem], query: &str, mode: &SearchMode) -> Vec<Launc
     match mode {
         SearchMode::Exact => exact_filter(items, query),
         SearchMode::Fuzzy => fuzzy_filter(items, query),
+        SearchMode::Migemo => migemo_filter(items, query),
     }
+}
+
+fn migemo_filter(items: &[LaunchItem], query: &str) -> Vec<LaunchItem> {
+    if query.is_empty() {
+        return items.to_vec();
+    }
+    items
+        .iter()
+        .filter(|item| crate::migemo::matches(query, &item.name))
+        .cloned()
+        .collect()
 }
 
 fn exact_filter(items: &[LaunchItem], query: &str) -> Vec<LaunchItem> {

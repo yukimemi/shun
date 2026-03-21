@@ -8,6 +8,9 @@
   import { onMount, tick } from "svelte";
   import { firstSepIdx, isPathQuery, matchKey, fuzzyMatch, shouldBypassTemplate } from "$lib/utils.js";
 
+  // migemo インスタンス（lazy load）
+  let migemoInstance = $state(null);
+
   let WINDOW_WIDTH = $state(620);
   const INPUT_HEIGHT = 52;
   const ITEM_HEIGHT = 40;
@@ -299,6 +302,20 @@
     await listen("update-log", (event) => {
       const { line } = event.payload;
       if (line.trim()) query = `/update — ${line.trim()}`;
+    });
+
+    // migemo 辞書を background でロード（失敗しても他の search mode にフォールバック）
+    import("jsmigemo").then(async ({ Migemo, CompactDictionary }) => {
+      try {
+        const res = await fetch("/migemo-compact-dict");
+        const buf = await res.arrayBuffer();
+        const dict = new CompactDictionary(buf);
+        const m = new Migemo();
+        m.setDict(dict);
+        migemoInstance = m;
+      } catch (e) {
+        console.warn("migemo load failed:", e);
+      }
     });
 
     await listen("show-launcher", async () => {
@@ -618,9 +635,22 @@
     }
 
     const input = extraArgs;
+    const completionMode = argItem?.completion_search_mode ?? null;
 
-    // historyArgs を入力で fuzzy フィルタ
-    const filteredHistory = historyArgs.filter((h) => fuzzyMatch(input, h));
+    // historyArgs を入力でフィルタ（completion_search_mode に応じて切り替え）
+    function completionMatches(query, target) {
+      if (!query) return true;
+      if (completionMode === "migemo" && migemoInstance) {
+        try {
+          return new RegExp(migemoInstance.query(query), "i").test(target);
+        } catch {
+          return fuzzyMatch(query, target);
+        }
+      }
+      if (completionMode === "exact") return target.toLowerCase().includes(query.toLowerCase());
+      return fuzzyMatch(query, target);
+    }
+    const filteredHistory = historyArgs.filter((h) => completionMatches(input, h));
 
     if (!input) {
       // 未入力: history のみ表示
