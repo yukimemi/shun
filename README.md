@@ -452,6 +452,18 @@ npm run tauri dev     # development
 npm run tauri build   # production build
 ```
 
+## Credits
+
+shun's migemo feature is powered by the following libraries and data by [oguna](https://github.com/oguna):
+
+| Component | Role | License |
+|---|---|---|
+| [rustmigemo](https://github.com/oguna/rustmigemo) | Rust migemo engine (Rust backend) | MIT |
+| [jsmigemo](https://github.com/oguna/jsmigemo) | JavaScript migemo engine (JS frontend) | MIT |
+| [yet-another-migemo-dict](https://github.com/oguna/yet-another-migemo-dict) | Bundled compact dictionary (Mozc + UniDic based) | BSD-3-Clause |
+
+Full license texts for bundled third-party components are in the [NOTICE](NOTICE) file.
+
 ## License
 
 MIT
