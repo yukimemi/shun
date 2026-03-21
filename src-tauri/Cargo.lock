@@ -4009,7 +4009,7 @@ dependencies = [
 [[package]]
 name = "rustmigemo"
 version = "0.1.7-dev.0"
-source = "git+https://github.com/oguna/rustmigemo#36a17c4f3e945fdfd7ffc421468f4f90bc50251e"
+source = "git+https://github.com/oguna/rustmigemo?rev=36a17c4f3e945fdfd7ffc421468f4f90bc50251e#36a17c4f3e945fdfd7ffc421468f4f90bc50251e"
 dependencies = [
  "byteorder",
 ]

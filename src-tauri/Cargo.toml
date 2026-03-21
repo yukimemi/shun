@@ -29,7 +29,7 @@ toml_edit = "0.25"
 dirs-next = "2"
 nucleo-matcher = "0.3"
 tera = { version = "1", default-features = false, features = ["builtins"] }
-rustmigemo = { git = "https://github.com/oguna/rustmigemo" }
+rustmigemo = { git = "https://github.com/oguna/rustmigemo", rev = "36a17c4f3e945fdfd7ffc421468f4f90bc50251e" }
 regex = "1"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
