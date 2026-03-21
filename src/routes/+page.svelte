@@ -306,7 +306,7 @@
     });
   });
 
-  function onKeydown(e) {
+  async function onKeydown(e) {
     if (mode === "args") {
       if (matchKey(e, keybindings.close)) {
         e.preventDefault();
