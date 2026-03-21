@@ -443,22 +443,34 @@
         if (item?.source === "History") {
           // History アイテム (path\targs) → base exe でargs modeに入り、既存argsはghost textで提示
           const baseName = item.name.split(" › ")[0];
-          argItem = { ...item, name: baseName, args: [], source: "ScanDir", history_key: null };
+          // history_key の tab より前がベースキー:
+          //   Config アイテム → "MemoNew"  (name)
+          //   ScanDir アイテム → "C:/Windows/System32/taskkill.exe"  (full path)
+          const baseKey = item.history_key
+            ? item.history_key.split("\t")[0]
+            : baseName;
+          // Config アイテム由来の History の場合、filtered から元の Config アイテムを引き当てて
+          // テンプレート args を引き継ぐ（args: [] で上書きするとテンプレートが消えるため）
+          // baseKey が name の場合（新形式: "MemoNew\t..."）と
+          // path の場合（旧形式: "nvim\t..."）の両方を検索する
+          const baseConfigItem = filtered.find(
+            (i) => i.source === "Config" && (i.name === baseKey || i.path === baseKey),
+          );
+          argItem = baseConfigItem
+            ? { ...baseConfigItem, history_key: null }
+            : { ...item, name: baseName, args: [], source: "ScanDir", history_key: null };
           extraArgs = "";
           mode = "args";
           lastArgsGhost = item.args.join(" ");
           historyArgs = [];
           win.setSize(new LogicalSize(WINDOW_WIDTH, INPUT_HEIGHT));
           setTimeout(() => argsEl?.focus(), 10);
-          // history_key の tab より前がベースキー:
-          //   Config アイテム → "Command Prompt"  (name)
-          //   ScanDir アイテム → "C:/Windows/System32\taskkill.exe"  (full path)
-          // baseName はあくまで表示名なので ScanDir の場合はパスと一致しない
-          const baseKey = item.history_key
-            ? item.history_key.split("\t")[0]
-            : baseName;
-          invoke("get_args_history", { path: baseKey }).then((candidates) => {
+          // Config アイテムが見つかった場合は name をキーに使って正しい history を引く
+          // （旧形式 "nvim\t..." の場合 baseKey が path になるため name で引き直す）
+          const histKeyForArgs = baseConfigItem ? baseConfigItem.name : baseKey;
+          invoke("get_args_history", { path: histKeyForArgs }).then((candidates) => {
             historyArgs = candidates;
+            if (candidates.length > 0) lastArgsGhost = candidates[0];
           });
         } else if (canHaveArgs(item)) {
           argItem = item;
