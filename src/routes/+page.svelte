@@ -349,7 +349,14 @@
           const candidate = allCompletions[completionIndex];
           applySelectedCompletion();
           if (!candidate.endsWith('/') && argItem) {
-            launchItem(argItem, extraArgs);
+            // history エントリ + テンプレート args の場合: レンダリング済みパスをそのまま渡す
+            const isHistoryEntry = historyArgs.includes(candidate);
+            const hasTemplate = argItem.args?.some((a) => a.includes("{{"));
+            if (isHistoryEntry && hasTemplate) {
+              launchItem({ ...argItem, args: [] }, candidate);
+            } else {
+              launchItem(argItem, extraArgs);
+            }
           }
         } else if (argItem) {
           launchItem(argItem, extraArgs);
