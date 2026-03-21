@@ -439,8 +439,14 @@
           historyArgs = [];
           win.setSize(new LogicalSize(WINDOW_WIDTH, INPUT_HEIGHT));
           setTimeout(() => argsEl?.focus(), 10);
-          // Config アイテム由来の History は name をキーに記録しているので baseName で引く
-          invoke("get_args_history", { path: baseName }).then((candidates) => {
+          // history_key の tab より前がベースキー:
+          //   Config アイテム → "Command Prompt"  (name)
+          //   ScanDir アイテム → "C:/Windows/System32\taskkill.exe"  (full path)
+          // baseName はあくまで表示名なので ScanDir の場合はパスと一致しない
+          const baseKey = item.history_key
+            ? item.history_key.split("\t")[0]
+            : baseName;
+          invoke("get_args_history", { path: baseKey }).then((candidates) => {
             historyArgs = candidates;
           });
         } else if (canHaveArgs(item)) {
