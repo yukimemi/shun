@@ -56,10 +56,12 @@ jobs:
             patchelf
 
       - name: Rust fmt check
+        if: matrix.os == 'ubuntu-22.04'
         working-directory: src-tauri
         run: cargo fmt -- --check
 
       - name: Rust clippy
+        if: matrix.os == 'ubuntu-22.04'
         working-directory: src-tauri
         run: cargo clippy -- -D warnings
 
