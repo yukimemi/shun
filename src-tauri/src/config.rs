@@ -24,7 +24,7 @@ pub struct ThemeConfig {
 #[serde(rename_all = "snake_case")]
 pub enum SearchMode {
     #[default]
-    Fuzzy,  // ファジー検索 (デフォルト)
+    Fuzzy, // ファジー検索 (デフォルト)
     Exact,  // 部分一致
     Migemo, // migemo 検索（日本語ローマ字入力で日本語ファイル名を検索）
 }

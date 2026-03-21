@@ -5,8 +5,7 @@ use std::sync::OnceLock;
 
 // 辞書は public/ に配置し、Vite が dist/ にコピーする
 // Rust 側は include_bytes! でバイナリに埋め込む
-static DICT_BYTES: &[u8] =
-    include_bytes!("../../public/migemo-compact-dict");
+static DICT_BYTES: &[u8] = include_bytes!("../../public/migemo-compact-dict");
 
 static DICT: OnceLock<CompactDictionary> = OnceLock::new();
 
@@ -29,8 +28,6 @@ pub fn matches(query_str: &str, target: &str) -> bool {
         .map(|re| re.is_match(target))
         .unwrap_or_else(|_| {
             // regex コンパイル失敗時は contains にフォールバック
-            target
-                .to_lowercase()
-                .contains(&query_str.to_lowercase())
+            target.to_lowercase().contains(&query_str.to_lowercase())
         })
 }
