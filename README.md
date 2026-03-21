@@ -21,7 +21,7 @@
 ## Features
 
 - **Instant popup** — global hotkey brings up the launcher anywhere
-- **Fuzzy / exact search** — powered by [nucleo-matcher](https://github.com/helix-editor/nucleo) (the same engine as Helix editor)
+- **Fuzzy / exact / migemo search** — fuzzy powered by [nucleo-matcher](https://github.com/helix-editor/nucleo); migemo lets you search Japanese text by typing romaji (e.g. `ka` matches `漢字`)
 - **Launch history** — frecency sorting (count-first or recent-first)
 - **Args mode** — press `Tab` to pass extra arguments to any app
 - **Path & URL completion** — ghost text + dropdown, navigate with `Ctrl-n/p`, confirm with `Ctrl-f/e`
@@ -104,7 +104,7 @@ Place a `config.local.toml` in the same directory as `config.toml` to add machin
 | Field | Behavior |
 |---|---|
 | `apps`, `scan_dirs`, `overrides` | Entries are **appended** to the main config |
-| `search_mode`, `sort_order`, `hide_on_blur`, `update_check_interval`, `font_size`, `opacity`, `history_max_items` | Local value **overrides** main (only when explicitly set) |
+| `search_mode` (`"fuzzy"` / `"exact"` / `"migemo"`), `sort_order`, `hide_on_blur`, `update_check_interval`, `font_size`, `opacity`, `history_max_items` | Local value **overrides** main (only when explicitly set) |
 | `[keybindings]` | **Per-field override** — only specified keys are overridden |
 | `[theme]` | **Per-field override** — `preset` and individual colors can be overridden independently |
 | `[log]` | **Per-field override** — only specified fields are overridden |
@@ -126,7 +126,7 @@ path = "C:/tools/internal.exe"
 ### Example `config.toml`
 
 ```toml
-# Search mode: "fuzzy" (default) | "exact"
+# Search mode: "fuzzy" (default) | "exact" | "migemo"
 search_mode = "fuzzy"
 
 # Sort order: "count_first" (default) | "recent_first"
@@ -237,7 +237,7 @@ path                   = "git"
 args                   = ["checkout"]
 completion             = "command"
 completion_command     = "git branch --format='%(refname:short)'"
-completion_search_mode = "exact"  # "fuzzy" | "exact" (overrides global search_mode)
+completion_search_mode = "exact"  # "fuzzy" | "exact" | "migemo" (overrides global search_mode)
 workdir                = "~/src/myproject"
 
 # Override completion settings for scan_dirs items
@@ -320,13 +320,14 @@ path       = "nvim"
 args       = ['~/memo/{{ now() | date(format="%Y%m%d") }}-{{ args }}.md']
 completion = "none"
 
-# MemoList: Tab → pick existing memo with fuzzy path completion → Enter
+# MemoList: Tab → pick existing memo with migemo path completion → Enter
+# (migemo lets you find "初めて.md" by typing "hajime")
 [[apps]]
 name                   = "MemoList"
 path                   = "nvim"
 args                   = ["~/memo/{{ args }}"]
 completion             = "path"
-completion_search_mode = "fuzzy"
+completion_search_mode = "migemo"
 ```
 
 **Environment variables** — use `{{ env.VAR_NAME }}` or the Tera built-in `get_env()`:
