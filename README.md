@@ -21,7 +21,7 @@
 ## Features
 
 - **Instant popup** — global hotkey brings up the launcher anywhere
-- **Fuzzy / exact / migemo search** — fuzzy powered by [nucleo-matcher](https://github.com/helix-editor/nucleo); migemo lets you search Japanese text by typing romaji (e.g. `ka` matches `漢字`)
+- **Fuzzy / exact / migemo search** — fuzzy powered by [nucleo-matcher](https://github.com/helix-editor/nucleo) (the same engine as Helix editor); migemo powered by [rustmigemo](https://github.com/oguna/rustmigemo) / [jsmigemo](https://github.com/oguna/jsmigemo) — search Japanese text by typing romaji (e.g. `hajime` matches `初めて`)
 - **Launch history** — frecency sorting (count-first or recent-first)
 - **Args mode** — press `Tab` to pass extra arguments to any app
 - **Path & URL completion** — ghost text + dropdown, navigate with `Ctrl-n/p`, confirm with `Ctrl-f/e`
