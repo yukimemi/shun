@@ -118,3 +118,19 @@ mod tests {
         assert!(result.starts_with('$'));
     }
 }
+
+#[cfg(test)]
+mod tera_date_test {
+    #[test]
+    fn tera_now_date_format() {
+        let result = tera::Tera::one_off(
+            r#"{{ now() | date(format="%Y%m%d") }}"#,
+            &tera::Context::new(),
+            false,
+        );
+        assert!(result.is_ok(), "tera now()|date failed: {:?}", result);
+        let s = result.unwrap();
+        assert_eq!(s.len(), 8, "expected YYYYMMDD, got: {}", s);
+        println!("date = {}", s);
+    }
+}

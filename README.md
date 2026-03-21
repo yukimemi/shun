@@ -272,6 +272,8 @@ You can use [Tera](https://keats.github.io/tera/) template syntax in the `path` 
 | `{{ args \| urlencode }}` | URL-encoded (spaces → `%20`) |
 | `{{ args \| upper }}` | UPPERCASED |
 | `{{ args_list \| join(sep=",") }}` | Joined with custom separator |
+| `{{ now() \| date(format="%Y%m%d") }}` | Today's date e.g. `20260321` |
+| `{{ now() \| date(format="%Y-%m-%d") }}` | Today's date e.g. `2026-03-21` |
 
 **Example workflow** — search Google:
 
@@ -306,6 +308,25 @@ args = ["{{ vars.work_dir }}/{{ args }}"]
 ```
 
 Machine-specific values can go in `config.local.toml` — local `[vars]` entries override or extend the base config.
+
+**Date-stamped memo workflow** — create and browse daily notes:
+
+```toml
+# MemoNew: Tab → type title → Enter → opens "20260321-title.md"
+[[apps]]
+name       = "MemoNew"
+path       = "nvim"
+args       = ['~/memo/{{ now() | date(format="%Y%m%d") }}-{{ args }}.md']
+completion = "none"
+
+# MemoList: Tab → pick existing memo with path completion → Enter
+[[apps]]
+name       = "MemoList"
+path       = "nvim"
+args       = ["{{ args }}"]
+completion = "path"
+workdir    = "~/memo"
+```
 
 **Environment variables** — use `{{ env.VAR_NAME }}` or the Tera built-in `get_env()`:
 
