@@ -44,6 +44,7 @@
 
   let appVersion = $state("");
   let updateVersion = $state("");
+  let currentPreset = $state("catppuccin-mocha");
 
   const THEME_PRESETS = ["catppuccin-mocha", "catppuccin-latte", "nord", "dracula", "tokyo-night"];
 
@@ -54,7 +55,7 @@
     { name: "/rescan",  description: "Rescan apps" },
     { name: "/version", description: appVersion ? `v${appVersion}` : "Show version" },
     { name: "/update",  description: updateVersion ? `Update to v${updateVersion}` : "Check for updates" },
-    { name: "/theme",   description: "Switch theme (Tab to pick)", completions: THEME_PRESETS },
+    { name: "/theme",   description: `current: ${currentPreset} (Tab to pick)`, completions: THEME_PRESETS },
   ]);
 
   // モード: "search" | "args"
@@ -252,6 +253,7 @@
 
   function applyTheme(themeConfig) {
     const preset = themeConfig?.preset || "catppuccin-mocha";
+    currentPreset = preset;
     const base = THEMES[preset] ?? THEMES["catppuccin-mocha"];
     const root = document.documentElement;
     // preset のデフォルト色を適用
@@ -641,6 +643,11 @@
   async function runSlashCommand(cmd) {
     if (cmd.name === "/version") {
       query = `/version — v${appVersion}`;
+      return;
+    }
+    if (cmd.name === "/theme") {
+      query = `/theme — current: ${currentPreset}`;
+      setTimeout(() => { query = ""; }, 2000);
       return;
     }
     if (cmd.name === "/update") {
