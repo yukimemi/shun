@@ -320,12 +320,13 @@ path       = "nvim"
 args       = ['~/memo/{{ now() | date(format="%Y%m%d") }}-{{ args }}.md']
 completion = "none"
 
-# MemoList: Tab → pick existing memo with path completion → Enter
+# MemoList: Tab → pick existing memo with fuzzy path completion → Enter
 [[apps]]
-name       = "MemoList"
-path       = "nvim"
-args       = ["~/memo/{{ args }}"]
-completion = "path"
+name                   = "MemoList"
+path                   = "nvim"
+args                   = ["~/memo/{{ args }}"]
+completion             = "path"
+completion_search_mode = "fuzzy"
 ```
 
 **Environment variables** — use `{{ env.VAR_NAME }}` or the Tera built-in `get_env()`:
