@@ -602,11 +602,13 @@ pub fn run() {
     let cache: CacheState = Arc::new(Mutex::new(None));
     refresh_cache_bg(Arc::clone(&cache));
 
+    let log_level = config::load_config().log.to_level_filter();
+
     tauri::Builder::default()
         .manage(cache)
         .plugin(
             tauri_plugin_log::Builder::new()
-                .level(log::LevelFilter::Debug)
+                .level(log_level)
                 .build(),
         )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())

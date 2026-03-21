@@ -57,6 +57,8 @@ pub struct Config {
     #[serde(default)]
     pub theme: ThemeConfig,
     #[serde(default)]
+    pub log: LogConfig,
+    #[serde(default)]
     pub vars: HashMap<String, String>,
     #[serde(default)]
     pub apps: Vec<AppEntry>,
@@ -129,6 +131,9 @@ fn default_close() -> String {
 }
 fn default_delete_item() -> String {
     "Ctrl+d".to_string()
+}
+fn default_log_level() -> String {
+    "warn".to_string()
 }
 fn default_update_check_interval() -> u64 {
     3600
@@ -206,6 +211,35 @@ pub struct AppOverride {
     pub workdir: Option<String>,
 }
 
+/// [log] セクション
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogConfig {
+    /// ログレベル: "debug" | "info" | "warn" | "error" | "off"
+    #[serde(default = "default_log_level")]
+    pub level: String,
+}
+
+impl Default for LogConfig {
+    fn default() -> Self {
+        Self {
+            level: default_log_level(),
+        }
+    }
+}
+
+impl LogConfig {
+    pub fn to_level_filter(&self) -> log::LevelFilter {
+        match self.level.to_lowercase().as_str() {
+            "debug" => log::LevelFilter::Debug,
+            "info" => log::LevelFilter::Info,
+            "warn" => log::LevelFilter::Warn,
+            "error" => log::LevelFilter::Error,
+            "off" => log::LevelFilter::Off,
+            _ => log::LevelFilter::Warn,
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -218,6 +252,7 @@ impl Default for Config {
             max_items: default_max_items(),
             max_completions: default_max_completions(),
             theme: ThemeConfig::default(),
+            log: LogConfig::default(),
             vars: HashMap::new(),
             apps: vec![],
             scan_dirs: vec![],
