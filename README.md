@@ -319,13 +319,13 @@ path       = "nvim"
 args       = ['~/memo/{{ now() | date(format="%Y%m%d") }}-{{ args }}.md']
 completion = "none"
 
-# MemoList: Tab → pick existing memo with path completion → Enter
+# MemoList: Tab → pick existing memo from dropdown → Enter
 [[apps]]
-name       = "MemoList"
-path       = "nvim"
-args       = ["{{ args }}"]
-completion = "path"
-workdir    = "~/memo"
+name               = "MemoList"
+path               = "nvim"
+args               = ["~/memo/{{ args }}"]
+completion         = "command"
+completion_command = "ls ~/memo/"
 ```
 
 **Environment variables** — use `{{ env.VAR_NAME }}` or the Tera built-in `get_env()`:
