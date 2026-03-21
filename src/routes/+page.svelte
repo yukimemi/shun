@@ -307,7 +307,7 @@
     // migemo 辞書を background でロード（失敗しても他の search mode にフォールバック）
     import("jsmigemo").then(async ({ Migemo, CompactDictionary }) => {
       try {
-        const res = await fetch("/migemo-compact-dict");
+        const res = await fetch("/migemo-compact-dict.bin");
         const buf = await res.arrayBuffer();
         const dict = new CompactDictionary(buf);
         const m = new Migemo();

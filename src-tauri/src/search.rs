@@ -18,9 +18,17 @@ fn migemo_filter(items: &[LaunchItem], query: &str) -> Vec<LaunchItem> {
     if query.is_empty() {
         return items.to_vec();
     }
+    let Some(re) = crate::migemo::build_regex(query) else {
+        let q = query.to_lowercase();
+        return items
+            .iter()
+            .filter(|item| item.name.to_lowercase().contains(&q))
+            .cloned()
+            .collect();
+    };
     items
         .iter()
-        .filter(|item| crate::migemo::matches(query, &item.name))
+        .filter(|item| re.is_match(&item.name))
         .cloned()
         .collect()
 }
