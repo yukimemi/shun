@@ -8,7 +8,7 @@
             "type": "command",
             "timeout": 120,
             "statusMessage": "Running pre-push checks (cargo fmt, clippy, npm test)...",
-            "command": "cmd=$(jq -r '.tool_input.command // \"\"'); if echo \"$cmd\" | grep -qE 'git\\s+push'; then result=0; REPO=$(git rev-parse --show-toplevel 2>/dev/null) || REPO=.; (cd \"$REPO/src-tauri\" && cargo fmt --check 2>&1) || result=1; (cd \"$REPO/src-tauri\" && cargo clippy -- -D warnings 2>&1) || result=1; (cd \"$REPO\" && npm test 2>&1) || result=1; if [ $result -ne 0 ]; then echo '{\"continue\": false, \"stopReason\": \"Pre-push checks failed. Fix cargo fmt / clippy / npm test errors first.\"}'; fi; fi"
+            "command": "cmd=$(jq -r '.tool_input.command // \"\"'); if echo \"$cmd\" | grep -qE 'git\\s+push'; then result=0; errors=''; REPO=$(git rev-parse --show-toplevel 2>/dev/null) || REPO=.; out=$(cd \"$REPO/src-tauri\" && cargo fmt --check 2>&1) || { result=1; errors=\"$errors\\ncargo fmt:\\n$out\"; }; out=$(cd \"$REPO/src-tauri\" && cargo clippy -- -D warnings 2>&1) || { result=1; errors=\"$errors\\ncargo clippy:\\n$out\"; }; out=$(cd \"$REPO\" && npm test 2>&1) || { result=1; errors=\"$errors\\nnpm test:\\n$out\"; }; if [ $result -ne 0 ]; then msg=$(printf '%s' \"$errors\" | head -20 | sed 's/\"/\\\\\"/g; s/\\\\/\\\\\\\\/g'); printf '{\"continue\": false, \"stopReason\": \"Pre-push checks failed:\\n%s\"}' \"$msg\"; fi; fi"
           }
         ]
       }
