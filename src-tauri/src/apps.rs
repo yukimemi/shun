@@ -15,6 +15,7 @@ pub struct LaunchItem {
     #[serde(default)]
     pub completion_list: Vec<String>,
     pub completion_command: Option<String>,
+    pub completion_search_mode: Option<crate::config::SearchMode>,
     /// history での sort キー。`path\targs` 形式。None なら path を使う。
     #[serde(default)]
     pub history_key: Option<String>,
@@ -341,6 +342,7 @@ fn history_items(config: &Config) -> Vec<LaunchItem> {
                     completion: CompletionType::None,
                     completion_list: vec![],
                     completion_command: None,
+                    completion_search_mode: None,
                     history_key: Some(key.clone()),
                 })
             } else if is_url(key) && !key.contains("{{") {
@@ -354,6 +356,7 @@ fn history_items(config: &Config) -> Vec<LaunchItem> {
                     completion: CompletionType::None,
                     completion_list: vec![],
                     completion_command: None,
+                    completion_search_mode: None,
                     history_key: None,
                 })
             } else if is_path(key) {
@@ -366,6 +369,7 @@ fn history_items(config: &Config) -> Vec<LaunchItem> {
                     completion: CompletionType::None,
                     completion_list: vec![],
                     completion_command: None,
+                    completion_search_mode: None,
                     history_key: None,
                 })
             } else {
@@ -385,6 +389,7 @@ fn launch_item_from_entry(app: &AppEntry) -> LaunchItem {
         completion: app.completion.clone(),
         completion_list: app.completion_list.clone(),
         completion_command: app.completion_command.clone(),
+        completion_search_mode: app.completion_search_mode.clone(),
         history_key: None,
     }
 }
@@ -444,6 +449,7 @@ fn collect_files(
                 completion: CompletionType::Path,
                 completion_list: vec![],
                 completion_command: None,
+                completion_search_mode: None,
                 history_key: None,
             });
         }
@@ -495,6 +501,7 @@ fn collect_lnk_files(dir: &Path, items: &mut Vec<LaunchItem>) {
                 completion: CompletionType::Path,
                 completion_list: vec![],
                 completion_command: None,
+                completion_search_mode: None,
                 history_key: None,
             });
         }
@@ -547,6 +554,7 @@ fn collect_app_bundles(dir: &Path, items: &mut Vec<LaunchItem>) {
                     completion: CompletionType::None,
                     completion_list: vec![],
                     completion_command: None,
+                    completion_search_mode: None,
                     history_key: None,
                 });
             }
@@ -624,6 +632,7 @@ fn parse_desktop_file(path: &Path) -> Option<LaunchItem> {
         completion: CompletionType::Path,
         completion_list: vec![],
         completion_command: None,
+        completion_search_mode: None,
         history_key: None,
     })
 }
@@ -793,6 +802,7 @@ mod tests {
             completion: CompletionType::None,
             completion_list: vec![],
             completion_command: None,
+            completion_search_mode: None,
             history_key: None,
         };
         // launch_with_extra builds merged args internally; we verify it doesn't panic

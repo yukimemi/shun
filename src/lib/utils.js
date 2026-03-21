@@ -30,6 +30,21 @@ export function isPathQuery(q) {
 }
 
 /**
+ * Returns true if all characters of query appear in target in order (fuzzy match).
+ * Case-insensitive. Empty query always matches.
+ */
+export function fuzzyMatch(query, target) {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  const t = target.toLowerCase();
+  let qi = 0;
+  for (let ti = 0; ti < t.length && qi < q.length; ti++) {
+    if (t[ti] === q[qi]) qi++;
+  }
+  return qi === q.length;
+}
+
+/**
  * Returns true if the KeyboardEvent matches the binding string.
  * Binding format: "Ctrl+f", "Alt+Space", "Enter", "Ctrl+Shift+P", etc.
  */

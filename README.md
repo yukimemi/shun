@@ -230,14 +230,15 @@ args               = ["exec", "-it"]
 completion         = "command"
 completion_command = "docker ps --format '{{.Names}}'"
 
-# git checkout with branch name completion
+# git checkout with branch name completion (use exact search for this app)
 [[apps]]
-name               = "git checkout"
-path               = "git"
-args               = ["checkout"]
-completion         = "command"
-completion_command = "git branch --format='%(refname:short)'"
-workdir            = "~/src/myproject"
+name                   = "git checkout"
+path                   = "git"
+args                   = ["checkout"]
+completion             = "command"
+completion_command     = "git branch --format='%(refname:short)'"
+completion_search_mode = "exact"  # "fuzzy" | "exact" (overrides global search_mode)
+workdir                = "~/src/myproject"
 
 # Override completion settings for scan_dirs items
 [[overrides]]

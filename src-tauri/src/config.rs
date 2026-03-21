@@ -210,6 +210,8 @@ pub struct AppEntry {
     #[serde(default)]
     pub completion_list: Vec<String>,
     pub completion_command: Option<String>,
+    /// アプリ単位の補完検索モード上書き (省略時はグローバルの search_mode を使用)
+    pub completion_search_mode: Option<SearchMode>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -774,6 +776,7 @@ delete_item = "Ctrl+d"
 # completion       = "path"     # "path" | "none" | "list" | "command"
 # completion_list  = ["start", "stop", "restart"]   # completion = "list" の時
 # completion_command = "git branch --format='%(refname:short)'"  # completion = "command" の時
+# completion_search_mode = "fuzzy"  # "fuzzy" | "exact" (省略時はグローバルの search_mode を使用)
 
 # ディレクトリスキャンで自動登録
 # [[scan_dirs]]

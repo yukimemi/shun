@@ -115,15 +115,23 @@ fn complete_path(
     completion_command: Option<String>,
     workdir: Option<String>,
     item_args: Option<Vec<String>>,
+    completion_search_mode: Option<config::SearchMode>,
     state: tauri::State<CacheState>,
 ) -> CompleteResult {
-    let vars = {
+    let (vars, global_search_mode) = {
         let cache = state.lock().unwrap();
-        cache
+        let vars = cache
             .as_ref()
             .map(|c| c.config.vars.clone())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        let mode = cache
+            .as_ref()
+            .map(|c| c.config.search_mode.clone())
+            .unwrap_or_default();
+        (vars, mode)
     };
+    // per-app override があればそちらを、なければグローバル設定を使う
+    let search_mode = completion_search_mode.as_ref().unwrap_or(&global_search_mode);
     // テンプレート args から {{ args }} 前の固定部分をベースパスとして抽出
     let base_path = item_args
         .as_deref()
@@ -135,6 +143,7 @@ fn complete_path(
         &completion_command,
         &workdir,
         base_path.as_deref(),
+        search_mode,
     );
     CompleteResult {
         prefix,

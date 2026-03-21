@@ -58,6 +58,7 @@ mod tests {
             completion: CompletionType::None,
             completion_list: vec![],
             completion_command: None,
+            completion_search_mode: None,
             history_key: None,
         }
     }

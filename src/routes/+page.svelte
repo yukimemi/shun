@@ -6,7 +6,7 @@
   import { getVersion } from "@tauri-apps/api/app";
   import { debug, info } from "@tauri-apps/plugin-log";
   import { onMount, tick } from "svelte";
-  import { firstSepIdx, isPathQuery, matchKey } from "$lib/utils.js";
+  import { firstSepIdx, isPathQuery, matchKey, fuzzyMatch } from "$lib/utils.js";
 
   let WINDOW_WIDTH = $state(620);
   const INPUT_HEIGHT = 52;
@@ -591,7 +591,7 @@
     if (argItem?.source === "SlashCmd") {
       const list = argItem?.completion_list ?? [];
       const input = extraArgs.toLowerCase();
-      const newCompletions = input ? list.filter((c) => c.toLowerCase().startsWith(input)) : list;
+      const newCompletions = input ? list.filter((c) => fuzzyMatch(input, c)) : list;
       allCompletions = newCompletions;
       completionIndex = 0;
       resizeForArgs(newCompletions.length);
@@ -600,10 +600,8 @@
 
     const input = extraArgs;
 
-    // historyArgs を入力でフィルタ（前方一致・大文字小文字無視）
-    const filteredHistory = historyArgs.filter((h) =>
-      h.toLowerCase().startsWith(input.toLowerCase())
-    );
+    // historyArgs を入力で fuzzy フィルタ
+    const filteredHistory = historyArgs.filter((h) => fuzzyMatch(input, h));
 
     if (!input) {
       // 未入力: history のみ表示
@@ -622,9 +620,20 @@
       completionCommand: argItem?.completion_command ?? null,
       workdir: argItem?.workdir ?? null,
       itemArgs: argItem?.args ?? null,
+      completionSearchMode: argItem?.completion_search_mode ?? null,
     }).then((result) => {
+      // Rust 側でフィルタ済み。prefix 一致を上位に並べる
+      const stem = input.slice(result.prefix.length).toLowerCase();
+      const sorted = stem
+        ? result.completions.slice().sort((a, b) => {
+            const aPrefix = a.toLowerCase().startsWith(stem);
+            const bPrefix = b.toLowerCase().startsWith(stem);
+            if (aPrefix !== bPrefix) return aPrefix ? -1 : 1;
+            return a.localeCompare(b);
+          })
+        : result.completions;
       // path 補完はフル文字列に展開（prefix + item）
-      const pathFull = result.completions.map((c) => result.prefix + c);
+      const pathFull = sorted.map((c) => result.prefix + c);
       // history と重複するものを除外して後ろに追加
       const deduped = pathFull.filter((p) => !filteredHistory.includes(p));
       completionPrefix = "";

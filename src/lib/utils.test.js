@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { firstSepIdx, isPathQuery, matchKey } from "./utils.js";
+import { firstSepIdx, isPathQuery, matchKey, fuzzyMatch } from "./utils.js";
 
 // --- firstSepIdx ---
 
@@ -167,5 +167,33 @@ describe("matchKey", () => {
 
   it("matches Ctrl+u (delete_line default)", () => {
     expect(matchKey(evt("u", { ctrlKey: true }), "Ctrl+u")).toBe(true);
+  });
+});
+
+// --- fuzzyMatch ---
+
+describe("fuzzyMatch", () => {
+  it("empty query always matches", () => {
+    expect(fuzzyMatch("", "anything")).toBe(true);
+    expect(fuzzyMatch("", "")).toBe(true);
+  });
+  it("exact match", () => {
+    expect(fuzzyMatch("abc", "abc")).toBe(true);
+  });
+  it("subsequence match", () => {
+    expect(fuzzyMatch("rust", "20260321-rust-notes.md")).toBe(true);
+    expect(fuzzyMatch("notes", "20260321-rust-notes.md")).toBe(true);
+    expect(fuzzyMatch("26nt", "20260321-rust-notes.md")).toBe(true);
+  });
+  it("case insensitive", () => {
+    expect(fuzzyMatch("RUST", "20260321-rust-notes.md")).toBe(true);
+    expect(fuzzyMatch("Notes", "20260321-rust-notes.md")).toBe(true);
+  });
+  it("no match when characters missing", () => {
+    expect(fuzzyMatch("xyz", "20260321-rust-notes.md")).toBe(false);
+    expect(fuzzyMatch("rustz", "rust-notes.md")).toBe(false);
+  });
+  it("prefix match works", () => {
+    expect(fuzzyMatch("2026", "20260321-notes.md")).toBe(true);
   });
 });

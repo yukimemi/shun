@@ -1,6 +1,36 @@
 use std::path::Path;
 
-use crate::config::CompletionType;
+use crate::config::{CompletionType, SearchMode};
+
+/// query が target に fuzzy マッチするか（subsequence、大文字小文字無視）
+fn fuzzy_match(query: &str, target: &str) -> bool {
+    let q = query.to_lowercase();
+    let t = target.to_lowercase();
+    let mut qi = q.chars().peekable();
+    for tc in t.chars() {
+        if let Some(&qc) = qi.peek() {
+            if tc == qc {
+                qi.next();
+            }
+        }
+    }
+    qi.peek().is_none()
+}
+
+/// query が target に exact マッチするか（contains、大文字小文字無視）
+fn exact_match(query: &str, target: &str) -> bool {
+    target.to_lowercase().contains(&query.to_lowercase())
+}
+
+fn matches(query: &str, target: &str, mode: &SearchMode) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    match mode {
+        SearchMode::Fuzzy => fuzzy_match(query, target),
+        SearchMode::Exact => exact_match(query, target),
+    }
+}
 
 /// 補完タイプに応じて候補を返す
 /// 戻り値: (prefix, completions)
@@ -13,18 +43,19 @@ pub fn complete(
     completion_command: &Option<String>,
     workdir: &Option<String>,
     base_path: Option<&str>,
+    search_mode: &SearchMode,
 ) -> (String, Vec<String>) {
     match completion_type {
         CompletionType::None => (String::new(), vec![]),
-        CompletionType::Path => complete_path(input, base_path),
-        CompletionType::List => complete_list(input, completion_list),
-        CompletionType::Command => complete_command(input, completion_command, workdir),
+        CompletionType::Path => complete_path(input, base_path, search_mode),
+        CompletionType::List => complete_list(input, completion_list, search_mode),
+        CompletionType::Command => complete_command(input, completion_command, workdir, search_mode),
     }
 }
 
 // --- path 補完 ---
 
-fn complete_path(input: &str, base_path: Option<&str>) -> (String, Vec<String>) {
+fn complete_path(input: &str, base_path: Option<&str>, search_mode: &SearchMode) -> (String, Vec<String>) {
     // base_path がある場合は base + input を実際のパスとして補完し、結果から base を strip する
     let effective_input = match base_path {
         Some(base) => {
@@ -77,7 +108,7 @@ fn complete_path(input: &str, base_path: Option<&str>) -> (String, Vec<String>) 
         .flatten()
         .filter_map(|entry| {
             let name = entry.file_name().to_string_lossy().to_string();
-            if !name.to_lowercase().starts_with(&stem) {
+            if !stem.is_empty() && !matches(&stem, &name, search_mode) {
                 return None;
             }
             let full = entry.path();
@@ -123,7 +154,7 @@ fn complete_path(input: &str, base_path: Option<&str>) -> (String, Vec<String>) 
 
 // --- list 補完 ---
 
-fn complete_list(input: &str, list: &[String]) -> (String, Vec<String>) {
+fn complete_list(input: &str, list: &[String], search_mode: &SearchMode) -> (String, Vec<String>) {
     // list 補完はサブコマンド（最初のワード）向けなので split しない。
     // 入力がすでに完全な list アイテム + スペース で始まっていたら補完しない
     // (例: "search " や "search hoge" は補完不要)
@@ -136,7 +167,7 @@ fn complete_list(input: &str, list: &[String]) -> (String, Vec<String>) {
     }
     let mut completions: Vec<String> = list
         .iter()
-        .filter(|s| s.to_lowercase().starts_with(&input_lower))
+        .filter(|item| matches(input, item, search_mode))
         .cloned()
         .collect();
     completions.sort_by_key(|a| a.to_lowercase());
@@ -149,13 +180,13 @@ fn complete_command(
     input: &str,
     command: &Option<String>,
     workdir: &Option<String>,
+    search_mode: &SearchMode,
 ) -> (String, Vec<String>) {
     let Some(cmd_str) = command else {
         return (String::new(), vec![]);
     };
 
     let (prefix, partial) = split_last_token(input);
-    let partial_lower = partial.to_lowercase();
 
     // シェル経由で実行
     let output = {
@@ -191,7 +222,7 @@ fn complete_command(
     let mut completions: Vec<String> = stdout
         .lines()
         .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty() && l.to_lowercase().starts_with(&partial_lower))
+        .filter(|l| !l.is_empty() && matches(partial, l, search_mode))
         .collect();
     completions.sort_by_key(|a| a.to_lowercase());
     (prefix, completions)
@@ -317,7 +348,7 @@ mod tests {
             "stop".to_string(),
             "status".to_string(),
         ];
-        let (prefix, completions) = complete_list("st", &list);
+        let (prefix, completions) = complete_list("st", &list, &SearchMode::Fuzzy);
         assert_eq!(prefix, "");
         assert!(completions.contains(&"start".to_string()));
         assert!(completions.contains(&"stop".to_string()));
@@ -327,35 +358,35 @@ mod tests {
     #[test]
     fn list_case_insensitive() {
         let list = vec!["Start".to_string()];
-        let (_, completions) = complete_list("sta", &list);
+        let (_, completions) = complete_list("sta", &list, &SearchMode::Fuzzy);
         assert_eq!(completions, vec!["Start"]);
     }
 
     #[test]
     fn list_no_match() {
         let list = vec!["start".to_string()];
-        let (_, completions) = complete_list("xyz", &list);
+        let (_, completions) = complete_list("xyz", &list, &SearchMode::Fuzzy);
         assert!(completions.is_empty());
     }
 
     #[test]
     fn list_suppressed_after_full_match_plus_space() {
         let list = vec!["search".to_string(), "settings".to_string()];
-        let (_, completions) = complete_list("search ", &list);
+        let (_, completions) = complete_list("search ", &list, &SearchMode::Fuzzy);
         assert!(completions.is_empty());
     }
 
     #[test]
     fn list_empty_input_returns_all() {
         let list = vec!["a".to_string(), "b".to_string()];
-        let (_, completions) = complete_list("", &list);
+        let (_, completions) = complete_list("", &list, &SearchMode::Fuzzy);
         assert_eq!(completions.len(), 2);
     }
 
     #[test]
     fn list_sorted_alphabetically() {
         let list = vec!["stop".to_string(), "install".to_string(), "add".to_string()];
-        let (_, completions) = complete_list("", &list);
+        let (_, completions) = complete_list("", &list, &SearchMode::Fuzzy);
         assert_eq!(completions, vec!["add", "install", "stop"]);
     }
 
@@ -368,15 +399,17 @@ mod tests {
         std::fs::write(dir.path().join("bar.txt"), "").unwrap();
 
         let input = format!("{}/fo", dir.path().to_string_lossy().replace('\\', "/"));
-        let (prefix, completions) = complete_path(&input, None);
+        let (prefix, completions) = complete_path(&input, None, &SearchMode::Fuzzy);
         assert_eq!(prefix, "");
+        // fuzzy: "fo" matches "foo.txt" but not "bar.txt"
         assert_eq!(completions.len(), 1);
-        assert!(completions[0].contains("foo.txt"));
+        assert!(completions.iter().any(|c| c.contains("foo.txt")));
     }
 
     #[test]
     fn path_nonexistent_dir_returns_empty() {
-        let (_, completions) = complete_path("/nonexistent_abc_xyz_shun_test/foo", None);
+        let (_, completions) =
+            complete_path("/nonexistent_abc_xyz_shun_test/foo", None, &SearchMode::Fuzzy);
         assert!(completions.is_empty());
     }
 
@@ -385,7 +418,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("mydir")).unwrap();
         let input = format!("{}/my", dir.path().to_string_lossy().replace('\\', "/"));
-        let (_, completions) = complete_path(&input, None);
+        let (_, completions) = complete_path(&input, None, &SearchMode::Fuzzy);
         assert!(completions.iter().any(|c| c.ends_with("mydir/")));
     }
 
@@ -395,7 +428,7 @@ mod tests {
         std::fs::write(dir.path().join("run.sh"), "").unwrap();
         let dir_str = dir.path().to_string_lossy().replace('\\', "/");
         let input = format!("--flag {}/ru", dir_str);
-        let (prefix, completions) = complete_path(&input, None);
+        let (prefix, completions) = complete_path(&input, None, &SearchMode::Fuzzy);
         assert_eq!(prefix, "--flag ");
         assert!(!completions.is_empty());
     }
