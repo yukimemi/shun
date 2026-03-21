@@ -320,12 +320,21 @@ args       = ['~/memo/{{ now() | date(format="%Y%m%d") }}-{{ args }}.md']
 completion = "none"
 
 # MemoList: Tab → pick existing memo from dropdown → Enter
+# macOS / Linux
 [[apps]]
 name               = "MemoList"
 path               = "nvim"
 args               = ["~/memo/{{ args }}"]
 completion         = "command"
 completion_command = "ls ~/memo/"
+
+# Windows (PowerShell)
+[[apps]]
+name               = "MemoList"
+path               = "nvim"
+args               = ["~/memo/{{ args }}"]
+completion         = "command"
+completion_command = "Get-ChildItem ~/memo -Name"
 ```
 
 **Environment variables** — use `{{ env.VAR_NAME }}` or the Tera built-in `get_env()`:
