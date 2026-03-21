@@ -524,31 +524,25 @@ fn delete_history_item(key: String) -> Result<(), String> {
 fn set_theme_preset(preset: String, state: tauri::State<CacheState>) -> Result<(), String> {
     let local_path = config::local_config_path();
 
-    // 既存の config.local.toml を読み込み（なければ空）
+    // 既存の config.local.toml を読み込み（なければ空）— toml_edit でコメント・書式を保持
     let content = if local_path.exists() {
         std::fs::read_to_string(&local_path).unwrap_or_default()
     } else {
         String::new()
     };
 
-    // toml::Value として解析し [theme] preset を更新
-    let mut val: toml::Value = toml::from_str(&content)
-        .unwrap_or_else(|_| toml::Value::Table(toml::value::Table::new()));
+    let mut doc: toml_edit::DocumentMut = content.parse().unwrap_or_default();
 
-    if let toml::Value::Table(ref mut table) = val {
-        let theme = table
-            .entry("theme".to_string())
-            .or_insert_with(|| toml::Value::Table(toml::value::Table::new()));
-        if let toml::Value::Table(ref mut th) = theme {
-            th.insert("preset".to_string(), toml::Value::String(preset));
-        }
+    // [theme] テーブルがなければ作成し、preset キーだけ更新
+    if !doc.contains_key("theme") {
+        doc["theme"] = toml_edit::Item::Table(toml_edit::Table::new());
     }
+    doc["theme"]["preset"] = toml_edit::value(preset);
 
-    let new_content = toml::to_string_pretty(&val).map_err(|e| e.to_string())?;
     if let Some(parent) = local_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    std::fs::write(&local_path, new_content).map_err(|e| e.to_string())?;
+    std::fs::write(&local_path, doc.to_string()).map_err(|e| e.to_string())?;
 
     // キャッシュ更新
     refresh_cache_bg(Arc::clone(state.inner()));
