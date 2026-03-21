@@ -643,6 +643,7 @@
   async function runSlashCommand(cmd) {
     if (cmd.name === "/version") {
       query = `/version — v${appVersion}`;
+      setTimeout(() => { query = ""; }, 2000);
       return;
     }
     if (cmd.name === "/theme") {
