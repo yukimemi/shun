@@ -97,17 +97,17 @@ Auto-created at first launch:
 
 ## Testing
 
-### Rust tests (79 total)
+### Rust tests (88 total)
 Each module has a `#[cfg(test)]` block:
 - `config.rs` — defaults, TOML parsing, keybinding overrides
-- `search.rs` — fuzzy/exact filter
+- `search.rs` — fuzzy/exact/migemo filter
 - `complete.rs` — split_last_token, sort_completions, complete_path (uses `tempfile`)
 - `history.rs` — sort_key, serde roundtrip, combined key format
 - `utils.rs` — expand_path variants
 - `apps.rs` — is_url, is_path, launch_with_extra
 
-### Frontend tests (37 total)
-`src/lib/utils.test.js` covers `firstSepIdx`, `isPathQuery`, `matchKey`.
+### Frontend tests (53 total)
+`src/lib/utils.test.js` covers `firstSepIdx`, `isPathQuery`, `matchKey`, `shouldBypassTemplate`.
 
 Do not mock these — they are pure functions with no Tauri dependencies.
 
@@ -127,9 +127,9 @@ Do not mock these — they are pure functions with no Tauri dependencies.
 - Signing key: `~/.tauri/shun.key` (pubkey in `tauri.conf.json`; private key in `TAURI_SIGNING_PRIVATE_KEY` GitHub secret, no password)
 - `latest.json` is auto-generated and uploaded by tauri-action to each release
 
-## Current status (2026-03-21)
+## Current status (2026-03-22)
 
-- Latest tag: **v1.5.10**
+- Latest tag: **v1.9.1**
 - Auto-update fully working: `latest.json` generated, signatures present
 - Portable self-update working: `portable.txt` in zip triggers zip-download path
 - Download progress display working: `update-progress` events shown in query
@@ -139,4 +139,6 @@ Do not mock these — they are pure functions with no Tauri dependencies.
 - `[vars]` section in config for user-defined Tera template variables (`{{ vars.my_var }}`)
 - Config items use `item.name` as history key (distinguishes apps sharing the same executable)
 - Pre-push hook in `.claude/settings.json`: cargo fmt --check, cargo clippy -D warnings, npm test
-- Rust tests: 79 total / Frontend tests: 37 total
+- Migemo search mode: `rustmigemo` (Rust) + `jsmigemo` (JS); dict bundled as `public/migemo-compact-dict.bin` via `include_bytes!`
+- `shouldBypassTemplate` in utils.js: history+template bypass detection
+- Rust tests: 88 total / Frontend tests: 53 total

@@ -162,4 +162,47 @@ mod tests {
         assert!(!r.is_empty());
         assert_eq!(r[0].name, "foo");
     }
+
+    // --- migemo_filter ---
+
+    #[test]
+    fn migemo_empty_query_returns_all() {
+        let items = vec![item("Firefox"), item("Notepad")];
+        assert_eq!(migemo_filter(&items, "").len(), 2);
+    }
+
+    #[test]
+    fn migemo_ascii_substring_match() {
+        let items = vec![item("Firefox"), item("Notepad"), item("fire_starter")];
+        let results = migemo_filter(&items, "fire");
+        let names: Vec<&str> = results.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"Firefox"));
+        assert!(names.contains(&"fire_starter"));
+        assert!(!names.contains(&"Notepad"));
+    }
+
+    #[test]
+    fn migemo_romaji_matches_japanese() {
+        // "hajime" should match items containing hiragana/kanji read as "hajime"
+        let items = vec![item("初めてのRust"), item("Notepad"), item("はじめに")];
+        let results = migemo_filter(&items, "hajime");
+        let names: Vec<&str> = results.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"初めてのRust"), "should match kanji 初め");
+        assert!(names.contains(&"はじめに"), "should match hiragana はじめ");
+        assert!(!names.contains(&"Notepad"));
+    }
+
+    #[test]
+    fn migemo_no_match_returns_empty() {
+        let items = vec![item("Firefox")];
+        assert!(migemo_filter(&items, "zzzzzzzzz").is_empty());
+    }
+
+    #[test]
+    fn filter_dispatches_migemo() {
+        let items = vec![item("はじめに"), item("Notepad")];
+        let r = filter(&items, "hajime", &SearchMode::Migemo);
+        assert!(!r.is_empty());
+        assert_eq!(r[0].name, "はじめに");
+    }
 }
