@@ -32,6 +32,8 @@
 - **Auto-update** — checks for new releases on startup; install in one keystroke with download progress
 - **Portable friendly** — portable zip includes self-update (no admin rights required)
 - **Theming** — built-in presets (Catppuccin, Nord, Dracula, Tokyo Night) + per-color overrides via `[theme]` in config
+- **Font size & opacity** — configurable via `font_size` and `opacity` in config
+- **History limit** — cap history entries with `history_max_items` (default: 1000)
 - **Configurable logging** — set log level (`debug` / `info` / `warn` / `error` / `off`) via `[log]` in config; log file at `%APPDATA%\shun\logs\shun.log`
 - **Local config override** — `config.local.toml` merges machine-specific settings without touching the main config (chezmoi-friendly)
 - **Auto-hide on blur** — optionally hide when focus leaves the launcher
@@ -102,7 +104,7 @@ Place a `config.local.toml` in the same directory as `config.toml` to add machin
 | Field | Behavior |
 |---|---|
 | `apps`, `scan_dirs`, `overrides` | Entries are **appended** to the main config |
-| `search_mode`, `sort_order`, `hide_on_blur`, `update_check_interval` | Local value **overrides** main (only when explicitly set) |
+| `search_mode`, `sort_order`, `hide_on_blur`, `update_check_interval`, `font_size`, `opacity`, `history_max_items` | Local value **overrides** main (only when explicitly set) |
 | `[keybindings]` | **Per-field override** — only specified keys are overridden |
 | `[theme]` | **Per-field override** — `preset` and individual colors can be overridden independently |
 | `[log]` | **Per-field override** — only specified fields are overridden |
@@ -144,6 +146,15 @@ max_items = 8
 
 # Max items shown in the completion dropdown (default: 6)
 max_completions = 6
+
+# Font size in pixels (default: 14)
+# font_size = 14
+
+# Window opacity 0.0–1.0 (default: 1.0)
+# opacity = 1.0
+
+# Maximum number of history entries to keep (default: 1000)
+# history_max_items = 1000
 
 [keybindings]
 launch      = "Alt+Space"   # Global hotkey to show/hide
