@@ -4366,6 +4366,7 @@ version = "1.6.3"
 dependencies = [
  "dirs-next",
  "futures-util",
+ "log",
  "nucleo-matcher",
  "reqwest",
  "serde",

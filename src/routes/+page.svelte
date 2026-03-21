@@ -95,19 +95,27 @@
     return "";
   });
 
+  let _lastSize = { w: 0, h: 0 };
+
+  function _setSize(w, h) {
+    if (_lastSize.w === w && _lastSize.h === h) return;
+    _lastSize = { w, h };
+    win.setSize(new LogicalSize(w, h));
+  }
+
   function resizeForSearch(itemCount) {
     const count = Math.min(itemCount, MAX_ITEMS);
     const h = INPUT_HEIGHT + BORDER_HEIGHT + (count > 0 ? count : 1) * ITEM_HEIGHT + RESULTS_PADDING;
-    win.setSize(new LogicalSize(WINDOW_WIDTH, h));
+    _setSize(WINDOW_WIDTH, h);
   }
 
   function resizeForArgs(completionCount) {
     const count = Math.min(completionCount, MAX_COMPLETIONS);
     if (count === 0) {
-      win.setSize(new LogicalSize(WINDOW_WIDTH, INPUT_HEIGHT));
+      _setSize(WINDOW_WIDTH, INPUT_HEIGHT);
     } else {
       const h = INPUT_HEIGHT + BORDER_HEIGHT + count * ITEM_HEIGHT + RESULTS_PADDING;
-      win.setSize(new LogicalSize(WINDOW_WIDTH, h));
+      _setSize(WINDOW_WIDTH, h);
     }
   }
 
@@ -573,9 +581,10 @@
     if (argItem?.source === "SlashCmd") {
       const list = argItem?.completion_list ?? [];
       const input = extraArgs.toLowerCase();
-      allCompletions = input ? list.filter((c) => c.toLowerCase().startsWith(input)) : list;
+      const newCompletions = input ? list.filter((c) => c.toLowerCase().startsWith(input)) : list;
+      allCompletions = newCompletions;
       completionIndex = 0;
-      resizeForArgs(allCompletions.length);
+      resizeForArgs(newCompletions.length);
       return;
     }
 
@@ -609,9 +618,10 @@
       // history と重複するものを除外して後ろに追加
       const deduped = pathFull.filter((p) => !filteredHistory.includes(p));
       completionPrefix = "";
-      allCompletions = [...filteredHistory, ...deduped];
+      const newAllCompletions = [...filteredHistory, ...deduped];
+      allCompletions = newAllCompletions;
       completionIndex = 0;
-      resizeForArgs(allCompletions.length);
+      resizeForArgs(newAllCompletions.length);
     });
   });
 
