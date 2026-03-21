@@ -31,6 +31,7 @@
 - **Slash commands** — `/exit`, `/config`, `/rescan`, `/update`
 - **Auto-update** — checks for new releases on startup; install in one keystroke with download progress
 - **Portable friendly** — portable zip includes self-update (no admin rights required)
+- **Theming** — built-in presets (Catppuccin, Nord, Dracula, Tokyo Night) + per-color overrides via `[theme]` in config
 - **Local config override** — `config.local.toml` merges machine-specific settings without touching the main config (chezmoi-friendly)
 - **Auto-hide on blur** — optionally hide when focus leaves the launcher
 - **Multi-monitor** — appears on the monitor where your cursor is
@@ -102,6 +103,7 @@ Place a `config.local.toml` in the same directory as `config.toml` to add machin
 | `apps`, `scan_dirs`, `overrides` | Entries are **appended** to the main config |
 | `search_mode`, `sort_order`, `hide_on_blur`, `update_check_interval` | Local value **overrides** main (only when explicitly set) |
 | `[keybindings]` | **Per-field override** — only specified keys are overridden |
+| `[theme]` | **Per-field override** — `preset` and individual colors can be overridden independently |
 
 **Example `config.local.toml`:**
 
@@ -149,13 +151,24 @@ confirm     = "Enter"
 arg_mode    = "Tab"
 accept_word = "Ctrl+f"      # Accept next word/segment of ghost text
 accept_line = "Ctrl+e"      # Accept full ghost text
-delete_word = "Ctrl+w"      # Delete word before cursor (args mode)
-delete_line = "Ctrl+u"      # Delete to beginning of line (args mode)
+delete_word = "Ctrl+w"      # Delete word before cursor
+delete_line = "Ctrl+u"      # Delete to beginning of line
 run_query   = "Shift+Enter" # Run typed query directly (skip history results)
 close       = "Escape"
-delete_item = "Ctrl+d"     # Delete selected history item
+delete_item = "Ctrl+d"      # Delete selected history item
 
-
+# Theme — preset + optional per-color overrides
+[theme]
+preset = "catppuccin-mocha"   # "catppuccin-mocha" | "catppuccin-latte" | "nord" | "dracula" | "tokyo-night"
+# bg      = "#1e1e2e"         # background
+# surface = "#313244"         # selected item / border
+# overlay = "#45475a"         # ghost text / separator
+# muted   = "#585b70"         # placeholder / labels
+# text    = "#cdd6f4"         # main text
+# blue    = "#89b4fa"         # accent (dirs, URLs, args app name)
+# purple  = "#cba6f7"         # slash commands
+# green   = "#a6e3a1"         # Path items
+# red     = "#f38ba8"         # History items
 
 # Open editor with file path completion
 [[apps]]
@@ -287,6 +300,42 @@ args = ["{{ env.USERPROFILE }}/src/{{ args }}"]
 name = "Work Dir"
 path = '{{ get_env(name="WORK_DIR", default="~/work") }}/{{ args }}'
 ```
+
+## Theming
+
+Set a built-in theme or override individual colors in `config.toml`:
+
+```toml
+[theme]
+preset = "nord"    # pick a preset
+bg     = "#1a1a2e" # optional: override any individual color
+```
+
+**Built-in presets:**
+
+| Preset | Description |
+|---|---|
+| `catppuccin-mocha` | Default — dark, muted pastel |
+| `catppuccin-latte` | Light variant of Catppuccin |
+| `nord` | Arctic, blue-toned dark |
+| `dracula` | Dark with vibrant purple/pink |
+| `tokyo-night` | Dark blue-purple, Tokyo Night style |
+
+**Color variables:**
+
+| Key | Role |
+|---|---|
+| `bg` | Launcher background |
+| `surface` | Selected item background / border |
+| `overlay` | Ghost text / separator / count |
+| `muted` | Placeholder / source labels |
+| `text` | Main text |
+| `blue` | Accent — dirs, URLs, args app name |
+| `purple` | Slash commands |
+| `green` | Path items |
+| `red` | History items |
+
+All color keys are optional — unset keys fall back to the chosen `preset`.
 
 ## Keybindings
 
