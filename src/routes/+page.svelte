@@ -277,6 +277,8 @@
     if (cfg?.window_width)    WINDOW_WIDTH    = cfg.window_width;
     if (cfg?.max_items)       MAX_ITEMS       = cfg.max_items;
     if (cfg?.max_completions) MAX_COMPLETIONS = cfg.max_completions;
+    if (cfg?.font_size)       document.documentElement.style.setProperty('--font-size', cfg.font_size + 'px');
+    if (cfg?.opacity != null) document.documentElement.style.setProperty('--opacity', cfg.opacity);
     applyTheme(cfg?.theme);
     appVersion = await getVersion();
 
@@ -839,6 +841,7 @@
     height: 100%;
     background: var(--color-bg, #1e1e2e);
     overflow: hidden;
+    opacity: var(--opacity, 1);
   }
 
   .search-wrap {
@@ -848,13 +851,13 @@
 
   .search-ghost {
     padding: 16px 20px;
-    font-size: 18px;
+    font-size: calc(var(--font-size, 14px) + 4px);
   }
 
   .search {
     width: 100%;
     padding: 16px 20px;
-    font-size: 18px;
+    font-size: calc(var(--font-size, 14px) + 4px);
     background: transparent;
     border: none;
     outline: none;
@@ -876,14 +879,14 @@
   }
 
   .args-app-name {
-    font-size: 18px;
+    font-size: calc(var(--font-size, 14px) + 4px);
     color: var(--color-blue, #89b4fa);
     white-space: nowrap;
     flex-shrink: 0;
   }
 
   .args-sep {
-    font-size: 18px;
+    font-size: calc(var(--font-size, 14px) + 4px);
     color: var(--color-overlay, #45475a);
     flex-shrink: 0;
   }
@@ -901,7 +904,7 @@
     display: flex;
     align-items: center;
     pointer-events: none;
-    font-size: 18px;
+    font-size: calc(var(--font-size, 14px) + 4px);
     font-family: inherit;
     white-space: pre;
     overflow: hidden;
@@ -914,7 +917,7 @@
     position: relative;
     z-index: 1;
     width: 100%;
-    font-size: 18px;
+    font-size: calc(var(--font-size, 14px) + 4px);
     background: transparent;
     border: none;
     outline: none;
@@ -943,7 +946,7 @@
   .item.selected { background: var(--color-surface, #313244); }
 
   .item-name {
-    font-size: 14px;
+    font-size: var(--font-size, 14px);
     flex: 1;
     min-width: 0;
     overflow: hidden;
@@ -962,7 +965,7 @@
   }
 
   .completion-path {
-    font-size: 13px;
+    font-size: calc(var(--font-size, 14px) - 1px);
     color: var(--color-text, #cdd6f4);
     font-family: monospace;
   }
@@ -972,7 +975,7 @@
   }
 
   .completion-count {
-    font-size: 10px;
+    font-size: calc(var(--font-size, 14px) - 4px);
     color: var(--color-overlay, #45475a);
     flex-shrink: 0;
   }
@@ -984,7 +987,7 @@
   }
 
   .item-tab-hint {
-    font-size: 10px;
+    font-size: calc(var(--font-size, 14px) - 4px);
     color: var(--color-overlay, #45475a);
     background: var(--color-surface, #313244);
     padding: 1px 5px;
@@ -992,7 +995,7 @@
   }
 
   .item-source {
-    font-size: 11px;
+    font-size: calc(var(--font-size, 14px) - 3px);
     color: var(--color-muted, #585b70);
     text-transform: lowercase;
   }
@@ -1000,13 +1003,13 @@
   .empty {
     padding: 16px 20px;
     color: var(--color-muted, #585b70);
-    font-size: 14px;
+    font-size: var(--font-size, 14px);
   }
 
   .slash-name {
     color: var(--color-purple, #cba6f7);
     font-family: monospace;
-    font-size: 14px;
+    font-size: var(--font-size, 14px);
   }
 
   :global(.item-source[data-source="Url"]) {

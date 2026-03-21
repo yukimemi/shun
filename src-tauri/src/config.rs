@@ -54,6 +54,12 @@ pub struct Config {
     pub max_items: usize,
     #[serde(default = "default_max_completions")]
     pub max_completions: usize,
+    #[serde(default = "default_font_size")]
+    pub font_size: u32,
+    #[serde(default = "default_opacity")]
+    pub opacity: f64,
+    #[serde(default = "default_history_max_items")]
+    pub history_max_items: usize,
     #[serde(default)]
     pub theme: ThemeConfig,
     #[serde(default)]
@@ -152,6 +158,15 @@ fn default_max_items() -> usize {
 }
 fn default_max_completions() -> usize {
     6
+}
+fn default_font_size() -> u32 {
+    14
+}
+fn default_opacity() -> f64 {
+    1.0
+}
+fn default_history_max_items() -> usize {
+    1000
 }
 
 impl Default for Keybindings {
@@ -275,6 +290,9 @@ impl Default for Config {
             window_width: default_window_width(),
             max_items: default_max_items(),
             max_completions: default_max_completions(),
+            font_size: default_font_size(),
+            opacity: default_opacity(),
+            history_max_items: default_history_max_items(),
             theme: ThemeConfig::default(),
             log: LogConfig::default(),
             vars: HashMap::new(),
@@ -355,6 +373,15 @@ fn merge_local_config(base: &mut Config, local_content: &str) {
     }
     if table.contains_key("update_check_interval") {
         base.update_check_interval = local.update_check_interval;
+    }
+    if table.contains_key("font_size") {
+        base.font_size = local.font_size;
+    }
+    if table.contains_key("opacity") {
+        base.opacity = local.opacity;
+    }
+    if table.contains_key("history_max_items") {
+        base.history_max_items = local.history_max_items;
     }
 
     // keybindings: フィールド単位でマージ
@@ -694,6 +721,15 @@ max_items = 8
 
 # 補完ドロップダウンに表示するアイテム数の上限
 max_completions = 6
+
+# フォントサイズ (px, デフォルト: 14)
+# font_size = 14
+
+# ウィンドウの不透明度 (0.0 〜 1.0, デフォルト: 1.0)
+# opacity = 1.0
+
+# 履歴の最大保持件数 (デフォルト: 1000)
+# history_max_items = 1000
 
 [keybindings]
 launch      = "Alt+Space"

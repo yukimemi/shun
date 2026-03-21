@@ -172,12 +172,17 @@ fn launch_item(
 ) -> Result<(), String> {
     let extra = extra_args.unwrap_or_default();
 
-    let vars = {
+    let (vars, history_max_items) = {
         let cache = state.lock().unwrap();
-        cache
+        let vars = cache
             .as_ref()
             .map(|c| c.config.vars.clone())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        let max = cache
+            .as_ref()
+            .map(|c| c.config.history_max_items)
+            .unwrap_or(1000);
+        (vars, max)
     };
 
     // history 記録
@@ -200,11 +205,11 @@ fn launch_item(
         } else {
             &item.path
         };
-        history::record_args(record_key, &history_args);
+        history::record_args(record_key, &history_args, history_max_items);
     } else {
         // args なし or History アイテムの再実行: そのままのキーで記録
         let record_key = item.history_key.as_deref().unwrap_or(&item.path);
-        history::record(record_key);
+        history::record(record_key, history_max_items);
     }
 
     // 起動後にキャッシュを更新（次回表示時に history items が反映される）

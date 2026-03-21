@@ -43,7 +43,25 @@ fn save(history: &History) {
     }
 }
 
-pub fn record(key: &str) {
+/// 履歴エントリ数を max 件に制限する（last_used が古いものから削除）
+fn trim_to(history: &mut History, max: usize) {
+    if max == 0 || history.entries.len() <= max {
+        return;
+    }
+    let mut keys: Vec<(String, u64)> = history
+        .entries
+        .iter()
+        .map(|(k, v)| (k.clone(), v.last_used))
+        .collect();
+    // last_used 昇順（古い順）でソートして末尾 max 件以外を削除
+    keys.sort_unstable_by_key(|(_, t)| *t);
+    let remove_count = keys.len() - max;
+    for (key, _) in keys.iter().take(remove_count) {
+        history.entries.remove(key);
+    }
+}
+
+pub fn record(key: &str, max_items: usize) {
     let mut history = load();
     let now = now_secs();
     let entry = history
@@ -56,12 +74,13 @@ pub fn record(key: &str) {
         });
     entry.count += 1;
     entry.last_used = now;
+    trim_to(&mut history, max_items);
     save(&history);
 }
 
 /// extra_args ありで起動したとき: `path\targs` を別エントリとして記録し、
 /// base path の last_args も更新する。
-pub fn record_args(path: &str, args: &[String]) {
+pub fn record_args(path: &str, args: &[String], max_items: usize) {
     if args.is_empty() {
         return;
     }
@@ -90,6 +109,7 @@ pub fn record_args(path: &str, args: &[String]) {
         });
     base.last_args = Some(args_str);
 
+    trim_to(&mut history, max_items);
     save(&history);
 }
 
