@@ -4,6 +4,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { invoke } from "@tauri-apps/api/core";
   import { getVersion } from "@tauri-apps/api/app";
+  import { debug, info } from "@tauri-apps/plugin-log";
   import { onMount, tick } from "svelte";
   import { firstSepIdx, isPathQuery, matchKey } from "$lib/utils.js";
 
@@ -291,6 +292,7 @@
     });
 
     await listen("show-launcher", async () => {
+      debug("show-launcher: resetting state");
       mode = "search";
       argItem = null;
       extraArgs = "";
@@ -323,6 +325,7 @@
             ? allCompletions[completionIndex]
             : extraArgs.trim();
           if (preset) {
+            info(`/theme: applying preset=${preset}`);
             applyTheme({ preset });            // CSS 即時適用（同期）
             resetToSearch({ skipFocus: true }); // focus タイマー不要（隠す直前）
             query = "";                         // query もリセット（/theme が残ると $effect が resize IPC を余分に飛ばす）
