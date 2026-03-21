@@ -8,7 +8,7 @@
             "type": "command",
             "timeout": 120,
             "statusMessage": "Running pre-push checks (cargo fmt, clippy, npm test)...",
-            "command": "cmd=$(jq -r '.tool_input.command // \"\"'); if echo \"$cmd\" | grep -qE '^\\s*git\\s+push'; then result=0; (cd src-tauri && cargo fmt --check 2>&1) || result=1; (cd src-tauri && cargo clippy -- -D warnings 2>&1) || result=1; npm test 2>&1 || result=1; if [ $result -ne 0 ]; then echo '{\"continue\": false, \"stopReason\": \"Pre-push checks failed. Fix cargo fmt / clippy / npm test errors first.\"}'; fi; fi"
+            "command": "cmd=$(jq -r '.tool_input.command // \"\"'); if echo \"$cmd\" | grep -qE 'git\\s+push'; then result=0; (cd src-tauri && cargo fmt --check 2>&1) || result=1; (cd src-tauri && cargo clippy -- -D warnings 2>&1) || result=1; npm test 2>&1 || result=1; if [ $result -ne 0 ]; then echo '{\"continue\": false, \"stopReason\": \"Pre-push checks failed. Fix cargo fmt / clippy / npm test errors first.\"}'; fi; fi"
           }
         ]
       }
