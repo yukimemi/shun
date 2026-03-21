@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { firstSepIdx, isPathQuery, matchKey, fuzzyMatch } from "./utils.js";
+import { firstSepIdx, isPathQuery, matchKey, fuzzyMatch, shouldBypassTemplate } from "./utils.js";
 
 // --- firstSepIdx ---
 
@@ -167,6 +167,88 @@ describe("matchKey", () => {
 
   it("matches Ctrl+u (delete_line default)", () => {
     expect(matchKey(evt("u", { ctrlKey: true }), "Ctrl+u")).toBe(true);
+  });
+});
+
+// --- shouldBypassTemplate ---
+
+describe("shouldBypassTemplate", () => {
+  const memoNewItem = {
+    name: "MemoNew",
+    args: ['~/memo/{{ now() | date(format="%Y%m%d") }}-{{ args }}.md'],
+  };
+  const memoListItem = {
+    name: "MemoList",
+    args: [],
+  };
+  const gitItem = {
+    name: "git checkout",
+    args: ["checkout", "{{ args }}"],
+  };
+  const noArgsItem = {
+    name: "plain",
+    args: [],
+  };
+
+  // ケース1: history エントリ + テンプレート args → バイパスすべき (MemoNew の主要ケース)
+  it("bypasses when candidate is from history and argItem has template args", () => {
+    const history = ["~/memo/20260321-hoge.md", "~/memo/20260320-rust.md"];
+    expect(shouldBypassTemplate("~/memo/20260321-hoge.md", history, memoNewItem)).toBe(true);
+  });
+
+  // ケース2: history エントリ + テンプレート args (git checkout)
+  it("bypasses when candidate is from history and argItem has {{ args }} template", () => {
+    const history = ["main", "feature/my-branch"];
+    expect(shouldBypassTemplate("main", history, gitItem)).toBe(true);
+  });
+
+  // ケース3: history エントリだが argItem にテンプレートなし → バイパスしない
+  it("does not bypass when candidate is from history but argItem has no template", () => {
+    const history = ["some-arg"];
+    expect(shouldBypassTemplate("some-arg", history, noArgsItem)).toBe(false);
+  });
+
+  // ケース4: history エントリだが MemoList (args が空配列) → バイパスしない
+  it("does not bypass when candidate is from history but argItem args is empty", () => {
+    const history = ["~/memo/20260321-hoge.md"];
+    expect(shouldBypassTemplate("~/memo/20260321-hoge.md", history, memoListItem)).toBe(false);
+  });
+
+  // ケース5: 補完候補は history にない (path 補完など) + テンプレートあり → バイパスしない
+  it("does not bypass when candidate is not from history even if argItem has template", () => {
+    const history = ["~/memo/20260320-old.md"];
+    expect(shouldBypassTemplate("~/memo/20260321-new.md", history, memoNewItem)).toBe(false);
+  });
+
+  // ケース6: 空の history + テンプレートあり → バイパスしない
+  it("does not bypass when historyArgs is empty", () => {
+    expect(shouldBypassTemplate("~/memo/20260321-hoge.md", [], memoNewItem)).toBe(false);
+  });
+
+  // ケース7: argItem が undefined → バイパスしない
+  it("does not bypass when argItem is undefined", () => {
+    const history = ["some-value"];
+    expect(shouldBypassTemplate("some-value", history, undefined)).toBe(false);
+  });
+
+  // ケース8: argItem.args が undefined → バイパスしない
+  it("does not bypass when argItem.args is undefined", () => {
+    const history = ["some-value"];
+    expect(shouldBypassTemplate("some-value", history, { name: "x" })).toBe(false);
+  });
+
+  // ケース9: 複数 args のうち1つだけテンプレートを含む → バイパスする
+  it("bypasses when any arg contains {{ even if others do not", () => {
+    const item = { name: "multi", args: ["--output", "~/out/{{ args }}.txt"] };
+    const history = ["myfile"];
+    expect(shouldBypassTemplate("myfile", history, item)).toBe(true);
+  });
+
+  // ケース10: fuzzy マッチしても history に含まれない文字列 → バイパスしない
+  it("does not bypass a string that fuzzy-matches history but is not identical", () => {
+    const history = ["~/memo/20260321-hoge.md"];
+    // "hoge" は fuzzy match するが includes() には引っかからない
+    expect(shouldBypassTemplate("hoge", history, memoNewItem)).toBe(false);
   });
 });
 

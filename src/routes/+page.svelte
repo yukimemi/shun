@@ -6,7 +6,7 @@
   import { getVersion } from "@tauri-apps/api/app";
   import { debug, info } from "@tauri-apps/plugin-log";
   import { onMount, tick } from "svelte";
-  import { firstSepIdx, isPathQuery, matchKey, fuzzyMatch } from "$lib/utils.js";
+  import { firstSepIdx, isPathQuery, matchKey, fuzzyMatch, shouldBypassTemplate } from "$lib/utils.js";
 
   let WINDOW_WIDTH = $state(620);
   const INPUT_HEIGHT = 52;
@@ -350,9 +350,7 @@
           applySelectedCompletion();
           if (!candidate.endsWith('/') && argItem) {
             // history エントリ + テンプレート args の場合: レンダリング済みパスをそのまま渡す
-            const isHistoryEntry = historyArgs.includes(candidate);
-            const hasTemplate = argItem.args?.some((a) => a.includes("{{"));
-            if (isHistoryEntry && hasTemplate) {
+            if (shouldBypassTemplate(candidate, historyArgs, argItem)) {
               launchItem({ ...argItem, args: [] }, candidate);
             } else {
               launchItem(argItem, extraArgs);

@@ -45,6 +45,20 @@ export function fuzzyMatch(query, target) {
 }
 
 /**
+ * Returns true if the completion candidate should bypass the Tera template.
+ * This happens when:
+ *   1. The candidate comes from historyArgs (pre-rendered path), AND
+ *   2. The argItem has at least one template arg (contains "{{")
+ * In this case the candidate is already fully rendered, so we should
+ * launch with args=[] to avoid double-rendering through the template.
+ */
+export function shouldBypassTemplate(candidate, historyArgs, argItem) {
+  const isHistoryEntry = historyArgs.includes(candidate);
+  const hasTemplate = argItem?.args?.some((a) => a.includes("{{")) ?? false;
+  return isHistoryEntry && hasTemplate;
+}
+
+/**
  * Returns true if the KeyboardEvent matches the binding string.
  * Binding format: "Ctrl+f", "Alt+Space", "Enter", "Ctrl+Shift+P", etc.
  */
