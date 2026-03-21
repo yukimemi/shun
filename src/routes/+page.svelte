@@ -44,6 +44,8 @@
   let appVersion = $state("");
   let updateVersion = $state("");
 
+  const THEME_PRESETS = ["catppuccin-mocha", "catppuccin-latte", "nord", "dracula", "tokyo-night"];
+
   let SLASH_COMMANDS = $derived([
     { name: "/exit",    description: "Quit app" },
     { name: "/config",  description: "Open config file" },
@@ -51,6 +53,7 @@
     { name: "/rescan",  description: "Rescan apps" },
     { name: "/version", description: appVersion ? `v${appVersion}` : "Show version" },
     { name: "/update",  description: updateVersion ? `Update to v${updateVersion}` : "Check for updates" },
+    { name: "/theme",   description: "Switch theme (Tab to pick)", completions: THEME_PRESETS },
   ]);
 
   // モード: "search" | "args"
@@ -314,6 +317,19 @@
         }
       } else if (matchKey(e, keybindings.confirm)) {
         e.preventDefault();
+        // /theme の args mode: 選択したプリセットを適用して閉じる
+        if (argItem?.source === "SlashCmd" && argItem?.name === "/theme") {
+          const preset = allCompletions.length > 0
+            ? allCompletions[completionIndex]
+            : extraArgs.trim();
+          if (preset) {
+            await applyThemePreset(preset);
+            resetToSearch();
+            await tick();
+            win.hide();
+          }
+          return;
+        }
         if (allCompletions.length > 0) {
           const candidate = allCompletions[completionIndex];
           applySelectedCompletion();
@@ -378,6 +394,24 @@
       }
     } else if (matchKey(e, keybindings.arg_mode)) {
       e.preventDefault();
+      // スラッシュコマンドで completions を持つもの（/theme 等）→ args mode でリスト補完
+      if (filteredSlash.length > 0) {
+        const cmd = filteredSlash[selectedIndex] ?? filteredSlash[0];
+        if (cmd.completions?.length > 0) {
+          argItem = { name: cmd.name, path: "", args: [], workdir: null,
+                      source: "SlashCmd", completion: "list",
+                      completion_list: cmd.completions, completion_command: null };
+          extraArgs = "";
+          allCompletions = cmd.completions;
+          completionIndex = 0;
+          lastArgsGhost = cmd.completions[0] ?? "";
+          historyArgs = [];
+          mode = "args";
+          win.setSize(new LogicalSize(WINDOW_WIDTH, INPUT_HEIGHT));
+          setTimeout(() => argsEl?.focus(), 10);
+        }
+        return;
+      }
       if (isPathQuery(query) && filtered[selectedIndex]) {
         query = filtered[selectedIndex].path;
       } else {
@@ -529,6 +563,17 @@
   // allCompletions はすべて「extraArgs に直接セットできるフル文字列」で統一
   $effect(() => {
     if (mode !== "args") return;
+
+    // SlashCmd (/theme 等) は completion_list を直接フィルタ（history なし）
+    if (argItem?.source === "SlashCmd") {
+      const list = argItem?.completion_list ?? [];
+      const input = extraArgs.toLowerCase();
+      allCompletions = input ? list.filter((c) => c.toLowerCase().startsWith(input)) : list;
+      completionIndex = 0;
+      resizeForArgs(allCompletions.length);
+      return;
+    }
+
     const input = extraArgs;
 
     // historyArgs を入力でフィルタ（前方一致・大文字小文字無視）
@@ -571,6 +616,15 @@
       ? SLASH_COMMANDS.filter((c) => c.name.startsWith(query.toLowerCase()))
       : []
   );
+
+  async function applyThemePreset(preset) {
+    applyTheme({ preset });
+    try {
+      await invoke("set_theme_preset", { preset });
+    } catch (e) {
+      console.error("set_theme_preset failed:", e);
+    }
+  }
 
   async function runSlashCommand(cmd) {
     if (cmd.name === "/version") {
