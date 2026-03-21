@@ -179,12 +179,91 @@
     allCompletions = [];
   }
 
+  // --- テーマ定義 ---
+  const THEMES = {
+    "catppuccin-mocha": {
+      "--color-bg":      "#1e1e2e",
+      "--color-surface": "#313244",
+      "--color-overlay": "#45475a",
+      "--color-muted":   "#585b70",
+      "--color-text":    "#cdd6f4",
+      "--color-blue":    "#89b4fa",
+      "--color-purple":  "#cba6f7",
+      "--color-green":   "#a6e3a1",
+      "--color-red":     "#f38ba8",
+    },
+    "catppuccin-latte": {
+      "--color-bg":      "#eff1f5",
+      "--color-surface": "#ccd0da",
+      "--color-overlay": "#acb0be",
+      "--color-muted":   "#9ca0b0",
+      "--color-text":    "#4c4f69",
+      "--color-blue":    "#1e66f5",
+      "--color-purple":  "#8839ef",
+      "--color-green":   "#40a02b",
+      "--color-red":     "#d20f39",
+    },
+    "nord": {
+      "--color-bg":      "#2e3440",
+      "--color-surface": "#3b4252",
+      "--color-overlay": "#434c5e",
+      "--color-muted":   "#4c566a",
+      "--color-text":    "#d8dee9",
+      "--color-blue":    "#88c0d0",
+      "--color-purple":  "#b48ead",
+      "--color-green":   "#a3be8c",
+      "--color-red":     "#bf616a",
+    },
+    "dracula": {
+      "--color-bg":      "#282a36",
+      "--color-surface": "#44475a",
+      "--color-overlay": "#6272a4",
+      "--color-muted":   "#6272a4",
+      "--color-text":    "#f8f8f2",
+      "--color-blue":    "#8be9fd",
+      "--color-purple":  "#bd93f9",
+      "--color-green":   "#50fa7b",
+      "--color-red":     "#ff5555",
+    },
+    "tokyo-night": {
+      "--color-bg":      "#1a1b26",
+      "--color-surface": "#24283b",
+      "--color-overlay": "#414868",
+      "--color-muted":   "#565f89",
+      "--color-text":    "#c0caf5",
+      "--color-blue":    "#7aa2f7",
+      "--color-purple":  "#bb9af7",
+      "--color-green":   "#9ece6a",
+      "--color-red":     "#f7768e",
+    },
+  };
+
+  function applyTheme(themeConfig) {
+    const preset = themeConfig?.preset || "catppuccin-mocha";
+    const base = THEMES[preset] ?? THEMES["catppuccin-mocha"];
+    const root = document.documentElement;
+    // preset のデフォルト色を適用
+    for (const [key, val] of Object.entries(base)) {
+      root.style.setProperty(key, val);
+    }
+    // 個別上書き
+    const MAP = {
+      bg: "--color-bg", surface: "--color-surface", overlay: "--color-overlay",
+      muted: "--color-muted", text: "--color-text", blue: "--color-blue",
+      purple: "--color-purple", green: "--color-green", red: "--color-red",
+    };
+    for (const [field, cssVar] of Object.entries(MAP)) {
+      if (themeConfig?.[field]) root.style.setProperty(cssVar, themeConfig[field]);
+    }
+  }
+
   onMount(async () => {
     const cfg = await invoke("get_config");
     if (cfg?.keybindings) keybindings = { ...keybindings, ...cfg.keybindings };
     if (cfg?.window_width)    WINDOW_WIDTH    = cfg.window_width;
     if (cfg?.max_items)       MAX_ITEMS       = cfg.max_items;
     if (cfg?.max_completions) MAX_COMPLETIONS = cfg.max_completions;
+    applyTheme(cfg?.theme);
     appVersion = await getVersion();
 
     await listen("update-available", (event) => {
@@ -684,7 +763,7 @@
   .launcher {
     width: 100%;
     height: 100%;
-    background: #1e1e2e;
+    background: var(--color-bg, #1e1e2e);
     overflow: hidden;
   }
 
@@ -705,12 +784,12 @@
     background: transparent;
     border: none;
     outline: none;
-    color: #cdd6f4;
+    color: var(--color-text, #cdd6f4);
     font-family: inherit;
   }
 
   .search::placeholder {
-    color: #585b70;
+    color: var(--color-muted, #585b70);
   }
 
   /* args モード */
@@ -724,14 +803,14 @@
 
   .args-app-name {
     font-size: 18px;
-    color: #89b4fa;
+    color: var(--color-blue, #89b4fa);
     white-space: nowrap;
     flex-shrink: 0;
   }
 
   .args-sep {
     font-size: 18px;
-    color: #45475a;
+    color: var(--color-overlay, #45475a);
     flex-shrink: 0;
   }
 
@@ -755,7 +834,7 @@
   }
 
   .ghost-typed { color: transparent; }
-  .ghost-text  { color: #45475a; }
+  .ghost-text  { color: var(--color-overlay, #45475a); }
 
   .args-input {
     position: relative;
@@ -765,15 +844,15 @@
     background: transparent;
     border: none;
     outline: none;
-    color: #cdd6f4;
+    color: var(--color-text, #cdd6f4);
     font-family: inherit;
   }
 
-  .args-input::placeholder { color: #585b70; }
+  .args-input::placeholder { color: var(--color-muted, #585b70); }
 
   /* 共通リスト */
   .results {
-    border-top: 1px solid #313244;
+    border-top: 1px solid var(--color-surface, #313244);
     overflow-y: auto;
     padding-bottom: 8px;
   }
@@ -784,10 +863,10 @@
     justify-content: space-between;
     padding: 10px 20px;
     cursor: pointer;
-    color: #cdd6f4;
+    color: var(--color-text, #cdd6f4);
   }
 
-  .item.selected { background: #313244; }
+  .item.selected { background: var(--color-surface, #313244); }
 
   .item-name {
     font-size: 14px;
@@ -810,17 +889,17 @@
 
   .completion-path {
     font-size: 13px;
-    color: #cdd6f4;
+    color: var(--color-text, #cdd6f4);
     font-family: monospace;
   }
 
   .completion-path.is-dir {
-    color: #89b4fa;
+    color: var(--color-blue, #89b4fa);
   }
 
   .completion-count {
     font-size: 10px;
-    color: #45475a;
+    color: var(--color-overlay, #45475a);
     flex-shrink: 0;
   }
 
@@ -832,40 +911,40 @@
 
   .item-tab-hint {
     font-size: 10px;
-    color: #45475a;
-    background: #313244;
+    color: var(--color-overlay, #45475a);
+    background: var(--color-surface, #313244);
     padding: 1px 5px;
     border-radius: 3px;
   }
 
   .item-source {
     font-size: 11px;
-    color: #585b70;
+    color: var(--color-muted, #585b70);
     text-transform: lowercase;
   }
 
   .empty {
     padding: 16px 20px;
-    color: #585b70;
+    color: var(--color-muted, #585b70);
     font-size: 14px;
   }
 
   .slash-name {
-    color: #cba6f7;
+    color: var(--color-purple, #cba6f7);
     font-family: monospace;
     font-size: 14px;
   }
 
   :global(.item-source[data-source="Url"]) {
-    color: #89b4fa;
+    color: var(--color-blue, #89b4fa);
   }
 
   :global(.item-source[data-source="Path"]) {
-    color: #a6e3a1;
+    color: var(--color-green, #a6e3a1);
   }
 
   :global(.item-source[data-source="History"]) {
-    color: #f38ba8;
+    color: var(--color-red, #f38ba8);
   }
 
 

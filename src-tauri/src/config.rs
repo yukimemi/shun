@@ -2,6 +2,24 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+/// [theme] セクション。preset 名 + 個別カラー上書き。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ThemeConfig {
+    /// プリセット名: "catppuccin-mocha" | "catppuccin-latte" | "nord" | "dracula" | "tokyo-night"
+    #[serde(default)]
+    pub preset: String,
+    // 個別カラー上書き (省略可)
+    pub bg: Option<String>,
+    pub surface: Option<String>,
+    pub overlay: Option<String>,
+    pub muted: Option<String>,
+    pub text: Option<String>,
+    pub blue: Option<String>,
+    pub purple: Option<String>,
+    pub green: Option<String>,
+    pub red: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchMode {
@@ -36,6 +54,8 @@ pub struct Config {
     pub max_items: usize,
     #[serde(default = "default_max_completions")]
     pub max_completions: usize,
+    #[serde(default)]
+    pub theme: ThemeConfig,
     #[serde(default)]
     pub vars: HashMap<String, String>,
     #[serde(default)]
@@ -197,6 +217,7 @@ impl Default for Config {
             window_width: default_window_width(),
             max_items: default_max_items(),
             max_completions: default_max_completions(),
+            theme: ThemeConfig::default(),
             vars: HashMap::new(),
             apps: vec![],
             scan_dirs: vec![],
@@ -314,6 +335,29 @@ fn merge_local_config(base: &mut Config, local_content: &str) {
         }
     }
 
+    // theme: フィールド単位でマージ（ローカルで指定されたものだけ上書き）
+    if let Some(th_val) = table.get("theme").and_then(|v| v.as_table()) {
+        if th_val.contains_key("preset") {
+            base.theme.preset = local.theme.preset;
+        }
+        macro_rules! merge_theme_color {
+            ($field:ident) => {
+                if th_val.contains_key(stringify!($field)) {
+                    base.theme.$field = local.theme.$field;
+                }
+            };
+        }
+        merge_theme_color!(bg);
+        merge_theme_color!(surface);
+        merge_theme_color!(overlay);
+        merge_theme_color!(muted);
+        merge_theme_color!(text);
+        merge_theme_color!(blue);
+        merge_theme_color!(purple);
+        merge_theme_color!(green);
+        merge_theme_color!(red);
+    }
+
     // vars: ローカルのエントリで上書き・追記
     base.vars.extend(local.vars);
 
@@ -355,6 +399,39 @@ work_dir = "C:/work"
         let c: Config = toml::from_str(toml).unwrap();
         assert_eq!(c.vars.get("src_dir").map(|s| s.as_str()), Some("~/src"));
         assert_eq!(c.vars.get("work_dir").map(|s| s.as_str()), Some("C:/work"));
+    }
+
+    #[test]
+    fn parse_theme_preset() {
+        let toml = r#"
+[theme]
+preset = "nord"
+"#;
+        let c: Config = toml::from_str(toml).unwrap();
+        assert_eq!(c.theme.preset, "nord");
+        assert!(c.theme.bg.is_none());
+    }
+
+    #[test]
+    fn parse_theme_with_overrides() {
+        let toml = r##"
+[theme]
+preset = "dracula"
+bg     = "#282a36"
+text   = "#f8f8f2"
+"##;
+        let c: Config = toml::from_str(toml).unwrap();
+        assert_eq!(c.theme.preset, "dracula");
+        assert_eq!(c.theme.bg.as_deref(), Some("#282a36"));
+        assert_eq!(c.theme.text.as_deref(), Some("#f8f8f2"));
+        assert!(c.theme.blue.is_none());
+    }
+
+    #[test]
+    fn theme_default_is_empty_preset() {
+        let c = Config::default();
+        assert_eq!(c.theme.preset, "");
+        assert!(c.theme.bg.is_none());
     }
 
     #[test]
@@ -538,7 +615,7 @@ prev = "Ctrl+k"
 }
 
 fn default_config_toml() -> String {
-    r#"# 検索モード: "fuzzy" (ファジー検索) / "exact" (部分一致)
+    r##"# 検索モード: "fuzzy" (ファジー検索) / "exact" (部分一致)
 search_mode = "fuzzy"
 
 # 履歴のソート順: "count_first" (回数→直近→名前) / "recent_first" (直近→回数→名前)
@@ -573,6 +650,21 @@ run_query   = "Shift+Enter"
 close       = "Escape"
 delete_item = "Ctrl+d"
 
+# テーマ設定
+# preset: "catppuccin-mocha" (デフォルト) | "catppuccin-latte" | "nord" | "dracula" | "tokyo-night"
+# 各カラーは省略可 (省略時は preset の値を使用)
+# [theme]
+# preset  = "nord"
+# bg      = "#1a1a2e"
+# surface = "#16213e"
+# overlay = "#0f3460"
+# muted   = "#533483"
+# text    = "#e0e0e0"
+# blue    = "#88c0d0"
+# purple  = "#b48ead"
+# green   = "#a3be8c"
+# red     = "#bf616a"
+
 # テンプレート変数 (path や args 内で {{ vars.my_var }} として参照できる)
 # [vars]
 # src_dir  = "~/src/github.com/yourname"
@@ -593,6 +685,6 @@ delete_item = "Ctrl+d"
 # path       = "~/.local/bin"
 # recursive  = false
 # extensions = ["sh", "py", "ps1"]
-"#
+"##
     .to_string()
 }
