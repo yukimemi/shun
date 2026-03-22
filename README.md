@@ -111,6 +111,7 @@ After editing config, run `/reload` to apply all changes without restarting.
 | `/update` | Install latest release (shows version if update available) |
 | `/history` | Open history file in default editor |
 | `/version` | Show current version |
+| `/save` | Save a setting to `config.local.toml` (`Tab` to pick: `monitor`, `theme`, `search_mode`, `sort_order`) |
 | `/help` | Show keybindings & current status (theme, search mode, sort order) |
 | `/exit` | Quit shun |
 

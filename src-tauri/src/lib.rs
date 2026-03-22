@@ -595,6 +595,68 @@ fn delete_history_item(key: String) -> Result<(), String> {
     history::delete(&key).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn save_to_local(
+    window: tauri::WebviewWindow,
+    key: String,
+    value: String,
+) -> Result<String, String> {
+    use toml_edit::DocumentMut;
+    let path = config::local_config_path();
+    let content = if path.exists() {
+        std::fs::read_to_string(&path).unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let mut doc = content
+        .parse::<DocumentMut>()
+        .unwrap_or_else(|_| DocumentMut::new());
+
+    let display = match key.as_str() {
+        "search_mode" => {
+            doc["search_mode"] = toml_edit::value(value.clone());
+            format!("search_mode = {:?}", value)
+        }
+        "sort_order" => {
+            doc["sort_order"] = toml_edit::value(value.clone());
+            format!("sort_order = {:?}", value)
+        }
+        "theme" => {
+            if !doc.contains_key("theme") {
+                doc["theme"] = toml_edit::Item::Table(toml_edit::Table::new());
+            }
+            doc["theme"]["preset"] = toml_edit::value(value.clone());
+            format!("theme.preset = {:?}", value)
+        }
+        "monitor" => {
+            let cursor = window.cursor_position().map_err(|e| e.to_string())?;
+            let monitors = window.available_monitors().map_err(|e| e.to_string())?;
+            let index = monitors
+                .iter()
+                .position(|m| {
+                    let pos = m.position();
+                    let size = m.size();
+                    cursor.x >= pos.x as f64
+                        && cursor.x < (pos.x + size.width as i32) as f64
+                        && cursor.y >= pos.y as f64
+                        && cursor.y < (pos.y + size.height as i32) as f64
+                })
+                .unwrap_or(0) as i64;
+            doc["monitor"] = toml_edit::value(index);
+            format!("monitor = {}", index)
+        }
+        _ => return Err(format!("unknown setting: {}", key)),
+    };
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, doc.to_string()).map_err(|e| e.to_string())?;
+
+    Ok(format!("{} saved to config.local.toml", display))
+}
+
 fn center_on_monitor(window: &tauri::WebviewWindow, target: &config::MonitorTarget) {
     let monitors = match window.available_monitors() {
         Ok(m) => m,
@@ -792,6 +854,7 @@ pub fn run() {
             open_config,
             open_history,
             delete_history_item,
+            save_to_local,
             reload,
             get_last_args,
             get_args_history,

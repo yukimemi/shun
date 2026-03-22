@@ -64,6 +64,7 @@
     { name: "/version", description: appVersion ? `v${appVersion}` : "Show version" },
     { name: "/update",  description: updateVersion ? `Update to v${updateVersion}` : "Check for updates" },
     { name: "/theme",   description: `current: ${currentPreset} (Tab to pick)`, completions: THEME_PRESETS },
+    { name: "/save",    description: "Save setting to config.local.toml (Tab to pick)", completions: ["monitor", "theme", "search_mode", "sort_order"] },
     { name: "/help",    description: "Show keybindings & current status" },
   ]);
 
@@ -395,6 +396,31 @@
             applyTheme({ preset });            // CSS 即時適用（同期）
             resetToSearch({ skipFocus: true }); // focus タイマー不要（隠す直前）
             query = "";                         // query もリセット（/theme が残ると $effect が resize IPC を余分に飛ばす）
+            await tick();
+            win.hide();
+          }
+          return;
+        }
+        // /save の args mode: 選択した設定を config.local.toml に保存
+        if (argItem?.source === "SlashCmd" && argItem?.name === "/save") {
+          const key = allCompletions.length > 0
+            ? allCompletions[completionIndex]
+            : extraArgs.trim();
+          if (key) {
+            const valueMap = {
+              theme:       currentPreset,
+              search_mode: uiSearchMode,
+              sort_order:  uiSortOrder,
+              monitor:     "",  // Rust 側で自動検出
+            };
+            const value = valueMap[key] ?? "";
+            try {
+              const msg = await invoke("save_to_local", { key, value });
+              query = `/save — ${msg}`;
+            } catch (e) {
+              query = `/save — error: ${e}`;
+            }
+            resetToSearch({ skipFocus: true });
             await tick();
             win.hide();
           }
@@ -763,6 +789,21 @@
   );
 
   async function runSlashCommand(cmd) {
+    if (cmd.name === "/save") {
+      // Enter on /save → enter args mode to pick which setting to save
+      argItem = { name: cmd.name, path: "", args: [], workdir: null,
+                  source: "SlashCmd", completion: "list",
+                  completion_list: cmd.completions, completion_command: null };
+      extraArgs = "";
+      allCompletions = cmd.completions;
+      completionIndex = 0;
+      lastArgsGhost = "";
+      historyArgs = [];
+      mode = "args";
+      await tick();
+      argsEl?.focus();
+      return;
+    }
     if (cmd.name === "/help") {
       query = "/help";
       helpVisible = true;
