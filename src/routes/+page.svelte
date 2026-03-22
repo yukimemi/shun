@@ -808,27 +808,33 @@
           spellcheck="false"
         />
         <div class="status-badges" aria-hidden="true">
-          {#if iconStyle === "svg"}
-            <button class="badge" title="search mode: {uiSearchMode}" onclick={cycleSearchMode}>
+          <button class="badge" title="search mode: {uiSearchMode}" onclick={cycleSearchMode}>
+            {#if iconStyle === "svg"}
               {#if uiSearchMode === "fuzzy"}
+                <!-- magnifier + ~ -->
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-                  <circle cx="6.5" cy="6.5" r="4"/><line x1="9.5" y1="9.5" x2="14" y2="14"/>
-                  <path d="M4 6.5 C4.8 5.2 5.5 7.8 6.5 6.5 C7.2 5.2 8 7.8 9 6.5" stroke-width="1.2"/>
+                  <circle cx="6.5" cy="6.5" r="4.2"/><line x1="9.7" y1="9.7" x2="13.5" y2="13.5"/>
+                  <text x="6.5" y="9.5" text-anchor="middle" font-size="7" fill="currentColor" stroke="none" font-family="sans-serif" font-weight="bold">~</text>
                 </svg>
               {:else if uiSearchMode === "exact"}
+                <!-- magnifier + ≡ -->
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-                  <circle cx="6.5" cy="6.5" r="4"/><line x1="9.5" y1="9.5" x2="14" y2="14"/>
-                  <line x1="4.5" y1="5.5" x2="8.5" y2="5.5" stroke-width="1.2"/>
-                  <line x1="4.5" y1="7.5" x2="8.5" y2="7.5" stroke-width="1.2"/>
+                  <circle cx="6.5" cy="6.5" r="4.2"/><line x1="9.7" y1="9.7" x2="13.5" y2="13.5"/>
+                  <text x="6.5" y="9.5" text-anchor="middle" font-size="8" fill="currentColor" stroke="none" font-family="sans-serif" font-weight="bold">≡</text>
                 </svg>
               {:else}
+                <!-- あ -->
                 <svg width="14" height="14" viewBox="0 0 16 16">
                   <text x="8" y="13" text-anchor="middle" font-size="13" fill="currentColor" font-family="sans-serif">あ</text>
                 </svg>
               {/if}
-            </button>
-            <div class="badge-sep"></div>
-            <button class="badge" title="sort order: {uiSortOrder}" onclick={cycleSortOrder}>
+            {:else}
+              {uiSearchMode === "fuzzy" ? "~" : uiSearchMode === "exact" ? "≡" : "あ"}
+            {/if}
+          </button>
+          <div class="badge-sep"></div>
+          <button class="badge" title="sort order: {uiSortOrder}" onclick={cycleSortOrder}>
+            {#if iconStyle === "svg"}
               {#if uiSortOrder === "count_first"}
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
                   <rect x="1" y="10" width="4" height="5" rx="0.5"/>
@@ -841,16 +847,10 @@
                   <polyline points="8,4 8,8 11,10"/>
                 </svg>
               {/if}
-            </button>
-          {:else}
-            <button class="badge" title="search mode: {uiSearchMode}" onclick={cycleSearchMode}>
-              {uiSearchMode === "fuzzy" ? "≈" : uiSearchMode === "exact" ? "=" : "あ"}
-            </button>
-            <div class="badge-sep"></div>
-            <button class="badge" title="sort order: {uiSortOrder}" onclick={cycleSortOrder}>
+            {:else}
               {uiSortOrder === "count_first" ? "#" : "⌚"}
-            </button>
-          {/if}
+            {/if}
+          </button>
         </div>
       </div>
       {#if filteredSlash.length > 0}
