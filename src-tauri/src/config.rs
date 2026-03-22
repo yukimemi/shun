@@ -704,53 +704,52 @@ prev = "Ctrl+k"
 }
 
 fn default_config_toml() -> String {
-    r##"# 検索モード: "fuzzy" (ファジー検索) / "exact" (部分一致) / "migemo" (日本語ローマ字検索)
+    r##"# Search mode: "fuzzy" (default) | "exact" | "migemo" (romaji → Japanese)
 search_mode = "fuzzy"
 
-# 履歴のソート順: "count_first" (回数→直近→名前) / "recent_first" (直近→回数→名前)
+# Sort order: "count_first" (default) | "recent_first"
 sort_order = "count_first"
 
-# フォーカスが外れたら自動で非表示にする (true / false)
+# Auto-hide when the launcher loses focus
 hide_on_blur = false
 
-# アップデートチェック間隔 (秒) / 0 で無効化
+# Update check interval in seconds (0 to disable)
 update_check_interval = 3600
 
-# ランチャーウィンドウの幅 (px)
+# Launcher window width in pixels
 window_width = 620
 
-# 候補リストに表示するアイテム数の上限
+# Max items shown in the results list
 max_items = 8
 
-# 補完ドロップダウンに表示するアイテム数の上限
+# Max items shown in the completion dropdown
 max_completions = 6
 
-# フォントサイズ (px, デフォルト: 14)
+# Font size in pixels (default: 14)
 # font_size = 14
 
-# ウィンドウの不透明度 (0.0 〜 1.0, デフォルト: 1.0)
+# Window opacity 0.0–1.0 (default: 1.0)
 # opacity = 1.0
 
-# 履歴の最大保持件数 (デフォルト: 1000)
+# Maximum number of history entries to keep (default: 1000)
 # history_max_items = 1000
 
 [keybindings]
-launch      = "Alt+Space"
+launch      = "Alt+Space"   # Global hotkey to show/hide
 next        = "Ctrl+n"
 prev        = "Ctrl+p"
 confirm     = "Enter"
 arg_mode    = "Tab"
-accept_word = "Ctrl+f"
-accept_line = "Ctrl+e"
-delete_word = "Ctrl+w"
-delete_line = "Ctrl+u"
-run_query   = "Shift+Enter"
+accept_word = "Ctrl+f"      # Accept next word of ghost text
+accept_line = "Ctrl+e"      # Accept full ghost text
+delete_word = "Ctrl+w"      # Delete word before cursor
+delete_line = "Ctrl+u"      # Delete to beginning of line
+run_query   = "Shift+Enter" # Run typed query directly (skip history results)
 close       = "Escape"
-delete_item = "Ctrl+d"
+delete_item = "Ctrl+d"      # Delete selected history item
 
-# テーマ設定
-# preset: "catppuccin-mocha" (デフォルト) | "catppuccin-latte" | "nord" | "dracula" | "tokyo-night"
-# 各カラーは省略可 (省略時は preset の値を使用)
+# Theme — preset + optional per-color overrides
+# preset: "catppuccin-mocha" (default) | "catppuccin-latte" | "nord" | "dracula" | "tokyo-night"
 # [theme]
 # preset  = "nord"
 # bg      = "#1a1a2e"
@@ -763,27 +762,34 @@ delete_item = "Ctrl+d"
 # green   = "#a3be8c"
 # red     = "#bf616a"
 
-# テンプレート変数 (path や args 内で {{ vars.my_var }} として参照できる)
+# User-defined variables — reference with {{ vars.my_var }} in path/args
 # [vars]
 # src_dir  = "~/src/github.com/yourname"
 # work_dir = "C:/work"
 
-# アプリ・スクリプトの個別登録
+# Register apps individually
 # [[apps]]
-# name             = "My Script"
-# path             = "/path/to/script.sh"
-# args             = ["--flag"]
-# workdir          = "/path/to/dir"
-# completion       = "path"     # "path" | "none" | "list" | "command"
-# completion_list  = ["start", "stop", "restart"]   # completion = "list" の時
-# completion_command = "git branch --format='%(refname:short)'"  # completion = "command" の時
-# completion_search_mode = "fuzzy"  # "fuzzy" | "exact" | "migemo" (省略時はグローバルの search_mode を使用)
+# name                   = "My Editor"
+# path                   = "nvim"
+# args                   = ["--flag"]
+# workdir                = "~/src"
+# completion             = "path"     # "path" | "none" | "list" | "command"
+# completion_list        = ["start", "stop", "restart"]
+# completion_command     = "git branch --format='%(refname:short)'"
+# completion_search_mode = "fuzzy"    # "fuzzy" | "exact" | "migemo"
 
-# ディレクトリスキャンで自動登録
+# Auto-register scripts from directories (non-existent paths are silently ignored)
+# Windows
+# [[scan_dirs]]
+# path       = "~/bin"
+# recursive  = false
+# extensions = ["exe", "bat", "ps1", "cmd"]
+
+# macOS / Linux
 # [[scan_dirs]]
 # path       = "~/.local/bin"
 # recursive  = false
-# extensions = ["sh", "py", "ps1"]
+# extensions = ["sh", "py"]
 "##
     .to_string()
 }
