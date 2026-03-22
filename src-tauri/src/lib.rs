@@ -692,6 +692,27 @@ pub fn run() {
             let window = app.get_webview_window("main").unwrap();
             window.hide().ok();
 
+            // Disable WebView2 browser accelerator keys (Ctrl+S, Ctrl+P, etc.)
+            // so all key combinations reach JavaScript keybinding handlers.
+            #[cfg(target_os = "windows")]
+            window
+                .with_webview(|webview| {
+                    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+                    use windows_core::Interface;
+                    let settings = unsafe {
+                        webview
+                            .controller()
+                            .CoreWebView2()
+                            .unwrap()
+                            .Settings()
+                            .unwrap()
+                    };
+                    if let Ok(s3) = settings.cast::<ICoreWebView2Settings3>() {
+                        unsafe { s3.SetAreBrowserAcceleratorKeysEnabled(false).ok() };
+                    }
+                })
+                .ok();
+
             let cache = Arc::clone(app.state::<CacheState>().inner());
 
             // hide_on_blur: フォーカスが外れたら自動非表示（設定は毎回 load_config で確認）

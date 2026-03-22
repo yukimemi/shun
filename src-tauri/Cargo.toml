@@ -32,6 +32,10 @@ tera = { version = "1", default-features = false, features = ["builtins"] }
 rustmigemo = { git = "https://github.com/oguna/rustmigemo", rev = "36a17c4f3e945fdfd7ffc421468f4f90bc50251e" }
 regex = "1"
 
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.38"
+windows-core = "0.61"
+
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-updater = "2"
