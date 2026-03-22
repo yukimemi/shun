@@ -81,7 +81,7 @@ A minimal config to get started (non-existent paths are silently ignored):
 
 ```toml
 [keybindings]
-launch = "Alt+Space"   # global hotkey to show/hide
+launch = "Ctrl+Space"   # global hotkey to show/hide
 
 [[apps]]
 name       = "Neovide"
@@ -159,7 +159,7 @@ max_completions = 6
 # monitor = "cursor"
 
 [keybindings]
-launch      = "Alt+Space"   # Global hotkey to show/hide
+launch      = "Ctrl+Space"   # Global hotkey to show/hide
 next        = "Ctrl+n"
 prev        = "Ctrl+p"
 confirm     = "Enter"
@@ -376,7 +376,7 @@ All keybindings are configurable via `[keybindings]` in `config.toml`. Changes t
 
 | Key | Action |
 |---|---|
-| `Alt+Space` | Show / hide launcher |
+| `Ctrl+Space` | Show / hide launcher |
 | `Ctrl+n` / `↓` | Next item |
 | `Ctrl+p` / `↑` | Previous item |
 | `Enter` | Launch selected item |

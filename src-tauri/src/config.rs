@@ -136,8 +136,8 @@ pub struct Keybindings {
     pub cycle_sort_order: String,
 }
 
-fn default_launch() -> String {
-    "Alt+Space".to_string()
+pub fn default_launch() -> String {
+    "Ctrl+Space".to_string()
 }
 fn default_next() -> String {
     "Ctrl+n".to_string()
@@ -387,7 +387,8 @@ pub fn extra_config_files() -> Vec<PathBuf> {
     files
 }
 
-pub fn load_config() -> Config {
+pub fn load_config() -> (Config, Vec<(String, String)>) {
+    let mut warnings: Vec<(String, String)> = Vec::new();
     let path = config_path();
 
     if !path.exists() {
@@ -396,15 +397,24 @@ pub fn load_config() -> Config {
         }
         let default_toml = default_config_toml();
         let _ = std::fs::write(&path, &default_toml);
-        return Config::default();
+        return (Config::default(), warnings);
     }
 
     let content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
-        Err(_) => return Config::default(),
+        Err(e) => {
+            warnings.push(("config.toml".to_string(), format!("Failed to read: {e}")));
+            return (Config::default(), warnings);
+        }
     };
 
-    let mut config: Config = toml::from_str(&content).unwrap_or_default();
+    let mut config: Config = match toml::from_str(&content) {
+        Ok(c) => c,
+        Err(e) => {
+            warnings.push(("config.toml".to_string(), e.to_string()));
+            Config::default()
+        }
+    };
 
     // config.*.toml をアルファベット順にマージ（config.local.toml は除く）
     let local_path = local_config_path();
@@ -412,19 +422,37 @@ pub fn load_config() -> Config {
         if extra_path == local_path {
             continue;
         }
-        if let Ok(extra_content) = std::fs::read_to_string(&extra_path) {
-            merge_local_config(&mut config, &extra_content);
+        let fname = extra_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        match std::fs::read_to_string(&extra_path) {
+            Ok(extra_content) => {
+                if let Err(e) = merge_local_config(&mut config, &extra_content) {
+                    warnings.push((fname, e));
+                }
+            }
+            Err(e) => warnings.push((fname, format!("Failed to read: {e}"))),
         }
     }
 
     // config.local.toml は最後にマージ（/save の保存先として常に優先）
     if local_path.exists() {
-        if let Ok(local_content) = std::fs::read_to_string(&local_path) {
-            merge_local_config(&mut config, &local_content);
+        let fname = local_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "config.local.toml".to_string());
+        match std::fs::read_to_string(&local_path) {
+            Ok(local_content) => {
+                if let Err(e) = merge_local_config(&mut config, &local_content) {
+                    warnings.push((fname, e));
+                }
+            }
+            Err(e) => warnings.push((fname, format!("Failed to read: {e}"))),
         }
     }
 
-    config
+    (config, warnings)
 }
 
 /// config.local.toml の内容をベースの Config にマージする。
@@ -432,17 +460,11 @@ pub fn load_config() -> Config {
 /// - Vec 系 (apps, scan_dirs, overrides): ローカルのエントリを追記
 /// - スカラー系: ローカルに明示的に記述されている場合のみ上書き
 /// - keybindings: フィールド単位でローカルが優先
-fn merge_local_config(base: &mut Config, local_content: &str) {
-    let local_val: toml::Value = match toml::from_str(local_content) {
-        Ok(v) => v,
-        Err(_) => return,
-    };
-    let local: Config = match toml::from_str(local_content) {
-        Ok(c) => c,
-        Err(_) => return,
-    };
+fn merge_local_config(base: &mut Config, local_content: &str) -> Result<(), String> {
+    let local_val: toml::Value = toml::from_str(local_content).map_err(|e| e.to_string())?;
+    let local: Config = toml::from_str(local_content).map_err(|e| e.to_string())?;
     let Some(table) = local_val.as_table() else {
-        return;
+        return Ok(());
     };
 
     // スカラー: ローカルに明示的に書かれている場合のみ上書き
@@ -547,6 +569,7 @@ fn merge_local_config(base: &mut Config, local_content: &str) {
     base.apps.extend(local.apps);
     base.scan_dirs.extend(local.scan_dirs);
     base.overrides.extend(local.overrides);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -628,7 +651,7 @@ text   = "#f8f8f2"
     #[test]
     fn keybindings_default_values() {
         let kb = Keybindings::default();
-        assert_eq!(kb.launch, "Alt+Space");
+        assert_eq!(kb.launch, "Ctrl+Space");
         assert_eq!(kb.next, "Ctrl+n");
         assert_eq!(kb.prev, "Ctrl+p");
         assert_eq!(kb.confirm, "Enter");
@@ -743,7 +766,7 @@ completion_list = ["install", "update"]
 path = "~/local"
 recursive = true
 "#;
-        merge_local_config(&mut base, local);
+        merge_local_config(&mut base, local).unwrap();
         assert_eq!(base.scan_dirs.len(), 2);
         assert_eq!(base.scan_dirs[1].path, "~/local");
         assert!(base.scan_dirs[1].recursive);
@@ -757,7 +780,7 @@ recursive = true
 name = "LocalApp"
 path = "/local/app"
 "#;
-        merge_local_config(&mut base, local);
+        merge_local_config(&mut base, local).unwrap();
         assert_eq!(base.apps.len(), 1);
         assert_eq!(base.apps[0].name, "LocalApp");
     }
@@ -768,7 +791,7 @@ path = "/local/app"
         base.search_mode = SearchMode::Exact;
         // hide_on_blur だけ上書き、search_mode はそのまま
         let local = "hide_on_blur = true";
-        merge_local_config(&mut base, local);
+        merge_local_config(&mut base, local).unwrap();
         assert_eq!(base.search_mode, SearchMode::Exact); // 変わらない
         assert!(base.hide_on_blur); // 上書きされた
     }
@@ -781,7 +804,7 @@ path = "/local/app"
 [keybindings]
 prev = "Ctrl+k"
 "#;
-        merge_local_config(&mut base, local);
+        merge_local_config(&mut base, local).unwrap();
         assert_eq!(base.keybindings.next, "Ctrl+j"); // 変わらない
         assert_eq!(base.keybindings.prev, "Ctrl+k"); // 上書きされた
         assert_eq!(base.keybindings.close, "Escape"); // デフォルトのまま
@@ -791,7 +814,7 @@ prev = "Ctrl+k"
     fn merge_local_invalid_toml_is_ignored() {
         let mut base = Config::default();
         base.search_mode = SearchMode::Exact;
-        merge_local_config(&mut base, "NOT VALID !!!@#$");
+        assert!(merge_local_config(&mut base, "NOT VALID !!!@#$").is_err());
         assert_eq!(base.search_mode, SearchMode::Exact); // 変わらない
     }
 }
@@ -834,7 +857,7 @@ max_completions = 6
 # monitor = "cursor"
 
 [keybindings]
-launch            = "Alt+Space"   # Global hotkey to show/hide
+launch            = "Ctrl+Space"   # Global hotkey to show/hide
 next              = "Ctrl+n"
 prev              = "Ctrl+p"
 confirm           = "Enter"

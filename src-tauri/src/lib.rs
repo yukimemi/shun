@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_updater::UpdaterExt;
 use tokio::io::AsyncBufReadExt;
 
@@ -29,7 +29,7 @@ type CacheState = Arc<Mutex<Option<ItemCache>>>;
 
 fn build_cache() -> ItemCache {
     info!("build_cache: start");
-    let config = config::load_config();
+    let (config, _warnings) = config::load_config();
     let items = apps::collect_items(&config);
     info!("build_cache: done ({} items)", items.len());
     ItemCache { config, items }
@@ -46,14 +46,47 @@ fn refresh_cache_bg(cache: CacheState) {
 
 // --- コマンド ---
 
+#[derive(serde::Serialize)]
+struct ConfigAndWarnings {
+    config: config::Config,
+    warnings: Vec<(String, String)>,
+}
+
 #[tauri::command]
-fn get_config() -> config::Config {
-    config::load_config()
+fn get_config_and_warnings(state: tauri::State<WarningsState>) -> ConfigAndWarnings {
+    let (config, config_warnings) = config::load_config();
+    let runtime_warnings = state.lock().unwrap().clone();
+
+    // launch key の警告を毎回動的チェック（config 修正後に /reload なしで即消えるよう）
+    let launch_key = &config.keybindings.launch;
+    let launch_warnings: Vec<(String, String)> = match launch_key.parse::<Shortcut>() {
+        Err(_) => {
+            let fallback = config::default_launch();
+            vec![(
+                "config.toml".to_string(),
+                format!(
+                    "keybindings.launch = \"{launch_key}\": invalid shortcut — falling back to \"{fallback}\""
+                ),
+            )]
+        }
+        Ok(s) if s.mods.intersects(Modifiers::SUPER | Modifiers::META) => vec![(
+            "config.toml".to_string(),
+            format!(
+                "keybindings.launch = \"{launch_key}\": Windows/Meta key may be intercepted by the OS"
+            ),
+        )],
+        Ok(_) => vec![],
+    };
+
+    ConfigAndWarnings {
+        config,
+        warnings: [config_warnings, runtime_warnings, launch_warnings].concat(),
+    }
 }
 
 #[tauri::command]
 fn get_apps() -> Vec<apps::LaunchItem> {
-    let config = config::load_config();
+    let (config, _) = config::load_config();
     let hist = history::load();
     let mut items = apps::collect_items(&config);
     sort_items(&mut items, &hist, &config);
@@ -282,7 +315,7 @@ fn get_last_args(path: String) -> Option<String> {
 #[tauri::command]
 fn get_args_history(path: String) -> Vec<String> {
     let hist = history::load();
-    let config = config::load_config();
+    let (config, _) = config::load_config();
     let prefix = format!("{}\t", path);
 
     let mut entries: Vec<(String, u32, u64)> = hist
@@ -302,9 +335,25 @@ fn get_args_history(path: String) -> Vec<String> {
     entries.into_iter().map(|(args, _, _)| args).collect()
 }
 
+/// Registers the launch shortcut. Falls back to the default key if the configured key is invalid.
+/// Returns `Err` only when even the fallback fails to register (should never happen).
 fn register_launch_shortcut(app: &tauri::AppHandle) -> Result<(), String> {
-    let launch_key = config::load_config().keybindings.launch;
-    let shortcut: Shortcut = launch_key.parse::<Shortcut>().map_err(|e| e.to_string())?;
+    let launch_key = config::load_config().0.keybindings.launch;
+    let shortcut: Shortcut = match launch_key.parse::<Shortcut>() {
+        Ok(s) => s,
+        Err(e) => {
+            // 無効なキー文字列 → デフォルト (Ctrl+Space) にフォールバックして登録を続行
+            // 警告は get_config_and_warnings() で動的に生成するので WarningsState には積まない
+            let fallback_key = config::default_launch();
+            log::warn!(
+                "Invalid launch shortcut '{}': {e}. Falling back to '{fallback_key}'",
+                launch_key
+            );
+            fallback_key.parse().map_err(|fe| {
+                format!("Invalid launch shortcut '{launch_key}': {e}. Fallback '{fallback_key}' also invalid: {fe}")
+            })?
+        }
+    };
     app.global_shortcut()
         .on_shortcut(shortcut, |app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
@@ -316,7 +365,7 @@ fn register_launch_shortcut(app: &tauri::AppHandle) -> Result<(), String> {
                         refresh_cache_bg(cache);
                     } else {
                         debug!("shortcut: window hidden → show");
-                        center_on_monitor(&window, &config::load_config().monitor);
+                        center_on_monitor(&window, &config::load_config().0.monitor);
                         window.show().ok();
                         window.set_focus().ok();
                         window.emit("show-launcher", ()).ok();
@@ -324,18 +373,32 @@ fn register_launch_shortcut(app: &tauri::AppHandle) -> Result<(), String> {
                 }
             }
         })
-        .map_err(|e| e.to_string())
+        .map_err(|e| {
+            log::warn!("Failed to register shortcut '{}': {e}", launch_key);
+            e.to_string()
+        })
 }
 
 #[tauri::command]
-fn reload(app: tauri::AppHandle, state: tauri::State<CacheState>) -> Result<(), String> {
+fn reload(
+    app: tauri::AppHandle,
+    state: tauri::State<CacheState>,
+    warnings_state: tauri::State<WarningsState>,
+) -> Result<(), String> {
+    let (_, _) = config::load_config(); // config reload (warnings are fetched fresh in get_config_warnings)
     app.global_shortcut()
         .unregister_all()
         .map_err(|e| e.to_string())?;
+
+    // launch key 警告は get_config_and_warnings() で動的生成するので WarningsState は空にリセット
+    // ショートカット登録が完全に失敗した場合のみ Err を返す（呼び出し元がエラー表示する）
     register_launch_shortcut(&app)?;
+    *warnings_state.lock().unwrap() = Vec::new();
+
     refresh_cache_bg(Arc::clone(state.inner()));
     Ok(())
 }
+
 
 #[tauri::command]
 fn exit_app(app: tauri::AppHandle) {
@@ -756,20 +819,26 @@ fn center_on_monitor(window: &tauri::WebviewWindow, target: &config::MonitorTarg
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+type WarningsState = Arc<Mutex<Vec<(String, String)>>>;
+
 pub fn run() {
-    let config = config::load_config();
+    let (config, _) = config::load_config();
+    // WarningsState はランタイムエラー（keybinding 登録失敗など）のみ保持
+    // config parse エラーは get_config_warnings() で毎回新鮮に取得する
+    let warnings_state: WarningsState = Arc::new(Mutex::new(Vec::new()));
 
     // 起動時にキャッシュを初期構築（バックグラウンド）
     let cache: CacheState = Arc::new(Mutex::new(None));
     refresh_cache_bg(Arc::clone(&cache));
 
-    let log_cfg = config::load_config().log;
+    let log_cfg = config.log.clone();
     let log_level = log_cfg.to_level_filter();
     let log_rotation = log_cfg.to_rotation_strategy();
     let log_max_size = log_cfg.max_file_size_kb * 1024;
 
     tauri::Builder::default()
         .manage(cache)
+        .manage(warnings_state)
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log_level)
@@ -826,7 +895,7 @@ pub fn run() {
                 let cache_blur = Arc::clone(&cache);
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::Focused(false) = event {
-                        if config::load_config().hide_on_blur {
+                        if config::load_config().0.hide_on_blur {
                             window_blur.hide().ok();
                             refresh_cache_bg(Arc::clone(&cache_blur));
                         }
@@ -880,7 +949,7 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(win) = app.get_webview_window("main") {
-                            center_on_monitor(&win, &config::load_config().monitor);
+                            center_on_monitor(&win, &config::load_config().0.monitor);
                             win.show().ok();
                             win.set_focus().ok();
                             win.emit("show-launcher", ()).ok();
@@ -897,12 +966,38 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            register_launch_shortcut(app.handle()).map_err(Box::<dyn std::error::Error>::from)?;
+            // launch key 警告は get_config_and_warnings() で動的生成するので WarningsState は不要
+            // 登録が完全失敗した場合は setup error として伝播する
+            if let Err(e) = register_launch_shortcut(app.handle()) {
+                log::warn!("Launch shortcut registration failed: {e}. App will start without a global shortcut.");
+            }
+
+            // Config にエラーがある場合は起動時にウィンドウを表示して警告を見せる
+            // （launch shortcut が変わっていてウィンドウを開けなくなる問題を防ぐ）
+            let (config_at_start, startup_warnings) = config::load_config();
+            let launch_is_invalid = config_at_start
+                .keybindings
+                .launch
+                .parse::<Shortcut>()
+                .is_err();
+            let has_warnings = !startup_warnings.is_empty() || launch_is_invalid;
+            if has_warnings {
+                log::warn!("Config has errors at startup — showing window immediately");
+                let window_warn = window.clone();
+                // フロントエンドの初期化完了を待ってから表示
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    center_on_monitor(&window_warn, &config::load_config().0.monitor);
+                    window_warn.show().ok();
+                    window_warn.set_focus().ok();
+                    window_warn.emit("show-launcher", ()).ok();
+                });
+            }
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            get_config,
+            get_config_and_warnings,
             get_apps,
             search_items,
             launch_item,

@@ -23,7 +23,7 @@
 
   // keybindings (config から取得、デフォルトはハードコード値) ※matchKey は $lib/utils.js
   let keybindings = $state({
-    launch:            "Alt+Space",
+    launch:            "Ctrl+Space",
     next:              "Ctrl+n",
     prev:              "Ctrl+p",
     confirm:           "Enter",
@@ -45,11 +45,17 @@
   }
 
   function canHaveArgs(item) {
-    return item?.source !== "Url" && item?.source !== "Path" && item?.source !== "History";
+    return item?.source !== "Url" && item?.source !== "Path" && item?.source !== "History" && item?.source !== "Warning";
+  }
+
+  function makeWarningItem(file, error) {
+    return { name: file, path: file, args: [], workdir: null, source: "Warning",
+      completion: "none", completion_list: [], completion_command: null, _warning_error: error };
   }
 
   let appVersion = $state("");
   let updateVersion = $state("");
+  let configWarnings = $state([]);
   let currentPreset = $state("catppuccin-mocha");
   let uiSearchMode = $state("fuzzy");   // "fuzzy" | "exact" | "migemo"
   let uiSortOrder = $state("count_first"); // "count_first" | "recent_first"
@@ -319,8 +325,41 @@
     }
   }
 
+  const VALID_MODIFIERS = new Set(["Ctrl", "Alt", "Shift", "Meta", "Cmd"]);
+  const MODIFIER_NAMES = ["Ctrl", "Control", "Alt", "Shift", "Meta", "Cmd", "Super"];
+  function validateKeybindings(kb) {
+    const warnings = [];
+    for (const [name, binding] of Object.entries(kb)) {
+      if (!binding) continue;
+      const parts = binding.split("+");
+      const key = parts[parts.length - 1];
+      const mods = parts.slice(0, -1);
+      if (!key) {
+        warnings.push(["config.toml", `keybindings.${name} = "${binding}": missing key`]);
+        continue;
+      }
+      // Detect "Ctrlp" style (modifier name concatenated without "+")
+      let detected = false;
+      for (const mod of MODIFIER_NAMES) {
+        if (key.startsWith(mod) && key.length > mod.length) {
+          warnings.push(["config.toml", `keybindings.${name} = "${binding}": did you mean "${[...mods, mod, key.slice(mod.length)].join("+")}"?`]);
+          detected = true;
+          break;
+        }
+      }
+      if (detected) continue;
+      for (const mod of mods) {
+        if (!VALID_MODIFIERS.has(mod)) {
+          warnings.push(["config.toml", `keybindings.${name} = "${binding}": unknown modifier "${mod}"`]);
+          break;
+        }
+      }
+    }
+    return warnings;
+  }
+
   async function applyConfig({ resetModes = false } = {}) {
-    const cfg = await invoke("get_config");
+    const { config: cfg, warnings: backendWarnings } = await invoke("get_config_and_warnings");
     configFiles = await invoke("list_config_files");
     if (cfg?.keybindings) keybindings = { ...keybindings, ...cfg.keybindings };
     if (cfg?.window_width)    WINDOW_WIDTH    = cfg.window_width;
@@ -334,6 +373,8 @@
       if (cfg?.sort_order)  uiSortOrder  = cfg.sort_order;
       applyTheme(cfg?.theme);
     }
+    const kbWarnings = cfg?.keybindings ? validateKeybindings(cfg.keybindings) : [];
+    configWarnings = [...backendWarnings, ...kbWarnings];
   }
 
   const SEARCH_MODES = ["fuzzy", "exact", "migemo"];
@@ -670,6 +711,8 @@
       e.preventDefault();
       if (filteredSlash.length > 0) {
         runSlashCommand(filteredSlash[selectedIndex] ?? filteredSlash[0]);
+      } else if (filtered[selectedIndex]?.source === "Warning") {
+        invoke("open_config", { name: filtered[selectedIndex].path });
       } else if (filtered[selectedIndex]) {
         const item = isPathQuery(query)
           ? makePathItem(query)
@@ -775,10 +818,13 @@
         });
       return;
     }
+    // Read configWarnings synchronously so $effect tracks it as a dependency
+    const currentWarnings = configWarnings;
     invoke("search_items", { query, searchMode: uiSearchMode, sortOrder: uiSortOrder }).then((results) => {
-      filtered = results;
+      const warnItems = !query ? currentWarnings.map(([file, error]) => makeWarningItem(file, error)) : [];
+      filtered = [...warnItems, ...results];
       selectedIndex = 0;
-      resizeForSearch(results.length);
+      resizeForSearch(filtered.length);
     });
   });
 
@@ -1117,20 +1163,25 @@
             <div
               class="item"
               class:selected={globalIdx === selectedIndex}
+              class:warning-item={item.source === "Warning"}
               onmouseenter={() => (selectedIndex = globalIdx)}
-              onclick={() => launchItem(item, null)}
+              onclick={() => item.source === "Warning" ? invoke("open_config", { name: item.path }) : launchItem(item, null)}
               role="option"
               aria-selected={globalIdx === selectedIndex}
             >
-              <span class="item-name" class:scrolling={globalIdx === selectedIndex}>{item.name}</span>
+              <span class="item-name" class:scrolling={globalIdx === selectedIndex} data-warning={item.source === "Warning" ? "true" : null}>{item.source === "Warning" ? "⚠ " : ""}{item.name}</span>
               <div class="item-right">
-                {#if canHaveArgs(item)}
-                  <span class="item-tab-hint">tab</span>
+                {#if item.source === "Warning"}
+                  <span class="item-warning-error">{item._warning_error}</span>
+                {:else}
+                  {#if canHaveArgs(item)}
+                    <span class="item-tab-hint">tab</span>
+                  {/if}
+                  {#if filtered.length > MAX_ITEMS}
+                    <span class="completion-count">{globalIdx + 1}/{filtered.length}</span>
+                  {/if}
+                  <span class="item-source" data-source={item.source}>{item.source}</span>
                 {/if}
-                {#if filtered.length > MAX_ITEMS}
-                  <span class="completion-count">{globalIdx + 1}/{filtered.length}</span>
-                {/if}
-                <span class="item-source" data-source={item.source}>{item.source}</span>
               </div>
             </div>
           {/each}
@@ -1547,5 +1598,32 @@
     color: var(--color-red, #f38ba8);
   }
 
+  .item-warning-error {
+    color: var(--color-red, #f38ba8);
+    font-size: calc(var(--font-size, 14px) - 2px);
+    opacity: 0.85;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* warning アイテムはエラーテキスト側を伸ばす */
+  .warning-item .item-name {
+    flex: 0 0 auto;
+  }
+  .warning-item .item-right {
+    flex: 1;
+    min-width: 0;
+    margin-left: 12px;
+    justify-content: flex-end;
+  }
+  .warning-item .item-warning-error {
+    flex: 1;
+    min-width: 0;
+  }
+
+  :global(.item-name[data-warning="true"]) {
+    color: var(--color-red, #f38ba8);
+  }
 
 </style>
