@@ -783,8 +783,13 @@
         : result.completions;
       // path 補完はフル文字列に展開（prefix + item）
       const pathFull = sorted.map((c) => result.prefix + c);
-      // history と重複するものを除外して後ろに追加
-      const deduped = pathFull.filter((p) => !filteredHistory.includes(p));
+      // history と重複するものを除外（path 補完は base_path strip 済みの相対名にも対応）
+      const isPath = argItem?.completion === "path";
+      const deduped = pathFull.filter((p) =>
+        !filteredHistory.some((h) =>
+          h === p || (isPath && (h.endsWith("/" + p) || h.endsWith("\\" + p)))
+        )
+      );
       completionPrefix = "";
       const newAllCompletions = [...filteredHistory, ...deduped];
       allCompletions = newAllCompletions;
