@@ -818,11 +818,9 @@
                   <path d="M2 11.5 C4 10 6 13 8 11.5 C10 10 12 13 14 11.5"/>
                 </svg>
               {:else if uiSearchMode === "exact"}
-                <!-- 3 straight lines = exact/literal -->
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
-                  <line x1="2" y1="4.5" x2="14" y2="4.5"/>
-                  <line x1="2" y1="8"   x2="14" y2="8"/>
-                  <line x1="2" y1="11.5" x2="14" y2="11.5"/>
+                <!-- 1 straight line = exact/literal -->
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                  <line x1="2" y1="8" x2="14" y2="8"/>
                 </svg>
               {:else}
                 <!-- あ = migemo -->
