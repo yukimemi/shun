@@ -23,17 +23,20 @@
 
   // keybindings (config から取得、デフォルトはハードコード値) ※matchKey は $lib/utils.js
   let keybindings = $state({
-    next:        "Ctrl+n",
-    prev:        "Ctrl+p",
-    confirm:     "Enter",
-    arg_mode:    "Tab",
-    accept_word: "Ctrl+f",
-    accept_line: "Ctrl+e",
-    delete_word: "Ctrl+w",
-    delete_line: "Ctrl+u",
-    run_query:   "Shift+Enter",
-    close:       "Escape",
-    delete_item: "Ctrl+d",
+    launch:            "Alt+Space",
+    next:              "Ctrl+n",
+    prev:              "Ctrl+p",
+    confirm:           "Enter",
+    arg_mode:          "Tab",
+    accept_word:       "Ctrl+f",
+    accept_line:       "Ctrl+e",
+    delete_word:       "Ctrl+w",
+    delete_line:       "Ctrl+u",
+    run_query:         "Shift+Enter",
+    close:             "Escape",
+    delete_item:       "Ctrl+d",
+    cycle_search_mode: "Ctrl+Shift+m",
+    cycle_sort_order:  "Ctrl+Shift+o",
   });
 
   function makePathItem(p) {
@@ -53,7 +56,6 @@
   let iconStyle = $state("unicode");    // "unicode" | "svg"
 
   const THEME_PRESETS = ["catppuccin-mocha", "catppuccin-latte", "nord", "dracula", "tokyo-night"];
-
   let SLASH_COMMANDS = $derived([
     { name: "/exit",    description: "Quit app" },
     { name: "/config",  description: "Open config file" },
@@ -62,7 +64,11 @@
     { name: "/version", description: appVersion ? `v${appVersion}` : "Show version" },
     { name: "/update",  description: updateVersion ? `Update to v${updateVersion}` : "Check for updates" },
     { name: "/theme",   description: `current: ${currentPreset} (Tab to pick)`, completions: THEME_PRESETS },
+    { name: "/help",    description: "Show keybindings & current status" },
   ]);
+
+  // ヘルプパネル表示フラグ
+  let helpVisible = $state(false);
 
   // モード: "search" | "args"
   let mode = $state("search");
@@ -128,6 +134,7 @@
 
   function resetToSearch({ skipFocus = false } = {}) {
     mode = "search";
+    helpVisible = false;
     argItem = null;
     extraArgs = "";
     completionPrefix = "";
@@ -361,6 +368,13 @@
   });
 
   async function onKeydown(e) {
+    if (helpVisible) {
+      e.preventDefault();
+      helpVisible = false;
+      query = "";
+      _setSize(WINDOW_WIDTH, INPUT_HEIGHT);
+      return;
+    }
     if (mode === "args") {
       if (matchKey(e, keybindings.close)) {
         e.preventDefault();
@@ -617,6 +631,7 @@
   $effect(() => {
     const _mi = MAX_ITEMS;       // 依存として登録
     const _mc = MAX_COMPLETIONS; // 依存として登録
+    if (helpVisible) return;     // ヘルプパネル表示中はサイズを変えない
     if (mode === "search") {
       const count = filteredSlash.length > 0 ? filteredSlash.length : filtered.length;
       resizeForSearch(count);
@@ -627,7 +642,7 @@
 
   // search モード: クエリで絞り込み
   $effect(() => {
-    if (mode !== "search") return;
+    if (mode !== "search" || helpVisible) return;
     // スラッシュで始まり、かつ一致するスラッシュコマンドがある場合のみスラッシュコマンドモード
     // （/Applications/... などの Unix パスはスルー）
     if (query.startsWith("/") && filteredSlash.length > 0) {
@@ -748,6 +763,16 @@
   );
 
   async function runSlashCommand(cmd) {
+    if (cmd.name === "/help") {
+      query = "/help";
+      helpVisible = true;
+      // ヘルプパネルの高さ: ステータス3行 + 共通7行 + args 2行 = 12行 + divider×2 + padding + footer
+      const HELP_ROW_HEIGHT = 30;
+      const HELP_ROWS = 12;
+      const HELP_EXTRA = 17 + 8 + 12 + 28; // divider + panel padding + section padding + footer
+      _setSize(WINDOW_WIDTH, INPUT_HEIGHT + BORDER_HEIGHT + HELP_ROWS * HELP_ROW_HEIGHT + HELP_EXTRA + RESULTS_PADDING * 2);
+      return;
+    }
     if (cmd.name === "/version") {
       query = `/version — v${appVersion}`;
       setTimeout(() => { query = ""; }, 2000);
@@ -872,7 +897,66 @@
           </button>
         </div>
       </div>
-      {#if filteredSlash.length > 0}
+      {#if helpVisible}
+        <div class="help-panel">
+          <div class="help-section">
+            <div class="help-row">
+              <span class="help-label">theme</span>
+              <span class="help-value">{currentPreset}</span>
+            </div>
+            <div class="help-row">
+              <span class="help-label">search mode</span>
+              <span class="help-value">{uiSearchMode} {uiSearchMode === "fuzzy" ? "≋" : uiSearchMode === "exact" ? "―" : "あ"}</span>
+              <span class="help-key">{keybindings.cycle_search_mode}</span>
+            </div>
+            <div class="help-row">
+              <span class="help-label">sort order</span>
+              <span class="help-value">{uiSortOrder} {uiSortOrder === "count_first" ? "#" : "⌚"}</span>
+              <span class="help-key">{keybindings.cycle_sort_order}</span>
+            </div>
+          </div>
+          <div class="help-divider"></div>
+          <div class="help-section">
+            <div class="help-row">
+              <span class="help-label">show / hide</span>
+              <span class="help-key">{keybindings.launch}</span>
+            </div>
+            <div class="help-row">
+              <span class="help-label">next / prev</span>
+              <span class="help-key">{keybindings.next} / {keybindings.prev}</span>
+            </div>
+            <div class="help-row">
+              <span class="help-label">launch</span>
+              <span class="help-key">{keybindings.confirm}</span>
+            </div>
+            <div class="help-row">
+              <span class="help-label">args mode</span>
+              <span class="help-key">{keybindings.arg_mode}</span>
+            </div>
+            <div class="help-row">
+              <span class="help-label">run query</span>
+              <span class="help-key">{keybindings.run_query}</span>
+            </div>
+            <div class="help-row">
+              <span class="help-label">accept word / line</span>
+              <span class="help-key">{keybindings.accept_word} / {keybindings.accept_line}</span>
+            </div>
+            <div class="help-row">
+              <span class="help-label">delete word / line</span>
+              <span class="help-key">{keybindings.delete_word} / {keybindings.delete_line}</span>
+            </div>
+            <div class="help-row">
+              <span class="help-label">delete item</span>
+              <span class="help-key">{keybindings.delete_item}</span>
+            </div>
+            <div class="help-row">
+              <span class="help-label">close</span>
+              <span class="help-key">{keybindings.close}</span>
+            </div>
+          </div>
+          <div class="help-footer">any key to close</div>
+        </div>
+      {:else if filteredSlash.length > 0}
         <div class="results">
           {#each filteredSlash as cmd, i}
             <div
@@ -1256,6 +1340,57 @@
     padding: 16px 20px;
     color: var(--color-muted, #585b70);
     font-size: var(--font-size, 14px);
+  }
+
+  /* ヘルプパネル */
+  .help-panel {
+    padding: 8px 0 4px;
+  }
+
+  .help-section {
+    padding: 2px 20px;
+  }
+
+  .help-row {
+    display: flex;
+    align-items: center;
+    height: 30px;
+    gap: 8px;
+    font-size: calc(var(--font-size, 14px) - 1px);
+  }
+
+  .help-label {
+    width: 110px;
+    flex-shrink: 0;
+    color: var(--color-muted, #585b70);
+  }
+
+  .help-value {
+    flex: 1;
+    color: var(--color-text, #cdd6f4);
+  }
+
+  .help-key {
+    margin-left: auto;
+    color: var(--color-blue, #89b4fa);
+    font-family: monospace;
+    font-size: calc(var(--font-size, 14px) - 2px);
+    background: var(--color-surface, #313244);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
+  .help-divider {
+    height: 1px;
+    background: var(--color-surface, #313244);
+    margin: 8px 20px;
+  }
+
+  .help-footer {
+    padding: 4px 20px 6px;
+    font-size: calc(var(--font-size, 14px) - 3px);
+    color: var(--color-overlay, #45475a);
+    text-align: right;
   }
 
   .slash-name {

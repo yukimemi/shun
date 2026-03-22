@@ -111,6 +111,7 @@ After editing config, run `/reload` to apply all changes without restarting.
 | `/update` | Install latest release (shows version if update available) |
 | `/history` | Open history file in default editor |
 | `/version` | Show current version |
+| `/help` | Show keybindings & current status (theme, search mode, sort order) |
 | `/exit` | Quit shun |
 
 <details>
@@ -373,6 +374,8 @@ All keybindings are configurable via `[keybindings]` in `config.toml`. Changes t
 | `Tab` | Enter args mode |
 | `Ctrl+f` | Accept next word of ghost text |
 | `Ctrl+e` | Accept full ghost text |
+| `Ctrl+w` | Delete word before cursor |
+| `Ctrl+u` | Delete to beginning of line |
 | `Ctrl+d` | Delete selected History item |
 | `Ctrl+Shift+m` | Cycle search mode (fuzzy → exact → migemo) |
 | `Ctrl+Shift+o` | Cycle sort order (count_first ↔ recent_first) |
@@ -383,11 +386,15 @@ All keybindings are configurable via `[keybindings]` in `config.toml`. Changes t
 | Key | Action |
 |---|---|
 | `Enter` | Launch with args |
+| `Shift+Enter` | Launch typed query directly |
 | `Tab` | Apply selected completion |
 | `Ctrl+n` / `Ctrl+p` | Navigate completion list |
 | `Ctrl+f` / `Ctrl+e` | Accept ghost text (word / full) |
 | `Ctrl+w` | Delete word before cursor |
 | `Ctrl+u` | Delete to beginning of line |
+| `Ctrl+d` | Delete selected history completion |
+| `Ctrl+Shift+m` | Cycle search mode |
+| `Ctrl+Shift+o` | Cycle sort order |
 | `Escape` | Back to search |
 
 **Special input:**
