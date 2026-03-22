@@ -78,6 +78,7 @@ Works out of the box with zero config. Config file is created automatically on f
 
 A minimal config to get started:
 
+**Windows**
 ```toml
 [keybindings]
 launch = "Alt+Space"   # global hotkey to show/hide
@@ -88,8 +89,23 @@ path       = "neovide"
 completion = "path"
 
 [[scan_dirs]]
+path       = "~/bin"
+extensions = ["exe", "bat", "ps1", "cmd"]
+```
+
+**macOS / Linux**
+```toml
+[keybindings]
+launch = "Alt+Space"
+
+[[apps]]
+name       = "Neovide"
+path       = "neovide"
+completion = "path"
+
+[[scan_dirs]]
 path       = "~/.local/bin"
-extensions = ["sh", "py", "ps1", "cmd"]
+extensions = ["sh", "py"]
 ```
 
 After editing config, run `/reload` to apply all changes without restarting.
