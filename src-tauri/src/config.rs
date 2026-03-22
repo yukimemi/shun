@@ -154,7 +154,7 @@ fn default_delete_item() -> String {
     "Ctrl+d".to_string()
 }
 fn default_cycle_search_mode() -> String {
-    "Ctrl+Shift+s".to_string()
+    "Ctrl+Shift+m".to_string()
 }
 fn default_cycle_sort_order() -> String {
     "Ctrl+Shift+o".to_string()
