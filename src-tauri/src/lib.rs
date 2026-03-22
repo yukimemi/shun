@@ -399,7 +399,6 @@ fn reload(
     Ok(())
 }
 
-
 #[tauri::command]
 fn exit_app(app: tauri::AppHandle) {
     app.exit(0);
