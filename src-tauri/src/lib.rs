@@ -61,7 +61,12 @@ fn get_apps() -> Vec<apps::LaunchItem> {
 }
 
 #[tauri::command]
-fn search_items(query: String, state: tauri::State<CacheState>) -> Vec<apps::LaunchItem> {
+fn search_items(
+    query: String,
+    search_mode: Option<String>,
+    sort_order: Option<String>,
+    state: tauri::State<CacheState>,
+) -> Vec<apps::LaunchItem> {
     let (config, mut items) = {
         let cache = state.lock().unwrap();
         match cache.as_ref() {
@@ -76,17 +81,34 @@ fn search_items(query: String, state: tauri::State<CacheState>) -> Vec<apps::Lau
         }
     };
 
+    let effective_search_mode = search_mode
+        .as_deref()
+        .and_then(|s| serde_json::from_value(serde_json::Value::String(s.to_string())).ok())
+        .unwrap_or(config.search_mode.clone());
+    let effective_sort_order = sort_order
+        .as_deref()
+        .and_then(|s| serde_json::from_value(serde_json::Value::String(s.to_string())).ok())
+        .unwrap_or(config.sort_order.clone());
+
     // history は軽いので毎回ロード（起動直後も正確な順序に）
     let hist = history::load();
-    sort_items(&mut items, &hist, &config);
+    sort_items_with_order(&mut items, &hist, &effective_sort_order);
 
     if query.is_empty() {
         return items;
     }
-    search::filter(&items, &query, &config.search_mode)
+    search::filter(&items, &query, &effective_search_mode)
 }
 
 fn sort_items(items: &mut [apps::LaunchItem], hist: &history::History, config: &config::Config) {
+    sort_items_with_order(items, hist, &config.sort_order);
+}
+
+fn sort_items_with_order(
+    items: &mut [apps::LaunchItem],
+    hist: &history::History,
+    sort_order: &config::SortOrder,
+) {
     items.sort_by(|a, b| {
         let a_key = a.history_key.as_deref().unwrap_or(&a.path);
         let b_key = b.history_key.as_deref().unwrap_or(&b.path);
@@ -95,7 +117,7 @@ fn sort_items(items: &mut [apps::LaunchItem], hist: &history::History, config: &
         if ac == 0 && bc == 0 {
             return a.name.to_lowercase().cmp(&b.name.to_lowercase());
         }
-        match config.sort_order {
+        match sort_order {
             config::SortOrder::CountFirst => bc.cmp(&ac).then(bt.cmp(&at)),
             config::SortOrder::RecentFirst => bt.cmp(&at).then(bc.cmp(&ac)),
         }

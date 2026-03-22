@@ -48,6 +48,9 @@
   let appVersion = $state("");
   let updateVersion = $state("");
   let currentPreset = $state("catppuccin-mocha");
+  let uiSearchMode = $state("fuzzy");   // "fuzzy" | "exact" | "migemo"
+  let uiSortOrder = $state("count_first"); // "count_first" | "recent_first"
+  let iconStyle = $state("unicode");    // "unicode" | "svg"
 
   const THEME_PRESETS = ["catppuccin-mocha", "catppuccin-latte", "nord", "dracula", "tokyo-night"];
 
@@ -280,7 +283,21 @@
     if (cfg?.max_completions) MAX_COMPLETIONS = cfg.max_completions;
     if (cfg?.font_size)       document.documentElement.style.setProperty('--font-size', cfg.font_size + 'px');
     if (cfg?.opacity != null) document.documentElement.style.setProperty('--opacity', cfg.opacity);
+    if (cfg?.search_mode)     uiSearchMode  = cfg.search_mode;
+    if (cfg?.sort_order)      uiSortOrder   = cfg.sort_order;
+    if (cfg?.icon_style)      iconStyle     = cfg.icon_style;
     applyTheme(cfg?.theme);
+  }
+
+  const SEARCH_MODES = ["fuzzy", "exact", "migemo"];
+  const SORT_ORDERS = ["count_first", "recent_first"];
+
+  function cycleSearchMode() {
+    uiSearchMode = SEARCH_MODES[(SEARCH_MODES.indexOf(uiSearchMode) + 1) % SEARCH_MODES.length];
+  }
+
+  function cycleSortOrder() {
+    uiSortOrder = SORT_ORDERS[(SORT_ORDERS.indexOf(uiSortOrder) + 1) % SORT_ORDERS.length];
   }
 
   onMount(async () => {
@@ -546,6 +563,12 @@
         selectedIndex = Math.min(selectedIndex, filtered.length - 1);
         resizeForSearch(filtered.length);
       }
+    } else if (matchKey(e, keybindings.cycle_search_mode)) {
+      e.preventDefault();
+      cycleSearchMode();
+    } else if (matchKey(e, keybindings.cycle_sort_order)) {
+      e.preventDefault();
+      cycleSortOrder();
     }
   }
 
@@ -596,7 +619,7 @@
       return;
     }
     if (query.startsWith("http://") || query.startsWith("https://")) {
-      invoke("search_items", { query }).then((results) => {
+      invoke("search_items", { query, searchMode: uiSearchMode, sortOrder: uiSortOrder }).then((results) => {
         // history 候補を先頭に、入力中の URL が候補にない場合は末尾に追加
         const typed = { name: query, path: query, args: [], workdir: null, source: "Url", completion: "none", completion_list: [], completion_command: null };
         const hasExact = results.some((r) => r.path === query);
@@ -617,7 +640,7 @@
         });
       return;
     }
-    invoke("search_items", { query }).then((results) => {
+    invoke("search_items", { query, searchMode: uiSearchMode, sortOrder: uiSortOrder }).then((results) => {
       filtered = results;
       selectedIndex = 0;
       resizeForSearch(results.length);
@@ -784,6 +807,49 @@
           autocomplete="off"
           spellcheck="false"
         />
+        <div class="status-badges" aria-hidden="true">
+          {#if iconStyle === "svg"}
+            <button class="badge" title="search mode: {uiSearchMode}" onclick={cycleSearchMode}>
+              {#if uiSearchMode === "fuzzy"}
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                  <circle cx="6.5" cy="6.5" r="4"/><line x1="9.5" y1="9.5" x2="14" y2="14"/>
+                  <path d="M4 6.5 C4.8 5.2 5.5 7.8 6.5 6.5 C7.2 5.2 8 7.8 9 6.5" stroke-width="1.2"/>
+                </svg>
+              {:else if uiSearchMode === "exact"}
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                  <circle cx="6.5" cy="6.5" r="4"/><line x1="9.5" y1="9.5" x2="14" y2="14"/>
+                  <line x1="4.5" y1="5.5" x2="8.5" y2="5.5" stroke-width="1.2"/>
+                  <line x1="4.5" y1="7.5" x2="8.5" y2="7.5" stroke-width="1.2"/>
+                </svg>
+              {:else}
+                <svg width="14" height="14" viewBox="0 0 16 16">
+                  <text x="8" y="13" text-anchor="middle" font-size="13" fill="currentColor" font-family="sans-serif">あ</text>
+                </svg>
+              {/if}
+            </button>
+            <button class="badge" title="sort order: {uiSortOrder}" onclick={cycleSortOrder}>
+              {#if uiSortOrder === "count_first"}
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <rect x="1" y="10" width="4" height="5" rx="0.5"/>
+                  <rect x="6" y="6" width="4" height="9" rx="0.5"/>
+                  <rect x="11" y="2" width="4" height="13" rx="0.5"/>
+                </svg>
+              {:else}
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="8" cy="8" r="6"/>
+                  <polyline points="8,4 8,8 11,10"/>
+                </svg>
+              {/if}
+            </button>
+          {:else}
+            <button class="badge" title="search mode: {uiSearchMode}" onclick={cycleSearchMode}>
+              {uiSearchMode === "fuzzy" ? "≈" : uiSearchMode === "exact" ? "=" : "あ"}
+            </button>
+            <button class="badge" title="sort order: {uiSortOrder}" onclick={cycleSortOrder}>
+              {uiSortOrder === "count_first" ? "#" : "⌚"}
+            </button>
+          {/if}
+        </div>
       </div>
       {#if filteredSlash.length > 0}
         <div class="results">
@@ -913,14 +979,49 @@
     width: 100%;
   }
 
+  .status-badges {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    pointer-events: auto;
+  }
+
+  .badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    font-size: 11px;
+    line-height: 1;
+    color: var(--color-muted, #6c7086);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0.45;
+    padding: 0;
+    transition: opacity 0.15s;
+    font-family: inherit;
+  }
+
+  .badge:hover {
+    opacity: 0.85;
+    background: var(--color-surface, #313244);
+  }
+
   .search-ghost {
-    padding: 16px 20px;
+    padding: 16px 60px 16px 20px;
     font-size: calc(var(--font-size, 14px) + 4px);
   }
 
   .search {
     width: 100%;
-    padding: 16px 20px;
+    padding: 16px 60px 16px 20px;
     font-size: calc(var(--font-size, 14px) + 4px);
     background: transparent;
     border: none;

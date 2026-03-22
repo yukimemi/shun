@@ -37,6 +37,14 @@ pub enum SortOrder {
     RecentFirst, // 直近 -> 回数 -> アルファベット
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum IconStyle {
+    #[default]
+    Unicode, // Unicode symbols (≈ = あ # ⌚)
+    Svg, // Inline SVG icons
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
@@ -65,6 +73,8 @@ pub struct Config {
     pub theme: ThemeConfig,
     #[serde(default)]
     pub log: LogConfig,
+    #[serde(default)]
+    pub icon_style: IconStyle,
     #[serde(default)]
     pub vars: HashMap<String, String>,
     #[serde(default)]
@@ -101,6 +111,10 @@ pub struct Keybindings {
     pub close: String,
     #[serde(default = "default_delete_item")]
     pub delete_item: String,
+    #[serde(default = "default_cycle_search_mode")]
+    pub cycle_search_mode: String,
+    #[serde(default = "default_cycle_sort_order")]
+    pub cycle_sort_order: String,
 }
 
 fn default_launch() -> String {
@@ -138,6 +152,12 @@ fn default_close() -> String {
 }
 fn default_delete_item() -> String {
     "Ctrl+d".to_string()
+}
+fn default_cycle_search_mode() -> String {
+    "Ctrl+Shift+s".to_string()
+}
+fn default_cycle_sort_order() -> String {
+    "Ctrl+Shift+o".to_string()
 }
 fn default_log_level() -> String {
     "warn".to_string()
@@ -185,6 +205,8 @@ impl Default for Keybindings {
             run_query: default_run_query(),
             close: default_close(),
             delete_item: default_delete_item(),
+            cycle_search_mode: default_cycle_search_mode(),
+            cycle_sort_order: default_cycle_sort_order(),
         }
     }
 }
@@ -298,6 +320,7 @@ impl Default for Config {
             history_max_items: default_history_max_items(),
             theme: ThemeConfig::default(),
             log: LogConfig::default(),
+            icon_style: IconStyle::default(),
             vars: HashMap::new(),
             apps: vec![],
             scan_dirs: vec![],
@@ -386,6 +409,9 @@ fn merge_local_config(base: &mut Config, local_content: &str) {
     if table.contains_key("history_max_items") {
         base.history_max_items = local.history_max_items;
     }
+    if table.contains_key("icon_style") {
+        base.icon_style = local.icon_style;
+    }
 
     // keybindings: フィールド単位でマージ
     if let Some(kb_val) = table.get("keybindings").and_then(|v| v.as_table()) {
@@ -421,6 +447,12 @@ fn merge_local_config(base: &mut Config, local_content: &str) {
         }
         if kb_val.contains_key("close") {
             base.keybindings.close = local.keybindings.close;
+        }
+        if kb_val.contains_key("cycle_search_mode") {
+            base.keybindings.cycle_search_mode = local.keybindings.cycle_search_mode;
+        }
+        if kb_val.contains_key("cycle_sort_order") {
+            base.keybindings.cycle_sort_order = local.keybindings.cycle_sort_order;
         }
     }
 
