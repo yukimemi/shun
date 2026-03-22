@@ -287,8 +287,8 @@
     if (resetModes) {
       if (cfg?.search_mode) uiSearchMode = cfg.search_mode;
       if (cfg?.sort_order)  uiSortOrder  = cfg.sort_order;
+      applyTheme(cfg?.theme);
     }
-    applyTheme(cfg?.theme);
   }
 
   const SEARCH_MODES = ["fuzzy", "exact", "migemo"];
