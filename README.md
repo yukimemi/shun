@@ -153,6 +153,10 @@ max_completions = 6
 # Status badge icon style: "unicode" (default) | "svg"
 # icon_style = "unicode"
 
+# Monitor to show the launcher on: "cursor" (default) | "primary" | 0 | 1 | ...
+# Useful in config.local.toml for per-machine override
+# monitor = "cursor"
+
 [keybindings]
 launch      = "Alt+Space"   # Global hotkey to show/hide
 next        = "Ctrl+n"

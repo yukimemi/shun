@@ -316,7 +316,7 @@ fn register_launch_shortcut(app: &tauri::AppHandle) -> Result<(), String> {
                         refresh_cache_bg(cache);
                     } else {
                         debug!("shortcut: window hidden → show");
-                        center_on_cursor_monitor(&window);
+                        center_on_monitor(&window, &config::load_config().monitor);
                         window.show().ok();
                         window.set_focus().ok();
                         window.emit("show-launcher", ()).ok();
@@ -595,23 +595,39 @@ fn delete_history_item(key: String) -> Result<(), String> {
     history::delete(&key).map_err(|e| e.to_string())
 }
 
-fn center_on_cursor_monitor(window: &tauri::WebviewWindow) {
-    let cursor = match window.cursor_position() {
-        Ok(p) => p,
-        Err(_) => return,
-    };
+fn center_on_monitor(window: &tauri::WebviewWindow, target: &config::MonitorTarget) {
     let monitors = match window.available_monitors() {
         Ok(m) => m,
         Err(_) => return,
     };
-    let monitor = monitors.iter().find(|m| {
-        let pos = m.position();
-        let size = m.size();
-        cursor.x >= pos.x as f64
-            && cursor.x < (pos.x + size.width as i32) as f64
-            && cursor.y >= pos.y as f64
-            && cursor.y < (pos.y + size.height as i32) as f64
-    });
+    if monitors.is_empty() {
+        return;
+    }
+
+    let monitor = match target {
+        config::MonitorTarget::Named(s) if s == "primary" => window
+            .primary_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| monitors.into_iter().next()),
+        config::MonitorTarget::Index(i) => monitors.into_iter().nth(*i),
+        _ => {
+            // "cursor" (デフォルト): カーソルのあるモニター
+            let cursor = match window.cursor_position() {
+                Ok(p) => p,
+                Err(_) => return,
+            };
+            monitors.into_iter().find(|m| {
+                let pos = m.position();
+                let size = m.size();
+                cursor.x >= pos.x as f64
+                    && cursor.x < (pos.x + size.width as i32) as f64
+                    && cursor.y >= pos.y as f64
+                    && cursor.y < (pos.y + size.height as i32) as f64
+            })
+        }
+    };
+
     let monitor = match monitor {
         Some(m) => m,
         None => return,
@@ -745,7 +761,7 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(win) = app.get_webview_window("main") {
-                            center_on_cursor_monitor(&win);
+                            center_on_monitor(&win, &config::load_config().monitor);
                             win.show().ok();
                             win.set_focus().ok();
                             win.emit("show-launcher", ()).ok();

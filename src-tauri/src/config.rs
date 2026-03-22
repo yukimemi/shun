@@ -45,6 +45,23 @@ pub enum IconStyle {
     Svg, // Inline SVG icons
 }
 
+/// ランチャーを表示するモニターの指定
+/// - "cursor"  : カーソルのあるモニター (デフォルト)
+/// - "primary" : プライマリモニター
+/// - "0", "1", … : インデックス指定
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum MonitorTarget {
+    Named(String), // "cursor" | "primary"
+    Index(usize),  // 0, 1, 2, …
+}
+
+impl Default for MonitorTarget {
+    fn default() -> Self {
+        MonitorTarget::Named("cursor".to_string())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
@@ -75,6 +92,8 @@ pub struct Config {
     pub log: LogConfig,
     #[serde(default)]
     pub icon_style: IconStyle,
+    #[serde(default)]
+    pub monitor: MonitorTarget,
     #[serde(default)]
     pub vars: HashMap<String, String>,
     #[serde(default)]
@@ -321,6 +340,7 @@ impl Default for Config {
             theme: ThemeConfig::default(),
             log: LogConfig::default(),
             icon_style: IconStyle::default(),
+            monitor: MonitorTarget::default(),
             vars: HashMap::new(),
             apps: vec![],
             scan_dirs: vec![],
@@ -411,6 +431,9 @@ fn merge_local_config(base: &mut Config, local_content: &str) {
     }
     if table.contains_key("icon_style") {
         base.icon_style = local.icon_style;
+    }
+    if table.contains_key("monitor") {
+        base.monitor = local.monitor;
     }
 
     // keybindings: フィールド単位でマージ
@@ -768,6 +791,9 @@ max_completions = 6
 
 # Status badge icon style: "unicode" (default) | "svg"
 # icon_style = "unicode"
+
+# Monitor to show the launcher on: "cursor" (default) | "primary" | 0 | 1 | ...
+# monitor = "cursor"
 
 [keybindings]
 launch            = "Alt+Space"   # Global hotkey to show/hide
