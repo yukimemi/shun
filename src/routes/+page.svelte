@@ -275,7 +275,7 @@
     }
   }
 
-  async function applyConfig() {
+  async function applyConfig({ resetModes = false } = {}) {
     const cfg = await invoke("get_config");
     if (cfg?.keybindings) keybindings = { ...keybindings, ...cfg.keybindings };
     if (cfg?.window_width)    WINDOW_WIDTH    = cfg.window_width;
@@ -283,9 +283,11 @@
     if (cfg?.max_completions) MAX_COMPLETIONS = cfg.max_completions;
     if (cfg?.font_size)       document.documentElement.style.setProperty('--font-size', cfg.font_size + 'px');
     if (cfg?.opacity != null) document.documentElement.style.setProperty('--opacity', cfg.opacity);
-    if (cfg?.search_mode)     uiSearchMode  = cfg.search_mode;
-    if (cfg?.sort_order)      uiSortOrder   = cfg.sort_order;
     if (cfg?.icon_style)      iconStyle     = cfg.icon_style;
+    if (resetModes) {
+      if (cfg?.search_mode) uiSearchMode = cfg.search_mode;
+      if (cfg?.sort_order)  uiSortOrder  = cfg.sort_order;
+    }
     applyTheme(cfg?.theme);
   }
 
@@ -301,7 +303,7 @@
   }
 
   onMount(async () => {
-    await applyConfig();
+    await applyConfig({ resetModes: true });
     appVersion = await getVersion();
 
     await listen("update-available", (event) => {
@@ -764,6 +766,7 @@
       await invoke("open_history");
     } else if (cmd.name === "/reload") {
       await invoke("reload");
+      await applyConfig({ resetModes: true });
     }
   }
 
