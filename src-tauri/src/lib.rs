@@ -367,7 +367,18 @@ fn should_check_update(interval_secs: u64) -> bool {
 }
 
 fn record_update_check() {
-    let _ = std::fs::write(last_update_check_path(), "");
+    let path = last_update_check_path();
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_default();
+    match std::fs::write(&path, ts) {
+        Ok(_) => log::info!("record_update_check: updated {}", path.display()),
+        Err(e) => log::warn!(
+            "record_update_check: failed to write {}: {e}",
+            path.display()
+        ),
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -731,6 +742,12 @@ pub fn run() {
                 .level(log_level)
                 .rotation_strategy(log_rotation)
                 .max_file_size(log_max_size.into())
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: None,
+                    }),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                ])
                 .build(),
         )
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -792,18 +809,25 @@ pub fn run() {
                 }
             }
 
-            // バックグラウンドでアップデートチェック（設定した間隔で）
+            // バックグラウンドでアップデートチェック（設定した間隔で定期実行）
             let interval = config.update_check_interval;
             let app_for_update = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if !should_check_update(interval) {
+                if interval == 0 {
                     return;
                 }
-                record_update_check();
-                if let Ok(updater) = app_for_update.updater() {
-                    if let Ok(Some(update)) = updater.check().await {
-                        let _ = app_for_update.emit("update-available", update.version.clone());
+                loop {
+                    if should_check_update(interval) {
+                        log::info!("update check triggered (interval={interval}s)");
+                        record_update_check();
+                        if let Ok(updater) = app_for_update.updater() {
+                            if let Ok(Some(update)) = updater.check().await {
+                                let _ =
+                                    app_for_update.emit("update-available", update.version.clone());
+                            }
+                        }
                     }
+                    tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
                 }
             });
 
