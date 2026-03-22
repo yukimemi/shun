@@ -811,19 +811,21 @@
           <button class="badge" title="search mode: {uiSearchMode}" onclick={cycleSearchMode}>
             {#if iconStyle === "svg"}
               {#if uiSearchMode === "fuzzy"}
-                <!-- magnifier + ~ -->
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-                  <circle cx="6.5" cy="6.5" r="4.2"/><line x1="9.7" y1="9.7" x2="13.5" y2="13.5"/>
-                  <text x="6.5" y="9.5" text-anchor="middle" font-size="7" fill="currentColor" stroke="none" font-family="sans-serif" font-weight="bold">~</text>
+                <!-- 3 wavy lines = fuzzy/approximate -->
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                  <path d="M2 4.5 C4 3 6 6 8 4.5 C10 3 12 6 14 4.5"/>
+                  <path d="M2 8   C4 6.5 6 9.5 8 8   C10 6.5 12 9.5 14 8"/>
+                  <path d="M2 11.5 C4 10 6 13 8 11.5 C10 10 12 13 14 11.5"/>
                 </svg>
               {:else if uiSearchMode === "exact"}
-                <!-- magnifier + ≡ -->
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-                  <circle cx="6.5" cy="6.5" r="4.2"/><line x1="9.7" y1="9.7" x2="13.5" y2="13.5"/>
-                  <text x="6.5" y="9.5" text-anchor="middle" font-size="8" fill="currentColor" stroke="none" font-family="sans-serif" font-weight="bold">≡</text>
+                <!-- 3 straight lines = exact/literal -->
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                  <line x1="2" y1="4.5" x2="14" y2="4.5"/>
+                  <line x1="2" y1="8"   x2="14" y2="8"/>
+                  <line x1="2" y1="11.5" x2="14" y2="11.5"/>
                 </svg>
               {:else}
-                <!-- あ -->
+                <!-- あ = migemo -->
                 <svg width="14" height="14" viewBox="0 0 16 16">
                   <text x="8" y="13" text-anchor="middle" font-size="13" fill="currentColor" font-family="sans-serif">あ</text>
                 </svg>
