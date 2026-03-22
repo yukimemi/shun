@@ -948,9 +948,14 @@
               aria-selected={globalIdx === completionIndex}
             >
               <span class="item-name completion-path" class:is-dir={comp.endsWith('/')}>{comp}</span>
-              {#if allCompletions.length > MAX_COMPLETIONS}
-                <span class="completion-count">{globalIdx + 1}/{allCompletions.length}</span>
-              {/if}
+              <div class="item-right">
+                {#if allCompletions.length > MAX_COMPLETIONS}
+                  <span class="completion-count">{globalIdx + 1}/{allCompletions.length}</span>
+                {/if}
+                {#if historyArgs.includes(comp)}
+                  <span class="item-source" data-source="History">History</span>
+                {/if}
+              </div>
             </div>
           {/each}
         </div>
