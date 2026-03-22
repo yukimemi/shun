@@ -342,6 +342,9 @@ bg     = "#1a1a2e"  # optional per-color override
 | `nord` | Arctic, blue-toned dark |
 | `dracula` | Dark with vibrant purple/pink |
 | `tokyo-night` | Dark blue-purple, Tokyo Night style |
+| `one-half-dark` | One Half Dark (as used in VS Code / Windows Terminal) |
+| `solarized-dark` | Solarized Dark |
+| `solarized-light` | Solarized Light |
 
 **Color keys** (all optional — unset keys fall back to the preset):
 

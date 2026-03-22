@@ -55,7 +55,7 @@
   let uiSortOrder = $state("count_first"); // "count_first" | "recent_first"
   let iconStyle = $state("unicode");    // "unicode" | "svg"
 
-  const THEME_PRESETS = ["catppuccin-mocha", "catppuccin-latte", "nord", "dracula", "tokyo-night"];
+  const THEME_PRESETS = ["catppuccin-mocha", "catppuccin-latte", "nord", "dracula", "tokyo-night", "one-half-dark", "solarized-dark", "solarized-light"];
   let SLASH_COMMANDS = $derived([
     { name: "/exit",    description: "Quit app" },
     { name: "/config",  description: "Open config file" },
@@ -262,6 +262,39 @@
       "--color-purple":  "#bb9af7",
       "--color-green":   "#9ece6a",
       "--color-red":     "#f7768e",
+    },
+    "one-half-dark": {
+      "--color-bg":      "#282c34",
+      "--color-surface": "#3b4048",
+      "--color-overlay": "#4b5263",
+      "--color-muted":   "#5c6370",
+      "--color-text":    "#dcdfe4",
+      "--color-blue":    "#61afef",
+      "--color-purple":  "#c678dd",
+      "--color-green":   "#98c379",
+      "--color-red":     "#e06c75",
+    },
+    "solarized-dark": {
+      "--color-bg":      "#002b36",
+      "--color-surface": "#073642",
+      "--color-overlay": "#586e75",
+      "--color-muted":   "#657b83",
+      "--color-text":    "#839496",
+      "--color-blue":    "#268bd2",
+      "--color-purple":  "#6c71c4",
+      "--color-green":   "#859900",
+      "--color-red":     "#dc322f",
+    },
+    "solarized-light": {
+      "--color-bg":      "#fdf6e3",
+      "--color-surface": "#eee8d5",
+      "--color-overlay": "#93a1a1",
+      "--color-muted":   "#839496",
+      "--color-text":    "#657b83",
+      "--color-blue":    "#268bd2",
+      "--color-purple":  "#6c71c4",
+      "--color-green":   "#859900",
+      "--color-red":     "#dc322f",
     },
   };
 
