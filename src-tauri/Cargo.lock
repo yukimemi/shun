@@ -4390,7 +4390,7 @@ dependencies = [
  "tokio",
  "toml 1.0.7+spec-1.1.0",
  "webview2-com",
- "windows-core 0.61.2",
+ "windows-core 0.62.2",
  "zip 8.3.1",
 ]
 

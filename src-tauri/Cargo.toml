@@ -33,7 +33,7 @@ regex = "1"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38"
-windows-core = "0.61"
+windows-core = "0.62"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"
