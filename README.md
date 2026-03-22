@@ -20,30 +20,16 @@
 
 ## Features
 
-- **Instant popup** — global hotkey brings up the launcher anywhere
-- **Fuzzy / exact / migemo search** — fuzzy powered by [nucleo-matcher](https://github.com/helix-editor/nucleo) (the same engine as Helix editor); migemo powered by [rustmigemo](https://github.com/oguna/rustmigemo) / [jsmigemo](https://github.com/oguna/jsmigemo) — search Japanese text by typing romaji (e.g. `hajime` matches `初めて`)
-- **Launch history** — frecency sorting (count-first or recent-first)
-- **Args mode** — press `Tab` to pass extra arguments to any app
-- **Path & URL completion** — ghost text + dropdown, navigate with `Ctrl-n/p`, confirm with `Ctrl-f/e`
-- **Args history** — previous argument combinations remembered and suggested as ghost text
-- **Configurable completion** — `path` / `list` / `command` / `none` per app
-- **URL & path navigation** — type `https://...` or `~/...` to open directly
-- **Slash commands** — `/exit`, `/config`, `/rescan`, `/update`
-- **Auto-update** — checks for new releases on startup; install in one keystroke with download progress
-- **Portable friendly** — portable zip includes self-update (no admin rights required)
-- **Theming** — built-in presets (Catppuccin, Nord, Dracula, Tokyo Night) + per-color overrides via `[theme]` in config
-- **Font size & opacity** — configurable via `font_size` and `opacity` in config
-- **History limit** — cap history entries with `history_max_items` (default: 1000)
-- **Configurable logging** — set log level (`debug` / `info` / `warn` / `error` / `off`) via `[log]` in config; log file at `%APPDATA%\shun\logs\shun.log`
-- **Local config override** — `config.local.toml` merges machine-specific settings without touching the main config (chezmoi-friendly)
-- **Auto-hide on blur** — optionally hide when focus leaves the launcher
-- **Multi-monitor** — appears on the monitor where your cursor is
-- **Minimal UI** — borderless, transparent, always-on-top
-- **Cross-platform** — Windows, macOS, Linux
+- **Instant popup** — global hotkey brings up the launcher anywhere, on the monitor where your cursor is
+- **Fuzzy / exact / migemo search** — fuzzy via [nucleo-matcher](https://github.com/helix-editor/nucleo); migemo via [rustmigemo](https://github.com/oguna/rustmigemo) / [jsmigemo](https://github.com/oguna/jsmigemo) (type `hajime` to match `初めて`)
+- **Args mode** — press `Tab` to pass extra arguments; path / list / command completion with ghost text
+- **Launch history** — frecency sorting; previous args remembered and suggested as ghost text
+- **Slash commands** — `/reload`, `/config`, `/update`, `/theme` and more
+- **Auto-update** — detects new releases on startup; one command to download, install, and restart
+- **Theming** — built-in presets (Catppuccin, Nord, Dracula, Tokyo Night) + per-color overrides
+- **Cross-platform** — Windows, macOS, Linux; portable zip with no admin rights required
 
 ## Installation
-
-### One-liner install
 
 **Windows** (PowerShell, no admin required)
 ```powershell
@@ -55,7 +41,8 @@ irm https://yukimemi.github.io/shun/install.ps1 | iex
 curl -fsSL https://yukimemi.github.io/shun/install.sh | sh
 ```
 
-### Package managers
+<details>
+<summary>Package managers & direct download</summary>
 
 **Windows — Scoop**
 ```powershell
@@ -69,9 +56,7 @@ brew tap yukimemi/tap
 brew install --cask yukimemi/tap/shun
 ```
 
-### Direct download
-
-Download the latest installer from [Releases](https://github.com/yukimemi/shun/releases).
+**Direct download** — latest installer from [Releases](https://github.com/yukimemi/shun/releases):
 
 | Platform | File |
 |---|---|
@@ -79,9 +64,11 @@ Download the latest installer from [Releases](https://github.com/yukimemi/shun/r
 | macOS | `.dmg` (universal — Apple Silicon + Intel) |
 | Linux | `.AppImage` or `.deb` |
 
-## Configuration
+</details>
 
-Config file is created automatically on first launch:
+## Quick start
+
+Works out of the box with zero config. Config file is created automatically on first launch:
 
 | Platform | Path |
 |---|---|
@@ -89,41 +76,40 @@ Config file is created automatically on first launch:
 | macOS | `~/Library/Application Support/shun/config.toml` |
 | Linux | `~/.config/shun/config.toml` |
 
-### Local override file
-
-Place a `config.local.toml` in the same directory as `config.toml` to add machine-specific settings without modifying the main file. This is useful when managing `config.toml` with a dotfile manager (e.g. chezmoi) while keeping local overrides out of version control.
-
-| Platform | Path |
-|---|---|
-| Windows | `%APPDATA%\shun\config.local.toml` |
-| macOS | `~/Library/Application Support/shun/config.local.toml` |
-| Linux | `~/.config/shun/config.local.toml` |
-
-**Merge rules:**
-
-| Field | Behavior |
-|---|---|
-| `apps`, `scan_dirs`, `overrides` | Entries are **appended** to the main config |
-| `search_mode` (`"fuzzy"` / `"exact"` / `"migemo"`), `sort_order`, `hide_on_blur`, `update_check_interval`, `font_size`, `opacity`, `history_max_items` | Local value **overrides** main (only when explicitly set) |
-| `[keybindings]` | **Per-field override** — only specified keys are overridden |
-| `[theme]` | **Per-field override** — `preset` and individual colors can be overridden independently |
-| `[log]` | **Per-field override** — only specified fields are overridden |
-
-**Example `config.local.toml`:**
+A minimal config to get started:
 
 ```toml
-# Machine-specific scan directories
-[[scan_dirs]]
-path = "C:/work/projects"
-recursive = true
-extensions = ["exe", "bat", "ps1"]
+[keybindings]
+launch = "Alt+Space"   # global hotkey to show/hide
 
 [[apps]]
-name = "Internal Tool"
-path = "C:/tools/internal.exe"
+name       = "Neovide"
+path       = "neovide"
+completion = "path"
+
+[[scan_dirs]]
+path       = "~/.local/bin"
+extensions = ["sh", "py", "ps1", "cmd"]
 ```
 
-### Example `config.toml`
+After editing config, run `/reload` to apply all changes without restarting.
+
+## Slash commands
+
+| Command | Action |
+|---|---|
+| `/reload` | Reload config — re-registers global shortcut, rescans apps, re-applies all settings |
+| `/config` | Open config file in default editor |
+| `/theme <name>` | Switch theme instantly (`Tab` to pick from list) |
+| `/update` | Install latest release (shows version if update available) |
+| `/history` | Open history file in default editor |
+| `/version` | Show current version |
+| `/exit` | Quit shun |
+
+<details>
+<summary>Full configuration reference</summary>
+
+### All options
 
 ```toml
 # Search mode: "fuzzy" (default) | "exact" | "migemo"
@@ -170,24 +156,24 @@ run_query   = "Shift+Enter" # Run typed query directly (skip history results)
 close       = "Escape"
 delete_item = "Ctrl+d"      # Delete selected history item
 
-# Logging — level applied to both Rust and JS (via tauri-plugin-log)
+# Logging
 [log]
 level = "warn"            # "debug" | "info" | "warn" (default) | "error" | "off"
-max_file_size_kb = 1024   # rotate when log exceeds this size (default: 1024 = 1 MB)
-rotation = "keep_one"     # "keep_one" (default) | "keep_all" | number (e.g. 5 to keep 5 files)
+max_file_size_kb = 1024
+rotation = "keep_one"     # "keep_one" (default) | "keep_all" | number
 
-# Theme — preset + optional per-color overrides
+# Theme
 [theme]
 preset = "catppuccin-mocha"   # "catppuccin-mocha" | "catppuccin-latte" | "nord" | "dracula" | "tokyo-night"
-# bg      = "#1e1e2e"         # background
-# surface = "#313244"         # selected item / border
-# overlay = "#45475a"         # ghost text / separator
-# muted   = "#585b70"         # placeholder / labels
-# text    = "#cdd6f4"         # main text
-# blue    = "#89b4fa"         # accent (dirs, URLs, args app name)
-# purple  = "#cba6f7"         # slash commands
-# green   = "#a6e3a1"         # Path items
-# red     = "#f38ba8"         # History items
+# bg      = "#1e1e2e"
+# surface = "#313244"
+# overlay = "#45475a"
+# muted   = "#585b70"
+# text    = "#cdd6f4"
+# blue    = "#89b4fa"
+# purple  = "#cba6f7"
+# green   = "#a6e3a1"
+# red     = "#f38ba8"
 
 # Open editor with file path completion
 [[apps]]
@@ -195,34 +181,12 @@ name       = "Neovide"
 path       = "neovide"
 completion = "path"       # "path" | "none" | "list" | "command"
 
-# Open a URL directly
-[[apps]]
-name = "GitHub"
-path = "https://github.com"
-
-# Search Google with Tab → type query → Enter ({{ args | urlencode }} URL-encodes the input)
+# Search Google (Tab → type query → Enter)
 [[apps]]
 name = "Google"
 path = "https://www.google.com/search?q={{ args | urlencode }}"
 
-# Search GitHub code
-[[apps]]
-name = "GitHub Search"
-path = "https://github.com/search?q={{ args | urlencode }}"
-
-# Open a specific note by name ({{ args }} is substituted as-is)
-[[apps]]
-name = "Note"
-path = "notepad"
-args = ["C:/notes/{{ args }}.md"]
-
-# Run with free-form arguments (no completion)
-[[apps]]
-name       = "systemctl"
-path       = "systemctl"
-completion = "none"
-
-# docker exec into a running container (completion from docker ps)
+# docker exec with container name completion
 [[apps]]
 name               = "docker exec"
 path               = "docker"
@@ -230,21 +194,21 @@ args               = ["exec", "-it"]
 completion         = "command"
 completion_command = "docker ps --format '{{.Names}}'"
 
-# git checkout with branch name completion (use exact search for this app)
+# git checkout with branch completion (exact search for this app)
 [[apps]]
 name                   = "git checkout"
 path                   = "git"
 args                   = ["checkout"]
 completion             = "command"
 completion_command     = "git branch --format='%(refname:short)'"
-completion_search_mode = "exact"  # "fuzzy" | "exact" | "migemo" (overrides global search_mode)
+completion_search_mode = "exact"  # "fuzzy" | "exact" | "migemo" (overrides global)
 workdir                = "~/src/myproject"
 
-# Override completion settings for scan_dirs items
+# Override completion for scan_dirs items
 [[overrides]]
-name               = "scoop"
-completion         = "list"
-completion_list    = ["install", "uninstall", "update", "search", "info"]
+name            = "scoop"
+completion      = "list"
+completion_list = ["install", "uninstall", "update", "search", "info"]
 
 # Auto-register scripts from a directory
 [[scan_dirs]]
@@ -253,9 +217,30 @@ recursive  = false
 extensions = ["sh", "py", "ps1", "cmd"]
 ```
 
-### Template placeholders in `path` and `args`
+### Local override file (`config.local.toml`)
 
-You can use [Tera](https://keats.github.io/tera/) template syntax in the `path` and `args` fields of `[[apps]]` entries. Templates are evaluated at launch time when extra args are provided via Args mode (`Tab`).
+Place a `config.local.toml` in the same directory as `config.toml` for machine-specific settings — useful with chezmoi or other dotfile managers.
+
+| Platform | Path |
+|---|---|
+| Windows | `%APPDATA%\shun\config.local.toml` |
+| macOS | `~/Library/Application Support/shun/config.local.toml` |
+| Linux | `~/.config/shun/config.local.toml` |
+
+Merge rules:
+
+| Field | Behavior |
+|---|---|
+| `apps`, `scan_dirs`, `overrides` | Entries are **appended** |
+| `search_mode`, `sort_order`, `hide_on_blur`, `font_size`, `opacity`, etc. | Local value **overrides** (only when explicitly set) |
+| `[keybindings]`, `[theme]`, `[log]` | **Per-field override** — only specified keys are overridden |
+
+</details>
+
+<details>
+<summary>Template placeholders in <code>path</code> and <code>args</code></summary>
+
+You can use [Tera](https://keats.github.io/tera/) template syntax in the `path` and `args` fields. Templates are evaluated at launch time when args are provided via Args mode (`Tab`).
 
 **Context variables:**
 
@@ -264,53 +249,27 @@ You can use [Tera](https://keats.github.io/tera/) template syntax in the `path` 
 | `{{ args }}` | Extra args joined by space (raw) |
 | `{{ args_list }}` | Extra args as an array |
 | `{{ env.VAR_NAME }}` | Environment variable |
-| `{{ vars.my_var }}` | User-defined variable from `[vars]` in `config.toml` |
+| `{{ vars.my_var }}` | User-defined variable from `[vars]` in config |
 
-**Any Tera filter can be applied**, e.g.:
+**Useful Tera expressions:**
 
 | Expression | Result |
 |---|---|
 | `{{ args \| urlencode }}` | URL-encoded (spaces → `%20`) |
-| `{{ args \| upper }}` | UPPERCASED |
-| `{{ args_list \| join(sep=",") }}` | Joined with custom separator |
 | `{{ now() \| date(format="%Y%m%d") }}` | Today's date e.g. `20260321` |
 | `{{ now() \| date(format="%Y-%m-%d") }}` | Today's date e.g. `2026-03-21` |
+| `{{ get_env(name="VAR", default="fallback") }}` | Env var with default |
 
-**Example workflow** — search Google:
-
-1. Register in `config.toml`:
-   ```toml
-   [[apps]]
-   name = "Google"
-   path = "https://www.google.com/search?q={{ args | urlencode }}"
-   ```
-2. Open shun → type `goo` → press `Tab` → type `rust borrow checker` → `Enter`
-3. Opens `https://www.google.com/search?q=rust%20borrow%20checker`
-
-The search query is also saved to history, so next time typing `goo` will show `Google › rust borrow checker` as a candidate.
-
-**User-defined variables** — define reusable values in `[vars]` and reference them with `{{ vars.name }}`:
+**Example — Web search:**
 
 ```toml
-[vars]
-src_dir  = "~/src/github.com/yourname"
-work_dir = "C:/work/projects"
-
 [[apps]]
-name       = "Open Project"
-path       = "neovide"
-args       = ["{{ vars.src_dir }}/{{ args }}"]
-completion = "path"
-
-[[apps]]
-name = "Work File"
-path = "neovide"
-args = ["{{ vars.work_dir }}/{{ args }}"]
+name = "Google"
+path = "https://www.google.com/search?q={{ args | urlencode }}"
 ```
+Open shun → `goo` → `Tab` → `rust borrow checker` → `Enter` → opens the search. Query is saved to history.
 
-Machine-specific values can go in `config.local.toml` — local `[vars]` entries override or extend the base config.
-
-**Date-stamped memo workflow** — create and browse daily notes:
+**Example — Date-stamped memos:**
 
 ```toml
 # MemoNew: Tab → type title → Enter → opens "20260321-title.md"
@@ -321,7 +280,7 @@ args       = ['~/memo/{{ now() | date(format="%Y%m%d") }}-{{ args }}.md']
 completion = "none"
 
 # MemoList: Tab → pick existing memo with migemo path completion → Enter
-# (migemo lets you find "初めて.md" by typing "hajime")
+# (type "hajime" to find "初めて.md")
 [[apps]]
 name                   = "MemoList"
 path                   = "nvim"
@@ -330,27 +289,30 @@ completion             = "path"
 completion_search_mode = "migemo"
 ```
 
-**Environment variables** — use `{{ env.VAR_NAME }}` or the Tera built-in `get_env()`:
+**Example — User-defined variables:**
 
 ```toml
-[[apps]]
-name = "Open Project"
-path = "neovide"
-args = ["{{ env.USERPROFILE }}/src/{{ args }}"]
+[vars]
+src_dir = "~/src/github.com/yourname"
 
 [[apps]]
-name = "Work Dir"
-path = '{{ get_env(name="WORK_DIR", default="~/work") }}/{{ args }}'
+name       = "Open Project"
+path       = "neovide"
+args       = ["{{ vars.src_dir }}/{{ args }}"]
+completion = "path"
 ```
 
-## Theming
+</details>
 
-Set a built-in theme or override individual colors in `config.toml`:
+<details>
+<summary>Theming</summary>
+
+Switch theme instantly with `/theme <name>` (changes are saved to `config.local.toml`), or set it in `config.toml`:
 
 ```toml
 [theme]
-preset = "nord"    # pick a preset
-bg     = "#1a1a2e" # optional: override any individual color
+preset = "nord"
+bg     = "#1a1a2e"  # optional per-color override
 ```
 
 **Built-in presets:**
@@ -363,7 +325,7 @@ bg     = "#1a1a2e" # optional: override any individual color
 | `dracula` | Dark with vibrant purple/pink |
 | `tokyo-night` | Dark blue-purple, Tokyo Night style |
 
-**Color variables:**
+**Color keys** (all optional — unset keys fall back to the preset):
 
 | Key | Role |
 |---|---|
@@ -377,70 +339,54 @@ bg     = "#1a1a2e" # optional: override any individual color
 | `green` | Path items |
 | `red` | History items |
 
-All color keys are optional — unset keys fall back to the chosen `preset`.
+</details>
 
-## Keybindings
+<details>
+<summary>Keybindings reference</summary>
 
-All keybindings are configurable via `[keybindings]` in `config.toml`.
+All keybindings are configurable via `[keybindings]` in `config.toml`. Changes take effect after `/reload` — no restart needed.
 
-**Key name reference:**
-- In-app keybindings (`next`, `confirm`, `close`, etc.) use [KeyboardEvent.key values](https://developer.mozilla.org/en-US/docs/Web/API/UI_Events/Keyboard_event_key_values)
+- In-app keys use [KeyboardEvent.key values](https://developer.mozilla.org/en-US/docs/Web/API/UI_Events/Keyboard_event_key_values)
 - The global `launch` shortcut uses [global-hotkey key codes](https://docs.rs/global-hotkey/latest/global_hotkey/hotkey/enum.Code.html)
 
-### Search mode
+**Search mode** (default keys):
 
 | Key | Action |
 |---|---|
 | `Alt+Space` | Show / hide launcher |
 | `Ctrl+n` / `↓` | Next item |
 | `Ctrl+p` / `↑` | Previous item |
-| `Enter` | Launch selected item (history-first) |
-| `Shift+Enter` | Launch typed query as base item (skip history results) |
-| `Tab` | Enter args mode / apply path completion |
-| `Ctrl+f` | Accept next word/segment of ghost text |
+| `Enter` | Launch selected item |
+| `Shift+Enter` | Launch typed query directly (skip history results) |
+| `Tab` | Enter args mode |
+| `Ctrl+f` | Accept next word of ghost text |
 | `Ctrl+e` | Accept full ghost text |
+| `Ctrl+d` | Delete selected History item |
 | `Escape` | Hide launcher |
 
-### Args mode
+**Args mode** (default keys):
 
 | Key | Action |
 |---|---|
-| `Enter` | Launch with args (file completion → launch immediately) |
+| `Enter` | Launch with args |
 | `Tab` | Apply selected completion |
 | `Ctrl+n` / `Ctrl+p` | Navigate completion list |
-| `Ctrl+f` | Accept next word/segment of ghost text |
-| `Ctrl+e` | Accept full ghost text |
+| `Ctrl+f` / `Ctrl+e` | Accept ghost text (word / full) |
 | `Ctrl+w` | Delete word before cursor |
 | `Ctrl+u` | Delete to beginning of line |
 | `Escape` | Back to search |
 
-### History management
-
-| Key | Action |
-|---|---|
-| `Ctrl+d` | Delete selected **History** item from history |
-
-### Slash commands
-
-| Command | Action |
-|---|---|
-| `/exit` | Quit shun |
-| `/config` | Open config file in default editor |
-| `/history` | Open history file in default editor |
-| `/reload` | Reload config — re-registers global shortcut, rescans apps, re-applies all settings |
-| `/update` | Install latest release (shows version if update available) |
-| `/version` | Show current version |
-| `/theme <name>` | Switch theme instantly and save to `config.local.toml` |
-
-## Special input
+**Special input:**
 
 | Input | Action |
 |---|---|
-| `https://...` | Open URL in default browser (ghost text + history) |
+| `https://...` | Open URL in default browser |
 | `~/...`, `C:/...` | Browse filesystem, open in file manager |
-| `/exit`, `/config`, `/rescan` | Run built-in slash command |
 
-## Building from source
+</details>
+
+<details>
+<summary>Building from source</summary>
 
 ```bash
 # Prerequisites: Node.js, Rust
@@ -452,17 +398,19 @@ npm run tauri dev     # development
 npm run tauri build   # production build
 ```
 
+</details>
+
 ## Credits
 
 shun's migemo feature is powered by the following libraries and data by [oguna](https://github.com/oguna):
 
 | Component | Role | License |
 |---|---|---|
-| [rustmigemo](https://github.com/oguna/rustmigemo) | Rust migemo engine (Rust backend) | MIT |
-| [jsmigemo](https://github.com/oguna/jsmigemo) | JavaScript migemo engine (JS frontend) | MIT |
+| [rustmigemo](https://github.com/oguna/rustmigemo) | Rust migemo engine | MIT |
+| [jsmigemo](https://github.com/oguna/jsmigemo) | JavaScript migemo engine | MIT |
 | [yet-another-migemo-dict](https://github.com/oguna/yet-another-migemo-dict) | Bundled compact dictionary (Mozc + UniDic based) | BSD-3-Clause |
 
-Full license texts for bundled third-party components are in the [NOTICE](NOTICE) file.
+Full license texts are in the [NOTICE](NOTICE) file.
 
 ## License
 
