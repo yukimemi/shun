@@ -76,9 +76,8 @@ Works out of the box with zero config. Config file is created automatically on f
 | macOS | `~/Library/Application Support/shun/config.toml` |
 | Linux | `~/.config/shun/config.toml` |
 
-A minimal config to get started:
+A minimal config to get started (non-existent paths are silently ignored):
 
-**Windows**
 ```toml
 [keybindings]
 launch = "Alt+Space"   # global hotkey to show/hide
@@ -88,21 +87,12 @@ name       = "Neovide"
 path       = "neovide"
 completion = "path"
 
+# Windows
 [[scan_dirs]]
 path       = "~/bin"
 extensions = ["exe", "bat", "ps1", "cmd"]
-```
 
-**macOS / Linux**
-```toml
-[keybindings]
-launch = "Alt+Space"
-
-[[apps]]
-name       = "Neovide"
-path       = "neovide"
-completion = "path"
-
+# macOS / Linux
 [[scan_dirs]]
 path       = "~/.local/bin"
 extensions = ["sh", "py"]
