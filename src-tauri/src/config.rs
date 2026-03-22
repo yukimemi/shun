@@ -766,19 +766,24 @@ max_completions = 6
 # Maximum number of history entries to keep (default: 1000)
 # history_max_items = 1000
 
+# Status badge icon style: "unicode" (default) | "svg"
+# icon_style = "unicode"
+
 [keybindings]
-launch      = "Alt+Space"   # Global hotkey to show/hide
-next        = "Ctrl+n"
-prev        = "Ctrl+p"
-confirm     = "Enter"
-arg_mode    = "Tab"
-accept_word = "Ctrl+f"      # Accept next word of ghost text
-accept_line = "Ctrl+e"      # Accept full ghost text
-delete_word = "Ctrl+w"      # Delete word before cursor
-delete_line = "Ctrl+u"      # Delete to beginning of line
-run_query   = "Shift+Enter" # Run typed query directly (skip history results)
-close       = "Escape"
-delete_item = "Ctrl+d"      # Delete selected history item
+launch            = "Alt+Space"   # Global hotkey to show/hide
+next              = "Ctrl+n"
+prev              = "Ctrl+p"
+confirm           = "Enter"
+arg_mode          = "Tab"
+accept_word       = "Ctrl+f"      # Accept next word of ghost text
+accept_line       = "Ctrl+e"      # Accept full ghost text
+delete_word       = "Ctrl+w"      # Delete word before cursor
+delete_line       = "Ctrl+u"      # Delete to beginning of line
+run_query         = "Shift+Enter" # Run typed query directly (skip history results)
+close             = "Escape"
+delete_item       = "Ctrl+d"      # Delete selected history item
+cycle_search_mode = "Ctrl+Shift+m" # Cycle search mode (fuzzy → exact → migemo)
+cycle_sort_order  = "Ctrl+Shift+o" # Cycle sort order (count_first ↔ recent_first)
 
 # Theme — preset + optional per-color overrides
 # preset: "catppuccin-mocha" (default) | "catppuccin-latte" | "nord" | "dracula" | "tokyo-night"

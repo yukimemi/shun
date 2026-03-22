@@ -22,6 +22,7 @@
 
 - **Instant popup** — global hotkey brings up the launcher anywhere, on the monitor where your cursor is
 - **Fuzzy / exact / migemo search** — fuzzy via [nucleo-matcher](https://github.com/helix-editor/nucleo); migemo via [rustmigemo](https://github.com/oguna/rustmigemo) / [jsmigemo](https://github.com/oguna/jsmigemo) (type `hajime` to match `初めて`)
+- **Status badges** — subtle pill in the input corner shows current search mode (`≋` / `―` / `あ`) and sort order (`#` / `⌚`); click or use keybindings to cycle
 - **Args mode** — press `Tab` to pass extra arguments; path / list / command completion with ghost text
 - **Launch history** — frecency sorting; previous args remembered and suggested as ghost text
 - **Slash commands** — `/reload`, `/config`, `/update`, `/theme` and more
@@ -106,7 +107,7 @@ After editing config, run `/reload` to apply all changes without restarting.
 |---|---|
 | `/reload` | Reload config — re-registers global shortcut, rescans apps, re-applies all settings |
 | `/config` | Open config file in default editor |
-| `/theme <name>` | Switch theme instantly (`Tab` to pick from list) |
+| `/theme <name>` | Switch theme for this session (`Tab` to pick; set in `config.toml` to persist) |
 | `/update` | Install latest release (shows version if update available) |
 | `/history` | Open history file in default editor |
 | `/version` | Show current version |
@@ -148,6 +149,9 @@ max_completions = 6
 # Maximum number of history entries to keep (default: 1000)
 # history_max_items = 1000
 
+# Status badge icon style: "unicode" (default) | "svg"
+# icon_style = "unicode"
+
 [keybindings]
 launch      = "Alt+Space"   # Global hotkey to show/hide
 next        = "Ctrl+n"
@@ -159,8 +163,10 @@ accept_line = "Ctrl+e"      # Accept full ghost text
 delete_word = "Ctrl+w"      # Delete word before cursor
 delete_line = "Ctrl+u"      # Delete to beginning of line
 run_query   = "Shift+Enter" # Run typed query directly (skip history results)
-close       = "Escape"
-delete_item = "Ctrl+d"      # Delete selected history item
+close             = "Escape"
+delete_item       = "Ctrl+d"        # Delete selected history item
+cycle_search_mode = "Ctrl+Shift+m"  # Cycle search mode (fuzzy → exact → migemo)
+cycle_sort_order  = "Ctrl+Shift+o"  # Cycle sort order (count_first ↔ recent_first)
 
 # Logging
 [log]
@@ -313,7 +319,7 @@ completion = "path"
 <details>
 <summary>Theming</summary>
 
-Switch theme instantly with `/theme <name>` (changes are saved to `config.local.toml`), or set it in `config.toml`:
+Switch theme for the current session with `/theme <name>` (`Tab` to pick). To persist across restarts, set it in `config.toml`:
 
 ```toml
 [theme]
@@ -368,6 +374,8 @@ All keybindings are configurable via `[keybindings]` in `config.toml`. Changes t
 | `Ctrl+f` | Accept next word of ghost text |
 | `Ctrl+e` | Accept full ghost text |
 | `Ctrl+d` | Delete selected History item |
+| `Ctrl+Shift+m` | Cycle search mode (fuzzy → exact → migemo) |
+| `Ctrl+Shift+o` | Cycle sort order (count_first ↔ recent_first) |
 | `Escape` | Hide launcher |
 
 **Args mode** (default keys):
