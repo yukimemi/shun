@@ -20,7 +20,7 @@
 
 ## Features
 
-- **Instant popup** — global hotkey brings up the launcher anywhere, on the monitor where your cursor is
+- **Instant popup** — global hotkey brings up the launcher anywhere; appears on cursor's monitor by default, or fixed to `"primary"` / index via `monitor` config
 - **Fuzzy / exact / migemo search** — fuzzy via [nucleo-matcher](https://github.com/helix-editor/nucleo); migemo via [rustmigemo](https://github.com/oguna/rustmigemo) / [jsmigemo](https://github.com/oguna/jsmigemo) (type `hajime` to match `初めて`)
 - **Status badges** — subtle pill in the input corner shows current search mode (`≋` / `―` / `あ`) and sort order (`#` / `⌚`); click or use keybindings to cycle
 - **Args mode** — press `Tab` to pass extra arguments; path / list / command completion with ghost text
@@ -249,7 +249,7 @@ Merge rules:
 | Field | Behavior |
 |---|---|
 | `apps`, `scan_dirs`, `overrides` | Entries are **appended** |
-| `search_mode`, `sort_order`, `hide_on_blur`, `font_size`, `opacity`, etc. | Local value **overrides** (only when explicitly set) |
+| `search_mode`, `sort_order`, `hide_on_blur`, `font_size`, `opacity`, `monitor`, etc. | Local value **overrides** (only when explicitly set) |
 | `[keybindings]`, `[theme]`, `[log]` | **Per-field override** — only specified keys are overridden |
 
 </details>
