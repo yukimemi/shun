@@ -280,9 +280,39 @@ fn get_args_history(path: String) -> Vec<String> {
     entries.into_iter().map(|(args, _, _)| args).collect()
 }
 
+fn register_launch_shortcut(app: &tauri::AppHandle) -> Result<(), String> {
+    let launch_key = config::load_config().keybindings.launch;
+    let shortcut: Shortcut = launch_key.parse::<Shortcut>().map_err(|e| e.to_string())?;
+    app.global_shortcut()
+        .on_shortcut(shortcut, |app, _shortcut, event| {
+            if event.state == ShortcutState::Pressed {
+                let cache = Arc::clone(app.state::<CacheState>().inner());
+                if let Some(window) = app.get_webview_window("main") {
+                    if window.is_visible().unwrap_or(false) {
+                        debug!("shortcut: window visible → hide");
+                        window.hide().ok();
+                        refresh_cache_bg(cache);
+                    } else {
+                        debug!("shortcut: window hidden → show");
+                        center_on_cursor_monitor(&window);
+                        window.show().ok();
+                        window.set_focus().ok();
+                        window.emit("show-launcher", ()).ok();
+                    }
+                }
+            }
+        })
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
-fn rescan(state: tauri::State<CacheState>) {
+fn reload(app: tauri::AppHandle, state: tauri::State<CacheState>) -> Result<(), String> {
+    app.global_shortcut()
+        .unregister_all()
+        .map_err(|e| e.to_string())?;
+    register_launch_shortcut(&app)?;
     refresh_cache_bg(Arc::clone(state.inner()));
+    Ok(())
 }
 
 #[tauri::command]
@@ -614,7 +644,6 @@ fn center_on_cursor_monitor(window: &tauri::WebviewWindow) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let config = config::load_config();
-    let launch_shortcut = config.keybindings.launch.clone();
 
     // 起動時にキャッシュを初期構築（バックグラウンド）
     let cache: CacheState = Arc::new(Mutex::new(None));
@@ -643,14 +672,16 @@ pub fn run() {
 
             let cache = Arc::clone(app.state::<CacheState>().inner());
 
-            // hide_on_blur: フォーカスが外れたら自動非表示
-            if config.hide_on_blur {
+            // hide_on_blur: フォーカスが外れたら自動非表示（設定は毎回 load_config で確認）
+            {
                 let window_blur = window.clone();
                 let cache_blur = Arc::clone(&cache);
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::Focused(false) = event {
-                        window_blur.hide().ok();
-                        refresh_cache_bg(Arc::clone(&cache_blur));
+                        if config::load_config().hide_on_blur {
+                            window_blur.hide().ok();
+                            refresh_cache_bg(Arc::clone(&cache_blur));
+                        }
                     }
                 });
             }
@@ -711,24 +742,7 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            let shortcut: Shortcut = launch_shortcut.parse().expect("invalid shortcut");
-            app.global_shortcut()
-                .on_shortcut(shortcut, move |_app, _shortcut, event| {
-                    if event.state == ShortcutState::Pressed {
-                        if window.is_visible().unwrap_or(false) {
-                            debug!("shortcut: window visible → hide");
-                            window.hide().ok();
-                            // 非表示になったタイミングでキャッシュを更新（次回表示時に即座に使える）
-                            refresh_cache_bg(Arc::clone(&cache));
-                        } else {
-                            debug!("shortcut: window hidden → show");
-                            center_on_cursor_monitor(&window);
-                            window.show().ok();
-                            window.set_focus().ok();
-                            window.emit("show-launcher", ()).ok();
-                        }
-                    }
-                })?;
+            register_launch_shortcut(app.handle()).map_err(Box::<dyn std::error::Error>::from)?;
 
             Ok(())
         })
@@ -743,7 +757,7 @@ pub fn run() {
             open_history,
             delete_history_item,
             set_theme_preset,
-            rescan,
+            reload,
             get_last_args,
             get_args_history,
             install_update

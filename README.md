@@ -427,7 +427,7 @@ All keybindings are configurable via `[keybindings]` in `config.toml`.
 | `/exit` | Quit shun |
 | `/config` | Open config file in default editor |
 | `/history` | Open history file in default editor |
-| `/rescan` | Rescan apps and directories |
+| `/reload` | Reload config — re-registers global shortcut, rescans apps, re-applies all settings |
 | `/update` | Install latest release (shows version if update available) |
 | `/version` | Show current version |
 | `/theme <name>` | Switch theme instantly and save to `config.local.toml` |

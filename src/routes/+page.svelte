@@ -55,7 +55,7 @@
     { name: "/exit",    description: "Quit app" },
     { name: "/config",  description: "Open config file" },
     { name: "/history", description: "Open history file" },
-    { name: "/rescan",  description: "Rescan apps" },
+    { name: "/reload",  description: "Reload config (shortcuts, apps, settings)" },
     { name: "/version", description: appVersion ? `v${appVersion}` : "Show version" },
     { name: "/update",  description: updateVersion ? `Update to v${updateVersion}` : "Check for updates" },
     { name: "/theme",   description: `current: ${currentPreset} (Tab to pick)`, completions: THEME_PRESETS },
@@ -272,7 +272,7 @@
     }
   }
 
-  onMount(async () => {
+  async function applyConfig() {
     const cfg = await invoke("get_config");
     if (cfg?.keybindings) keybindings = { ...keybindings, ...cfg.keybindings };
     if (cfg?.window_width)    WINDOW_WIDTH    = cfg.window_width;
@@ -281,6 +281,10 @@
     if (cfg?.font_size)       document.documentElement.style.setProperty('--font-size', cfg.font_size + 'px');
     if (cfg?.opacity != null) document.documentElement.style.setProperty('--opacity', cfg.opacity);
     applyTheme(cfg?.theme);
+  }
+
+  onMount(async () => {
+    await applyConfig();
     appVersion = await getVersion();
 
     await listen("update-available", (event) => {
@@ -329,6 +333,8 @@
       completionIndex = 0;
       lastArgsGhost = "";
       historyArgs = [];
+      // 設定を再読み込み（keybindings, font_size, theme 等を config.toml 変更後に即反映）
+      await applyConfig();
       // 表示時に必ずサイズを正しく戻す（WebView2 の描画キャッシュ対策）
       resizeForSearch(filtered.length || MAX_ITEMS);
       setTimeout(() => inputEl?.focus(), 30);
@@ -534,7 +540,7 @@
       const item = filtered[selectedIndex];
       if (item?.source === "History") {
         invoke("delete_history_item", { key: item.history_key ?? item.path }).then(() => {
-          invoke("rescan");
+          invoke("reload");
         });
         filtered = filtered.filter((_, i) => i !== selectedIndex);
         selectedIndex = Math.min(selectedIndex, filtered.length - 1);
@@ -733,8 +739,8 @@
       await invoke("open_config");
     } else if (cmd.name === "/history") {
       await invoke("open_history");
-    } else if (cmd.name === "/rescan") {
-      await invoke("rescan");
+    } else if (cmd.name === "/reload") {
+      await invoke("reload");
     }
   }
 
