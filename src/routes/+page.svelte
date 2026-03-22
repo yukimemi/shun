@@ -829,7 +829,7 @@
                 </svg>
               {/if}
             {:else}
-              {uiSearchMode === "fuzzy" ? "~" : uiSearchMode === "exact" ? "≡" : "あ"}
+              {uiSearchMode === "fuzzy" ? "≋" : uiSearchMode === "exact" ? "―" : "あ"}
             {/if}
           </button>
           <div class="badge-sep"></div>
