@@ -595,36 +595,6 @@ fn delete_history_item(key: String) -> Result<(), String> {
     history::delete(&key).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-fn set_theme_preset(preset: String) -> Result<(), String> {
-    info!("set_theme_preset: preset={preset}");
-    let local_path = config::local_config_path();
-
-    // 既存の config.local.toml を読み込み（なければ空）— toml_edit でコメント・書式を保持
-    let content = if local_path.exists() {
-        std::fs::read_to_string(&local_path).unwrap_or_default()
-    } else {
-        String::new()
-    };
-
-    let mut doc: toml_edit::DocumentMut = content.parse().unwrap_or_default();
-
-    // [theme] テーブルがなければ作成し、preset キーだけ更新
-    if !doc.contains_key("theme") {
-        doc["theme"] = toml_edit::Item::Table(toml_edit::Table::new());
-    }
-    doc["theme"]["preset"] = toml_edit::value(&preset);
-
-    if let Some(parent) = local_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    std::fs::write(&local_path, doc.to_string()).map_err(|e| e.to_string())?;
-    info!("set_theme_preset: saved to {:?}", local_path);
-
-    // テーマ変更はアプリ一覧キャッシュに影響しないため refresh_cache_bg は不要
-    Ok(())
-}
-
 fn center_on_cursor_monitor(window: &tauri::WebviewWindow) {
     let cursor = match window.cursor_position() {
         Ok(p) => p,
@@ -799,7 +769,6 @@ pub fn run() {
             open_config,
             open_history,
             delete_history_item,
-            set_theme_preset,
             reload,
             get_last_args,
             get_args_history,
