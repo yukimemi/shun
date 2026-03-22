@@ -740,8 +740,20 @@
     }
     const filteredHistory = historyArgs.filter((h) => completionMatches(input, h));
 
-    if (!input) {
-      // 未入力: history のみ表示
+    // list 補完: 未入力でも completion_list を即時表示
+    if (!input && argItem?.completion === "list") {
+      const list = argItem?.completion_list ?? [];
+      const deduped = list.filter((c) => !filteredHistory.includes(c));
+      completionPrefix = "";
+      const merged = [...filteredHistory, ...deduped];
+      allCompletions = merged;
+      completionIndex = 0;
+      resizeForArgs(merged.length);
+      return;
+    }
+
+    if (!input && (!argItem?.completion || argItem?.completion === "none")) {
+      // 補完なし: history のみ表示
       completionPrefix = "";
       allCompletions = filteredHistory;
       completionIndex = 0;
@@ -749,7 +761,7 @@
       return;
     }
 
-    // 入力あり: path/command 補完と history をマージ
+    // 入力あり (または path/command 補完で未入力): path/command 補完と history をマージ
     invoke("complete_path", {
       input,
       completionType: argItem?.completion ?? "path",
