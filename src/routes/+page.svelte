@@ -441,6 +441,12 @@
           allCompletions = allCompletions.filter((_, i) => i !== completionIndex);
           completionIndex = Math.min(completionIndex, allCompletions.length - 1);
         }
+      } else if (matchKey(e, keybindings.cycle_search_mode)) {
+        e.preventDefault();
+        cycleSearchMode();
+      } else if (matchKey(e, keybindings.cycle_sort_order)) {
+        e.preventDefault();
+        cycleSortOrder();
       }
       return;
     }
@@ -621,6 +627,7 @@
 
   // search モード: クエリで絞り込み
   $effect(() => {
+    if (mode !== "search") return;
     // スラッシュで始まり、かつ一致するスラッシュコマンドがある場合のみスラッシュコマンドモード
     // （/Applications/... などの Unix パスはスルー）
     if (query.startsWith("/") && filteredSlash.length > 0) {
@@ -932,6 +939,48 @@
             spellcheck="false"
           />
         </div>
+        <div class="status-badges" aria-hidden="true">
+          <button class="badge" title="search mode: {uiSearchMode}" onclick={cycleSearchMode}>
+            {#if iconStyle === "svg"}
+              {#if uiSearchMode === "fuzzy"}
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                  <path d="M2 4.5 C4 3 6 6 8 4.5 C10 3 12 6 14 4.5"/>
+                  <path d="M2 8   C4 6.5 6 9.5 8 8   C10 6.5 12 9.5 14 8"/>
+                  <path d="M2 11.5 C4 10 6 13 8 11.5 C10 10 12 13 14 11.5"/>
+                </svg>
+              {:else if uiSearchMode === "exact"}
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                  <line x1="2" y1="8" x2="14" y2="8"/>
+                </svg>
+              {:else}
+                <svg width="14" height="14" viewBox="0 0 16 16">
+                  <text x="8" y="13" text-anchor="middle" font-size="13" fill="currentColor" font-family="sans-serif">あ</text>
+                </svg>
+              {/if}
+            {:else}
+              {uiSearchMode === "fuzzy" ? "≋" : uiSearchMode === "exact" ? "―" : "あ"}
+            {/if}
+          </button>
+          <div class="badge-sep"></div>
+          <button class="badge" title="sort order: {uiSortOrder}" onclick={cycleSortOrder}>
+            {#if iconStyle === "svg"}
+              {#if uiSortOrder === "count_first"}
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <rect x="1" y="10" width="4" height="5" rx="0.5"/>
+                  <rect x="6" y="6" width="4" height="9" rx="0.5"/>
+                  <rect x="11" y="2" width="4" height="13" rx="0.5"/>
+                </svg>
+              {:else}
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="8" cy="8" r="6"/>
+                  <polyline points="8,4 8,8 11,10"/>
+                </svg>
+              {/if}
+            {:else}
+              {uiSortOrder === "count_first" ? "#" : "⌚"}
+            {/if}
+          </button>
+        </div>
       </div>
       {#if allCompletions.length > 0}
         {@const winStart = Math.max(0, Math.min(completionIndex - Math.floor(MAX_COMPLETIONS / 2), allCompletions.length - MAX_COMPLETIONS))}
@@ -1015,6 +1064,12 @@
 
   .status-badges:hover {
     opacity: 1;
+  }
+
+  .args-bar .status-badges {
+    position: static;
+    transform: none;
+    flex-shrink: 0;
   }
 
   .badge {
