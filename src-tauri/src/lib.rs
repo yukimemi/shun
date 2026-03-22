@@ -590,8 +590,41 @@ async fn install_update_portable(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn open_config(_app: tauri::AppHandle) -> Result<(), String> {
-    let path = config::config_path();
+fn list_config_files() -> Vec<String> {
+    let mut names = vec!["config.toml".to_string()];
+    for path in config::extra_config_files() {
+        if let Some(name) = path.file_name() {
+            names.push(name.to_string_lossy().to_string());
+        }
+    }
+    names
+}
+
+#[tauri::command]
+fn delete_config_file(name: String) -> Result<(), String> {
+    if name == "config.toml" {
+        return Err("config.toml cannot be deleted".to_string());
+    }
+    let p = config::config_dir().join(&name);
+    if p.exists() {
+        std::fs::remove_file(&p).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn open_config(name: Option<String>) -> Result<(), String> {
+    let path = match name.as_deref() {
+        None | Some("config.toml") => config::config_path(),
+        Some(n) => {
+            let p = config::config_dir().join(n);
+            // 存在しなければ空で作成
+            if !p.exists() {
+                std::fs::write(&p, "").map_err(|e| e.to_string())?;
+            }
+            p
+        }
+    };
     tauri_plugin_opener::open_path(path, None::<&str>).map_err(|e| e.to_string())
 }
 
@@ -875,7 +908,9 @@ pub fn run() {
             launch_item,
             complete_path,
             exit_app,
+            list_config_files,
             open_config,
+            delete_config_file,
             open_history,
             delete_history_item,
             save_to_local,

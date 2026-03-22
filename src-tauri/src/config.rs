@@ -5,7 +5,7 @@ use std::path::PathBuf;
 /// [theme] セクション。preset 名 + 個別カラー上書き。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ThemeConfig {
-    /// プリセット名: "catppuccin-mocha" | "catppuccin-latte" | "nord" | "dracula" | "tokyo-night"
+    /// プリセット名: "catppuccin-mocha" | "catppuccin-latte" | "nord" | "dracula" | "tokyo-night" | "one-half-dark" | "solarized-dark" | "solarized-light"
     #[serde(default)]
     pub preset: String,
     // 個別カラー上書き (省略可)
@@ -355,8 +355,36 @@ pub fn config_path() -> PathBuf {
 }
 
 pub fn local_config_path() -> PathBuf {
-    let base = dirs_next::config_dir().unwrap_or_else(|| PathBuf::from("."));
-    base.join("shun").join("config.local.toml")
+    config_dir().join("config.local.toml")
+}
+
+pub fn config_dir() -> PathBuf {
+    config_path()
+        .parent()
+        .unwrap_or(&PathBuf::from("."))
+        .to_path_buf()
+}
+
+/// config.*.toml ファイルをアルファベット順に返す（config.toml 自身は除く）
+pub fn extra_config_files() -> Vec<PathBuf> {
+    let dir = config_dir();
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let path = e.path();
+            let name = path.file_name()?.to_string_lossy().to_string();
+            if name.starts_with("config.") && name.ends_with(".toml") && name != "config.toml" {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .collect();
+    files.sort();
+    files
 }
 
 pub fn load_config() -> Config {
@@ -378,8 +406,18 @@ pub fn load_config() -> Config {
 
     let mut config: Config = toml::from_str(&content).unwrap_or_default();
 
-    // config.local.toml が存在すればマージする
+    // config.*.toml をアルファベット順にマージ（config.local.toml は除く）
     let local_path = local_config_path();
+    for extra_path in extra_config_files() {
+        if extra_path == local_path {
+            continue;
+        }
+        if let Ok(extra_content) = std::fs::read_to_string(&extra_path) {
+            merge_local_config(&mut config, &extra_content);
+        }
+    }
+
+    // config.local.toml は最後にマージ（/save の保存先として常に優先）
     if local_path.exists() {
         if let Ok(local_content) = std::fs::read_to_string(&local_path) {
             merge_local_config(&mut config, &local_content);
@@ -812,7 +850,7 @@ cycle_search_mode = "Ctrl+Shift+m" # Cycle search mode (fuzzy → exact → mige
 cycle_sort_order  = "Ctrl+Shift+o" # Cycle sort order (count_first ↔ recent_first)
 
 # Theme — preset + optional per-color overrides
-# preset: "catppuccin-mocha" (default) | "catppuccin-latte" | "nord" | "dracula" | "tokyo-night"
+# preset: "catppuccin-mocha" (default) | "catppuccin-latte" | "nord" | "dracula" | "tokyo-night" | "one-half-dark" | "solarized-dark" | "solarized-light"
 # [theme]
 # preset  = "nord"
 # bg      = "#1a1a2e"

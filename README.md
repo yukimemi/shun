@@ -106,7 +106,7 @@ After editing config, run `/reload` to apply all changes without restarting.
 | Command | Action |
 |---|---|
 | `/reload` | Reload config — re-registers global shortcut, rescans apps, re-applies all settings |
-| `/config` | Open config file in default editor |
+| `/config` | Open a config file (`Tab` to pick; `delete_item` key to delete; creates new `config.*.toml` if typed manually) |
 | `/theme <name>` | Switch theme for this session (`Tab` to pick; set in `config.toml` to persist) |
 | `/update` | Install latest release (shows version if update available) |
 | `/history` | Open history file in default editor |
@@ -170,7 +170,7 @@ delete_word = "Ctrl+w"      # Delete word before cursor
 delete_line = "Ctrl+u"      # Delete to beginning of line
 run_query   = "Shift+Enter" # Run typed query directly (skip history results)
 close             = "Escape"
-delete_item       = "Ctrl+d"        # Delete selected history item
+delete_item       = "Ctrl+d"        # Delete selected history/config item
 cycle_search_mode = "Ctrl+Shift+m"  # Cycle search mode (fuzzy → exact → migemo)
 cycle_sort_order  = "Ctrl+Shift+o"  # Cycle sort order (count_first ↔ recent_first)
 
@@ -182,7 +182,7 @@ rotation = "keep_one"     # "keep_one" (default) | "keep_all" | number
 
 # Theme
 [theme]
-preset = "catppuccin-mocha"   # "catppuccin-mocha" | "catppuccin-latte" | "nord" | "dracula" | "tokyo-night"
+preset = "catppuccin-mocha"   # "catppuccin-mocha" | "catppuccin-latte" | "nord" | "dracula" | "tokyo-night" | "one-half-dark" | "solarized-dark" | "solarized-light"
 # bg      = "#1e1e2e"
 # surface = "#313244"
 # overlay = "#45475a"
@@ -235,15 +235,17 @@ recursive  = false
 extensions = ["sh", "py", "ps1", "cmd"]
 ```
 
-### Local override file (`config.local.toml`)
+### Override files (`config.*.toml`)
 
-Place a `config.local.toml` in the same directory as `config.toml` for machine-specific settings — useful with chezmoi or other dotfile managers.
+Any `config.*.toml` files in the same directory as `config.toml` are loaded and merged in alphabetical order after the base config. Useful for per-machine or per-context overrides with chezmoi or other dotfile managers.
 
-| Platform | Path |
+Examples: `config.local.toml`, `config.work.toml`, `config.home.toml`
+
+| Platform | Directory |
 |---|---|
-| Windows | `%APPDATA%\shun\config.local.toml` |
-| macOS | `~/Library/Application Support/shun/config.local.toml` |
-| Linux | `~/.config/shun/config.local.toml` |
+| Windows | `%APPDATA%\shun\` |
+| macOS | `~/Library/Application Support/shun/` |
+| Linux | `~/.config/shun/` |
 
 Merge rules:
 
@@ -384,7 +386,7 @@ All keybindings are configurable via `[keybindings]` in `config.toml`. Changes t
 | `Ctrl+e` | Accept full ghost text |
 | `Ctrl+w` | Delete word before cursor |
 | `Ctrl+u` | Delete to beginning of line |
-| `Ctrl+d` | Delete selected History item |
+| `Ctrl+d` | Delete selected history item |
 | `Ctrl+Shift+m` | Cycle search mode (fuzzy → exact → migemo) |
 | `Ctrl+Shift+o` | Cycle sort order (count_first ↔ recent_first) |
 | `Escape` | Hide launcher |

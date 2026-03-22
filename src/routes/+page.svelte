@@ -56,9 +56,10 @@
   let iconStyle = $state("unicode");    // "unicode" | "svg"
 
   const THEME_PRESETS = ["catppuccin-mocha", "catppuccin-latte", "nord", "dracula", "tokyo-night", "one-half-dark", "solarized-dark", "solarized-light"];
+  let configFiles = $state(["config.toml"]);
   let SLASH_COMMANDS = $derived([
     { name: "/exit",    description: "Quit app" },
-    { name: "/config",  description: "Open config file" },
+    { name: "/config",  description: "Open config.toml (Tab to pick other files)", completions: configFiles },
     { name: "/history", description: "Open history file" },
     { name: "/reload",  description: "Reload config (shortcuts, apps, settings)" },
     { name: "/version", description: appVersion ? `v${appVersion}` : "Show version" },
@@ -320,6 +321,7 @@
 
   async function applyConfig({ resetModes = false } = {}) {
     const cfg = await invoke("get_config");
+    configFiles = await invoke("list_config_files");
     if (cfg?.keybindings) keybindings = { ...keybindings, ...cfg.keybindings };
     if (cfg?.window_width)    WINDOW_WIDTH    = cfg.window_width;
     if (cfg?.max_items)       MAX_ITEMS       = cfg.max_items;
@@ -421,6 +423,21 @@
         }
       } else if (matchKey(e, keybindings.confirm)) {
         e.preventDefault();
+        // /config の args mode: 選択したファイルを開いて閉じる
+        if (argItem?.source === "SlashCmd" && argItem?.name === "/config") {
+          const raw = (allCompletions.length > 0 ? allCompletions[completionIndex] : extraArgs.trim());
+          if (raw) {
+            // hoge → config.hoge.toml / hoge.toml → config.hoge.toml / config.hoge.toml → そのまま
+            let name = raw;
+            if (!name.startsWith("config.")) name = "config." + name;
+            if (!name.endsWith(".toml"))     name = name + ".toml";
+            resetToSearch({ skipFocus: true });
+            await tick();
+            win.hide();
+            await invoke("open_config", { name });
+          }
+          return;
+        }
         // /theme の args mode: 選択したプリセットを適用して閉じる
         if (argItem?.source === "SlashCmd" && argItem?.name === "/theme") {
           const preset = allCompletions.length > 0
@@ -495,7 +512,20 @@
       } else if (matchKey(e, keybindings.run_query)) {
         // 補完を無視して入力をそのまま起動
         e.preventDefault();
-        if (argItem) launchItem(argItem, extraArgs);
+        if (argItem?.source === "SlashCmd" && argItem?.name === "/config") {
+          const raw = extraArgs.trim();
+          if (raw) {
+            let name = raw;
+            if (!name.startsWith("config.")) name = "config." + name;
+            if (!name.endsWith(".toml"))     name = name + ".toml";
+            resetToSearch({ skipFocus: true });
+            await tick();
+            win.hide();
+            await invoke("open_config", { name });
+          }
+        } else if (argItem) {
+          launchItem(argItem, extraArgs);
+        }
       } else if (matchKey(e, keybindings.next)) {
         e.preventDefault();
         if (allCompletions.length > 0) {
@@ -509,7 +539,15 @@
       } else if (matchKey(e, keybindings.delete_item)) {
         e.preventDefault();
         const candidate = allCompletions[completionIndex];
-        if (candidate !== undefined && historyArgs.includes(candidate)) {
+        // /config: config.toml 以外のファイルを削除
+        if (argItem?.source === "SlashCmd" && argItem?.name === "/config") {
+          if (candidate && candidate !== "config.toml") {
+            await invoke("delete_config_file", { name: candidate });
+            configFiles = configFiles.filter((f) => f !== candidate);
+            allCompletions = allCompletions.filter((_, i) => i !== completionIndex);
+            completionIndex = Math.min(completionIndex, allCompletions.length - 1);
+          }
+        } else if (candidate !== undefined && historyArgs.includes(candidate)) {
           const baseKey = argItem?.source === "Config" ? argItem.name : argItem?.path ?? "";
           invoke("delete_history_item", { key: `${baseKey}\t${candidate}` });
           historyArgs = historyArgs.filter((a) => a !== candidate);
@@ -900,7 +938,7 @@
     if (cmd.name === "/exit") {
       await invoke("exit_app");
     } else if (cmd.name === "/config") {
-      await invoke("open_config");
+      await invoke("open_config", { name: "config.toml" });
     } else if (cmd.name === "/history") {
       await invoke("open_history");
     } else if (cmd.name === "/reload") {
