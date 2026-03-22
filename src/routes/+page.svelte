@@ -70,6 +70,8 @@
 
   // ヘルプパネル表示フラグ
   let helpVisible = $state(false);
+  // スラッシュコマンド結果表示中フラグ（search effect をスキップするため）
+  let slashResult = $state(false);
 
   // モード: "search" | "args"
   let mode = $state("search");
@@ -658,6 +660,7 @@
     const _mi = MAX_ITEMS;       // 依存として登録
     const _mc = MAX_COMPLETIONS; // 依存として登録
     if (helpVisible) return;     // ヘルプパネル表示中はサイズを変えない
+    if (slashResult) return;     // スラッシュコマンド結果表示中はサイズを変えない
     if (mode === "search") {
       const count = filteredSlash.length > 0 ? filteredSlash.length : filtered.length;
       resizeForSearch(count);
@@ -669,6 +672,8 @@
   // search モード: クエリで絞り込み
   $effect(() => {
     if (mode !== "search" || helpVisible) return;
+    // スラッシュコマンド結果表示中は検索しない
+    if (slashResult) return;
     // スラッシュで始まり、かつ一致するスラッシュコマンドがある場合のみスラッシュコマンドモード
     // （/Applications/... などの Unix パスはスルー）
     if (query.startsWith("/") && filteredSlash.length > 0) {
@@ -832,25 +837,27 @@
       return;
     }
     if (cmd.name === "/version") {
+      slashResult = true;
       query = `/version — v${appVersion}`;
-      setTimeout(() => { query = ""; }, 2000);
+      setTimeout(() => { query = ""; slashResult = false; }, 2000);
       return;
     }
     if (cmd.name === "/theme") {
+      slashResult = true;
       query = `/theme — current: ${currentPreset}`;
-      setTimeout(() => { query = ""; }, 2000);
+      setTimeout(() => { query = ""; slashResult = false; }, 2000);
       return;
     }
     if (cmd.name === "/update") {
+      slashResult = true;
       query = updateVersion ? `/update — starting download...` : `/update — checking...`;
       try {
         await invoke("install_update");
-        // ここに到達 = 更新なし（更新ありの場合は app.restart() で戻ってこない）
         query = `/update — already up to date`;
-        setTimeout(() => { query = ""; }, 2000);
+        setTimeout(() => { query = ""; slashResult = false; }, 2000);
       } catch (e) {
         query = `/update — error: ${e}`;
-        setTimeout(() => { query = ""; }, 3000);
+        setTimeout(() => { query = ""; slashResult = false; }, 3000);
       }
       return;
     }
@@ -1014,7 +1021,7 @@
           </div>
           <div class="help-footer">any key to close</div>
         </div>
-      {:else if filteredSlash.length > 0}
+      {:else if !slashResult && filteredSlash.length > 0}
         <div class="results">
           {#each filteredSlash as cmd, i}
             <div
@@ -1030,7 +1037,7 @@
             </div>
           {/each}
         </div>
-      {:else if filtered.length > 0}
+      {:else if !slashResult && filtered.length > 0}
         {@const winStart = Math.max(0, Math.min(selectedIndex - Math.floor(MAX_ITEMS / 2), filtered.length - MAX_ITEMS))}
         {@const visible = filtered.slice(winStart, winStart + MAX_ITEMS)}
         <div class="results">
@@ -1057,7 +1064,7 @@
             </div>
           {/each}
         </div>
-      {:else}
+      {:else if !slashResult}
         <div class="results">
           <div class="empty">No results</div>
         </div>
