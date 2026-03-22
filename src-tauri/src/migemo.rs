@@ -3,9 +3,9 @@ use rustmigemo::migemo::query::query;
 use rustmigemo::migemo::regex_generator::RegexOperator;
 use std::sync::OnceLock;
 
-// 辞書は public/ に配置し、Vite が dist/ にコピーする
+// 辞書は static/ に配置（SvelteKit の公開ディレクトリ）
 // Rust 側は include_bytes! でバイナリに埋め込む（.bin 拡張子で Tauri asset serving が正常動作）
-static DICT_BYTES: &[u8] = include_bytes!("../../public/migemo-compact-dict.bin");
+static DICT_BYTES: &[u8] = include_bytes!("../../static/migemo-compact-dict.bin");
 
 static DICT: OnceLock<CompactDictionary> = OnceLock::new();
 
