@@ -431,6 +431,16 @@
         if (allCompletions.length > 0) {
           completionIndex = (completionIndex - 1 + allCompletions.length) % allCompletions.length;
         }
+      } else if (matchKey(e, keybindings.delete_item)) {
+        e.preventDefault();
+        const candidate = allCompletions[completionIndex];
+        if (candidate !== undefined && historyArgs.includes(candidate)) {
+          const baseKey = argItem?.source === "Config" ? argItem.name : argItem?.path ?? "";
+          invoke("delete_history_item", { key: `${baseKey}\t${candidate}` });
+          historyArgs = historyArgs.filter((a) => a !== candidate);
+          allCompletions = allCompletions.filter((_, i) => i !== completionIndex);
+          completionIndex = Math.min(completionIndex, allCompletions.length - 1);
+        }
       }
       return;
     }
