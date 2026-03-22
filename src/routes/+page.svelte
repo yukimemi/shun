@@ -827,6 +827,7 @@
                 </svg>
               {/if}
             </button>
+            <div class="badge-sep"></div>
             <button class="badge" title="sort order: {uiSortOrder}" onclick={cycleSortOrder}>
               {#if uiSortOrder === "count_first"}
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
@@ -845,6 +846,7 @@
             <button class="badge" title="search mode: {uiSearchMode}" onclick={cycleSearchMode}>
               {uiSearchMode === "fuzzy" ? "≈" : uiSearchMode === "exact" ? "=" : "あ"}
             </button>
+            <div class="badge-sep"></div>
             <button class="badge" title="sort order: {uiSortOrder}" onclick={cycleSortOrder}>
               {uiSortOrder === "count_first" ? "#" : "⌚"}
             </button>
@@ -981,37 +983,50 @@
 
   .status-badges {
     position: absolute;
-    right: 12px;
+    right: 10px;
     top: 50%;
     transform: translateY(-50%);
     display: flex;
-    gap: 4px;
     align-items: center;
     pointer-events: auto;
+    background: var(--color-surface, #313244);
+    border-radius: 6px;
+    padding: 2px 2px;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+  }
+
+  .status-badges:hover {
+    opacity: 1;
   }
 
   .badge {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
-    height: 20px;
-    font-size: 11px;
+    width: 22px;
+    height: 22px;
+    font-size: 12px;
     line-height: 1;
-    color: var(--color-muted, #6c7086);
+    color: var(--color-text, #cdd6f4);
     background: transparent;
     border: none;
     border-radius: 4px;
     cursor: pointer;
-    opacity: 0.45;
     padding: 0;
-    transition: opacity 0.15s;
+    transition: background 0.1s;
     font-family: inherit;
   }
 
   .badge:hover {
-    opacity: 0.85;
-    background: var(--color-surface, #313244);
+    background: var(--color-overlay, #45475a);
+  }
+
+  .badge-sep {
+    width: 1px;
+    height: 14px;
+    background: var(--color-overlay, #45475a);
+    flex-shrink: 0;
   }
 
   .search-ghost {
