@@ -586,7 +586,7 @@
     } else if (matchKey(e, keybindings.delete_item)) {
       e.preventDefault();
       const item = filtered[selectedIndex];
-      if (item?.source === "History") {
+      if (item && ["History", "Url", "Path"].includes(item.source)) {
         invoke("delete_history_item", { key: item.history_key ?? item.path }).then(() => {
           invoke("reload");
         });
