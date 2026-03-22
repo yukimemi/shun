@@ -23,6 +23,12 @@
       "description": "Require manual review for major updates",
       "matchUpdateTypes": ["major"],
       "automerge": false
+    },
+    {
+      "description": "Ignore webview2-com and windows-core — must stay in sync with Tauri's transitive versions",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["webview2-com", "windows-core"],
+      "enabled": false
     }
   ]
 }
