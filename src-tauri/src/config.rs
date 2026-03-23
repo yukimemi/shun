@@ -351,6 +351,115 @@ impl Default for Config {
     }
 }
 
+// ---------------------------------------------------------------------------
+// toml::Value レベルの vars 展開・マージ helpers
+// ---------------------------------------------------------------------------
+
+/// `{{ vars.* }}` と `{{ env.* }}` を解決する Tera コンテキストを作る。
+/// `{{ args }}` は対象外（launch 時に別途処理される）。
+fn build_vars_ctx(vars: &HashMap<String, String>) -> tera::Context {
+    let mut ctx = tera::Context::new();
+    ctx.insert("vars", vars);
+    let env_map: HashMap<String, String> = std::env::vars().collect();
+    ctx.insert("env", &env_map);
+    ctx
+}
+
+/// toml::Value ツリーの全 String を Tera で展開する（再帰）。
+fn expand_value(val: &mut toml::Value, ctx: &tera::Context) {
+    match val {
+        toml::Value::String(s) if s.contains("{{") => {
+            if let Ok(rendered) = tera::Tera::one_off(s, ctx, false) {
+                *s = rendered;
+            }
+        }
+        toml::Value::Array(arr) => arr.iter_mut().for_each(|v| expand_value(v, ctx)),
+        toml::Value::Table(t) => t.iter_mut().for_each(|(_, v)| expand_value(v, ctx)),
+        _ => {}
+    }
+}
+
+/// マージ済み toml::Value 全体を vars で展開する。[vars] セクション自体は展開しない。
+fn expand_config_vars(root: &mut toml::Value, vars: &HashMap<String, String>) {
+    if vars.is_empty() {
+        return;
+    }
+    let ctx = build_vars_ctx(vars);
+    if let toml::Value::Table(table) = root {
+        for (key, v) in table.iter_mut() {
+            if key != "vars" {
+                expand_value(v, &ctx);
+            }
+        }
+    }
+}
+
+/// 配列を追記するキー（mergeではなくappend）
+const APPEND_KEYS: &[&str] = &["apps", "scan_dirs", "overrides"];
+/// サブテーブルをキー単位でマージするキー
+const TABLE_MERGE_KEYS: &[&str] = &["vars", "keybindings", "theme", "log"];
+
+/// extra を base にマージする（toml::Value レベル）。
+/// - APPEND_KEYS: 配列を末尾に追記
+/// - TABLE_MERGE_KEYS: サブテーブルをキー単位でマージ（extra が優先）
+/// - その他: extra で上書き
+fn merge_toml(base: &mut toml::Value, extra: toml::Value) {
+    let (toml::Value::Table(base_t), toml::Value::Table(extra_t)) = (base, extra) else {
+        return;
+    };
+    for (key, extra_val) in extra_t {
+        if APPEND_KEYS.contains(&key.as_str()) {
+            if let Some(toml::Value::Array(base_arr)) = base_t.get_mut(&key) {
+                if let toml::Value::Array(extra_arr) = extra_val {
+                    base_arr.extend(extra_arr);
+                    continue;
+                }
+            }
+        } else if TABLE_MERGE_KEYS.contains(&key.as_str()) {
+            if let Some(toml::Value::Table(base_sub)) = base_t.get_mut(&key) {
+                if let toml::Value::Table(extra_sub) = extra_val {
+                    base_sub.extend(extra_sub);
+                    continue;
+                }
+            }
+        }
+        base_t.insert(key, extra_val);
+    }
+}
+
+/// ファイルを toml::Value として読み込む。失敗時は空テーブルを返し warnings に追記。
+fn read_toml_value(
+    path: &PathBuf,
+    name: &str,
+    warnings: &mut Vec<(String, String)>,
+) -> toml::Value {
+    match std::fs::read_to_string(path) {
+        Ok(content) => match toml::from_str::<toml::Value>(&content) {
+            Ok(v) => v,
+            Err(e) => {
+                warnings.push((name.to_string(), e.to_string()));
+                toml::Value::Table(Default::default())
+            }
+        },
+        Err(e) => {
+            warnings.push((name.to_string(), format!("Failed to read: {e}")));
+            toml::Value::Table(Default::default())
+        }
+    }
+}
+
+/// toml::Value から vars セクションを抽出する。
+fn extract_vars(root: &toml::Value) -> HashMap<String, String> {
+    root.get("vars")
+        .and_then(|v| v.as_table())
+        .map(|t| {
+            t.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub fn config_path() -> PathBuf {
     let base = dirs_next::config_dir().unwrap_or_else(|| PathBuf::from("."));
     base.join("shun").join("config.toml")
@@ -397,28 +506,13 @@ pub fn load_config() -> (Config, Vec<(String, String)>) {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let default_toml = default_config_toml();
-        let _ = std::fs::write(&path, &default_toml);
+        let _ = std::fs::write(&path, default_config_toml());
         return (Config::default(), warnings);
     }
 
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(e) => {
-            warnings.push(("config.toml".to_string(), format!("Failed to read: {e}")));
-            return (Config::default(), warnings);
-        }
-    };
+    // ① 全 config ファイルを toml::Value としてロード・マージ
+    let mut merged = read_toml_value(&path, "config.toml", &mut warnings);
 
-    let mut config: Config = match toml::from_str(&content) {
-        Ok(c) => c,
-        Err(e) => {
-            warnings.push(("config.toml".to_string(), e.to_string()));
-            Config::default()
-        }
-    };
-
-    // config.*.toml をアルファベット順にマージ（config.local.toml は除く）
     let local_path = local_config_path();
     for extra_path in extra_config_files() {
         if extra_path == local_path {
@@ -428,149 +522,48 @@ pub fn load_config() -> (Config, Vec<(String, String)>) {
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
-        match std::fs::read_to_string(&extra_path) {
-            Ok(extra_content) => {
-                if let Err(e) = merge_local_config(&mut config, &extra_content) {
-                    warnings.push((fname, e));
-                }
-            }
-            Err(e) => warnings.push((fname, format!("Failed to read: {e}"))),
-        }
+        let extra = read_toml_value(&extra_path, &fname, &mut warnings);
+        merge_toml(&mut merged, extra);
     }
-
-    // config.local.toml は最後にマージ（/save の保存先として常に優先）
     if local_path.exists() {
         let fname = local_path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "config.local.toml".to_string());
-        match std::fs::read_to_string(&local_path) {
-            Ok(local_content) => {
-                if let Err(e) = merge_local_config(&mut config, &local_content) {
-                    warnings.push((fname, e));
-                }
-            }
-            Err(e) => warnings.push((fname, format!("Failed to read: {e}"))),
-        }
+        let extra = read_toml_value(&local_path, &fname, &mut warnings);
+        merge_toml(&mut merged, extra);
     }
+
+    // ② [vars] を抽出し、全 String フィールドを Tera 展開（[vars] 自体は除く）
+    //    toml::Value レベルで展開することで enum フィールドも含めて全フィールドに対応できる
+    let vars = extract_vars(&merged);
+    expand_config_vars(&mut merged, &vars);
+
+    // ③ 展開済み toml::Value を Config にパース
+    let config = toml::to_string(&merged)
+        .ok()
+        .and_then(|s| toml::from_str::<Config>(&s).ok())
+        .unwrap_or_else(|| {
+            warnings.push((
+                "config.toml".to_string(),
+                "Failed to parse config after vars expansion".to_string(),
+            ));
+            Config::default()
+        });
 
     (config, warnings)
 }
 
-/// config.local.toml の内容をベースの Config にマージする。
-///
-/// - Vec 系 (apps, scan_dirs, overrides): ローカルのエントリを追記
-/// - スカラー系: ローカルに明示的に記述されている場合のみ上書き
-/// - keybindings: フィールド単位でローカルが優先
+/// config.local.toml の内容をベースの Config にマージする（テスト用 helper）。
+/// 内部では merge_toml を使用しているため本番の load_config と同じロジックが走る。
+#[cfg(test)]
 fn merge_local_config(base: &mut Config, local_content: &str) -> Result<(), String> {
-    let local_val: toml::Value = toml::from_str(local_content).map_err(|e| e.to_string())?;
-    let local: Config = toml::from_str(local_content).map_err(|e| e.to_string())?;
-    let Some(table) = local_val.as_table() else {
-        return Ok(());
-    };
-
-    // スカラー: ローカルに明示的に書かれている場合のみ上書き
-    if table.contains_key("search_mode") {
-        base.search_mode = local.search_mode;
-    }
-    if table.contains_key("sort_order") {
-        base.sort_order = local.sort_order;
-    }
-    if table.contains_key("hide_on_blur") {
-        base.hide_on_blur = local.hide_on_blur;
-    }
-    if table.contains_key("update_check_interval") {
-        base.update_check_interval = local.update_check_interval;
-    }
-    if table.contains_key("font_size") {
-        base.font_size = local.font_size;
-    }
-    if table.contains_key("opacity") {
-        base.opacity = local.opacity;
-    }
-    if table.contains_key("history_max_items") {
-        base.history_max_items = local.history_max_items;
-    }
-    if table.contains_key("icon_style") {
-        base.icon_style = local.icon_style;
-    }
-    if table.contains_key("monitor") {
-        base.monitor = local.monitor;
-    }
-
-    // keybindings: フィールド単位でマージ
-    if let Some(kb_val) = table.get("keybindings").and_then(|v| v.as_table()) {
-        if kb_val.contains_key("launch") {
-            base.keybindings.launch = local.keybindings.launch;
-        }
-        if kb_val.contains_key("next") {
-            base.keybindings.next = local.keybindings.next;
-        }
-        if kb_val.contains_key("prev") {
-            base.keybindings.prev = local.keybindings.prev;
-        }
-        if kb_val.contains_key("confirm") {
-            base.keybindings.confirm = local.keybindings.confirm;
-        }
-        if kb_val.contains_key("arg_mode") {
-            base.keybindings.arg_mode = local.keybindings.arg_mode;
-        }
-        if kb_val.contains_key("accept_word") {
-            base.keybindings.accept_word = local.keybindings.accept_word;
-        }
-        if kb_val.contains_key("accept_line") {
-            base.keybindings.accept_line = local.keybindings.accept_line;
-        }
-        if kb_val.contains_key("delete_word") {
-            base.keybindings.delete_word = local.keybindings.delete_word;
-        }
-        if kb_val.contains_key("delete_line") {
-            base.keybindings.delete_line = local.keybindings.delete_line;
-        }
-        if kb_val.contains_key("run_query") {
-            base.keybindings.run_query = local.keybindings.run_query;
-        }
-        if kb_val.contains_key("close") {
-            base.keybindings.close = local.keybindings.close;
-        }
-        if kb_val.contains_key("cycle_search_mode") {
-            base.keybindings.cycle_search_mode = local.keybindings.cycle_search_mode;
-        }
-        if kb_val.contains_key("cycle_sort_order") {
-            base.keybindings.cycle_sort_order = local.keybindings.cycle_sort_order;
-        }
-    }
-
-    // theme: フィールド単位でマージ（ローカルで指定されたものだけ上書き）
-    if let Some(th_val) = table.get("theme").and_then(|v| v.as_table()) {
-        if th_val.contains_key("preset") {
-            base.theme.preset = local.theme.preset;
-        }
-        macro_rules! merge_theme_color {
-            ($field:ident) => {
-                if th_val.contains_key(stringify!($field)) {
-                    base.theme.$field = local.theme.$field;
-                }
-            };
-        }
-        merge_theme_color!(bg);
-        merge_theme_color!(surface);
-        merge_theme_color!(overlay);
-        merge_theme_color!(muted);
-        merge_theme_color!(text);
-        merge_theme_color!(blue);
-        merge_theme_color!(purple);
-        merge_theme_color!(green);
-        merge_theme_color!(red);
-    }
-
-    // vars: ローカルのエントリで上書き・追記
-    base.vars.extend(local.vars);
-
-    // Vec 系: ローカルのエントリを追記
-    base.apps.extend(local.apps);
-    base.scan_dirs.extend(local.scan_dirs);
-    base.overrides.extend(local.overrides);
+    let extra: toml::Value = toml::from_str(local_content).map_err(|e| e.to_string())?;
+    let base_str = toml::to_string(base).map_err(|e| e.to_string())?;
+    let mut base_val: toml::Value = toml::from_str(&base_str).map_err(|e| e.to_string())?;
+    merge_toml(&mut base_val, extra);
+    let merged_str = toml::to_string(&base_val).map_err(|e| e.to_string())?;
+    *base = toml::from_str(&merged_str).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -818,6 +811,115 @@ prev = "Ctrl+k"
         base.search_mode = SearchMode::Exact;
         assert!(merge_local_config(&mut base, "NOT VALID !!!@#$").is_err());
         assert_eq!(base.search_mode, SearchMode::Exact); // 変わらない
+    }
+
+    // --- vars 展開 ---
+
+    fn apply_vars(toml_str: &str) -> Config {
+        let mut val: toml::Value = toml::from_str(toml_str).unwrap();
+        let vars = extract_vars(&val);
+        expand_config_vars(&mut val, &vars);
+        toml::to_string(&val)
+            .ok()
+            .and_then(|s| toml::from_str(&s).ok())
+            .unwrap()
+    }
+
+    #[test]
+    fn vars_expanded_in_theme_preset() {
+        let c = apply_vars(
+            r#"
+[vars]
+color = "dark"
+
+[theme]
+preset = "solarized-{{ vars.color }}"
+"#,
+        );
+        assert_eq!(c.theme.preset, "solarized-dark");
+    }
+
+    #[test]
+    fn vars_expanded_in_app_name() {
+        let c = apply_vars(
+            r#"
+[vars]
+prefix = "My"
+
+[[apps]]
+name = "{{ vars.prefix }} Editor"
+path = "nvim"
+"#,
+        );
+        assert_eq!(c.apps[0].name, "My Editor");
+    }
+
+    #[test]
+    fn vars_expanded_in_scan_dirs_path() {
+        let c = apply_vars(
+            r#"
+[vars]
+src = "~/src"
+
+[[scan_dirs]]
+path = "{{ vars.src }}/scripts"
+recursive = false
+"#,
+        );
+        assert_eq!(c.scan_dirs[0].path, "~/src/scripts");
+    }
+
+    #[test]
+    fn vars_expanded_in_completion_search_mode_enum() {
+        // enum フィールドも toml::Value レベルで展開されるので機能する
+        let c = apply_vars(
+            r#"
+[vars]
+mode = "migemo"
+
+[[apps]]
+name = "Test"
+path = "test"
+completion_search_mode = "{{ vars.mode }}"
+"#,
+        );
+        assert_eq!(c.apps[0].completion_search_mode, Some(SearchMode::Migemo));
+    }
+
+    #[test]
+    fn vars_section_not_self_expanded() {
+        // [vars] 自体は展開されない（値の中に {{ }} があっても展開しない）
+        let toml_str = r#"
+[vars]
+a = "hello"
+b = "{{ vars.a }} world"
+"#;
+        let mut val: toml::Value = toml::from_str(toml_str).unwrap();
+        let vars = extract_vars(&val);
+        expand_config_vars(&mut val, &vars);
+        // [vars].b は展開されていないことを確認
+        let b = val
+            .get("vars")
+            .and_then(|v| v.get("b"))
+            .and_then(|v| v.as_str())
+            .unwrap();
+        assert_eq!(b, "{{ vars.a }} world");
+    }
+
+    #[test]
+    fn vars_expanded_in_workdir() {
+        let c = apply_vars(
+            r#"
+[vars]
+src = "~/src"
+
+[[apps]]
+name = "Git"
+path = "git"
+workdir = "{{ vars.src }}/myproject"
+"#,
+        );
+        assert_eq!(c.apps[0].workdir.as_deref(), Some("~/src/myproject"));
     }
 }
 

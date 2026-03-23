@@ -55,22 +55,34 @@ pub fn launch_with_extra(
     extra_args: Vec<String>,
     vars: &std::collections::HashMap<String, String>,
 ) -> Result<(), String> {
-    // path か args にテンプレートマーカーがあれば展開（env.* / vars.* は args なしでも使える）
-    let has_template = item.path.contains("{{") || item.args.iter().any(|a| a.contains("{{"));
+    // path / args / workdir にテンプレートマーカーがあれば展開
+    let has_template = item.path.contains("{{")
+        || item.args.iter().any(|a| a.contains("{{"))
+        || item.workdir.as_deref().is_some_and(|w| w.contains("{{"));
     if has_template || !extra_args.is_empty() {
         let ctx = build_template_context(&extra_args, vars);
         let rendered_path = render_template(&item.path, &ctx);
         let rendered_args: Vec<String> =
             item.args.iter().map(|a| render_template(a, &ctx)).collect();
+        let rendered_workdir = item.workdir.as_deref().map(|w| render_template(w, &ctx));
 
-        // テンプレートが展開されていれば extra_args は使わず展開済みで起動
         let path_rendered = rendered_path != item.path;
         let args_rendered = rendered_args != item.args;
+        let workdir_rendered = rendered_workdir.as_deref() != item.workdir.as_deref();
 
-        if path_rendered || args_rendered {
+        if path_rendered || args_rendered || workdir_rendered {
             let mut item_rendered = item.clone();
             item_rendered.path = rendered_path;
-            item_rendered.args = rendered_args;
+            // path か args がテンプレートで変化した → extra_args はテンプレート経由で渡り済み
+            // workdir だけ変化した（args テンプレートなし）→ extra_args は args 末尾に追加
+            item_rendered.args = if path_rendered || args_rendered {
+                rendered_args
+            } else {
+                let mut a = rendered_args;
+                a.extend(extra_args);
+                a
+            };
+            item_rendered.workdir = rendered_workdir.or_else(|| item.workdir.clone());
             return launch(&item_rendered);
         }
     }
@@ -85,77 +97,64 @@ pub fn launch_with_extra(
 
 pub fn launch(item: &LaunchItem) -> Result<(), String> {
     let path = crate::utils::expand_path(&item.path);
-    let mut cmd = std::process::Command::new(&path);
+    let expanded_args: Vec<String> = item
+        .args
+        .iter()
+        .map(|a| crate::utils::expand_path(a))
+        .collect();
 
-    if !item.args.is_empty() {
-        cmd.args(&item.args);
-    }
-    if let Some(workdir) = &item.workdir {
-        cmd.current_dir(crate::utils::expand_path(workdir));
-    }
+    // 共通処理: ユーザー引数と作業ディレクトリを cmd に追加するクロージャ
+    let add_common = |c: &mut std::process::Command| {
+        if !expanded_args.is_empty() {
+            c.args(&expanded_args);
+        }
+        if let Some(workdir) = &item.workdir {
+            c.current_dir(crate::utils::expand_path(workdir));
+        }
+    };
+
+    let mut cmd = std::process::Command::new(&path);
+    add_common(&mut cmd);
 
     // Windows の .lnk / .cmd / .bat ファイルは cmd /c で起動
     #[cfg(target_os = "windows")]
     let mut cmd = {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
+        const CREATE_NEW_CONSOLE: u32 = 0x00000010;
         let p = path.to_lowercase();
         if p.ends_with(".lnk") {
             // .lnk は start 経由: cmd 自体は非表示でよい
             let mut c = std::process::Command::new("cmd");
             c.args(["/c", "start", "", &path]);
-            if !item.args.is_empty() {
-                c.args(&item.args);
-            }
-            if let Some(workdir) = &item.workdir {
-                c.current_dir(crate::utils::expand_path(workdir));
-            }
             c.creation_flags(CREATE_NO_WINDOW);
+            add_common(&mut c);
             c
         } else if p.ends_with(".cmd") || p.ends_with(".bat") {
             // .cmd/.bat は新しいコンソールウィンドウで起動
-            const CREATE_NEW_CONSOLE: u32 = 0x00000010;
             let mut c = std::process::Command::new("cmd");
             c.args(["/c", &path]);
             c.creation_flags(CREATE_NEW_CONSOLE);
-            if !item.args.is_empty() {
-                c.args(&item.args);
-            }
-            if let Some(workdir) = &item.workdir {
-                c.current_dir(crate::utils::expand_path(workdir));
-            }
+            add_common(&mut c);
             c
         } else if p.ends_with(".ps1") {
             // .ps1 は新しいコンソールウィンドウで powershell 起動
-            const CREATE_NEW_CONSOLE: u32 = 0x00000010;
             let mut c = std::process::Command::new("powershell");
             c.args(["-NoProfile", "-ExecutionPolicy", "ByPass", "-File", &path]);
             c.creation_flags(CREATE_NEW_CONSOLE);
-            if !item.args.is_empty() {
-                c.args(&item.args);
-            }
-            if let Some(workdir) = &item.workdir {
-                c.current_dir(crate::utils::expand_path(workdir));
-            }
+            add_common(&mut c);
             c
         } else {
             // 拡張子なしのコマンド（scoop, npm, git など）は PATHEXT で解決
             match resolve_windows_cmd(&path) {
                 ResolvedCmd::Cmd(resolved) | ResolvedCmd::Bat(resolved) => {
-                    const CREATE_NEW_CONSOLE: u32 = 0x00000010;
                     let mut c = std::process::Command::new("cmd");
                     c.args(["/c", &resolved]);
                     c.creation_flags(CREATE_NEW_CONSOLE);
-                    if !item.args.is_empty() {
-                        c.args(&item.args);
-                    }
-                    if let Some(workdir) = &item.workdir {
-                        c.current_dir(crate::utils::expand_path(workdir));
-                    }
+                    add_common(&mut c);
                     c
                 }
                 ResolvedCmd::Ps1(resolved) => {
-                    const CREATE_NEW_CONSOLE: u32 = 0x00000010;
                     let mut c = std::process::Command::new("powershell");
                     c.args([
                         "-NoProfile",
@@ -165,12 +164,7 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
                         &resolved,
                     ]);
                     c.creation_flags(CREATE_NEW_CONSOLE);
-                    if !item.args.is_empty() {
-                        c.args(&item.args);
-                    }
-                    if let Some(workdir) = &item.workdir {
-                        c.current_dir(crate::utils::expand_path(workdir));
-                    }
+                    add_common(&mut c);
                     c
                 }
                 ResolvedCmd::Other => cmd,
@@ -185,11 +179,12 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
         let use_open = matches!(item.source, ItemSource::System | ItemSource::Path)
             || path.to_lowercase().ends_with(".app");
         if use_open {
+            // `open` は `--args` セパレータが必要なので add_common は使えない
             let mut c = std::process::Command::new("open");
             c.arg(&path);
-            if !item.args.is_empty() {
+            if !expanded_args.is_empty() {
                 c.arg("--args");
-                c.args(&item.args);
+                c.args(&expanded_args);
             }
             if let Some(workdir) = &item.workdir {
                 c.current_dir(crate::utils::expand_path(workdir));
@@ -787,6 +782,62 @@ mod tests {
         // 未定義 vars は Tera エラーになるが render_template はそのまま返す
         let result = render_template("{{ vars.missing | default(value=\"fallback\") }}", &ctx);
         assert_eq!(result, "fallback");
+    }
+
+    // --- args tilde expansion ---
+
+    #[test]
+    fn tilde_in_args_expands_to_home() {
+        // regression: args = ["~/.memolist/todo.md"] must be tilde-expanded before spawning
+        let home = dirs_next::home_dir().expect("home dir must exist");
+        let expanded = crate::utils::expand_path("~/.memolist/todo.md");
+        let expected = home
+            .join(".memolist/todo.md")
+            .to_string_lossy()
+            .replace('\\', "/");
+        assert_eq!(expanded.replace('\\', "/"), expected);
+    }
+
+    #[test]
+    fn plain_args_unchanged() {
+        // non-tilde args must pass through expand_path unmodified
+        let expanded = crate::utils::expand_path("/absolute/path.md");
+        assert_eq!(expanded, "/absolute/path.md");
+    }
+
+    #[test]
+    fn vars_tilde_via_template_expands() {
+        // [vars] memo_path = "~/.memolist/todo.md"
+        // args = ["{{ vars.memo_path }}"]
+        // → Tera renders to "~/.memolist/todo.md", then launch() expand_path expands ~
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("memo_path".to_string(), "~/.memolist/todo.md".to_string());
+        let ctx = build_template_context(&[], &vars);
+        let rendered = render_template("{{ vars.memo_path }}", &ctx);
+        // rendered is still "~/.memolist/todo.md" — expand_path in launch() finishes the job
+        assert_eq!(rendered, "~/.memolist/todo.md");
+        let expanded = crate::utils::expand_path(&rendered);
+        assert!(!expanded.starts_with('~'), "tilde not expanded: {expanded}");
+    }
+
+    #[test]
+    fn vars_nested_template_not_rendered() {
+        // [vars] memo_path = "{{ env.USERPROFILE }}/.memolist/todo.md"
+        // Tera does NOT recursively render substituted values,
+        // so {{ vars.memo_path }} outputs the literal "{{ env.USERPROFILE }}/..."
+        // Users should use ~ or direct {{ env.USERPROFILE }} in args instead.
+        let mut vars = std::collections::HashMap::new();
+        vars.insert(
+            "memo_path".to_string(),
+            "{{ env.USERPROFILE }}/.memolist/todo.md".to_string(),
+        );
+        let ctx = build_template_context(&[], &vars);
+        let rendered = render_template("{{ vars.memo_path }}", &ctx);
+        // the inner {{ }} is NOT re-rendered
+        assert!(
+            rendered.contains("{{ env.USERPROFILE }}"),
+            "unexpected double-render: {rendered}"
+        );
     }
 
     // --- launch_with_extra merges args ---
