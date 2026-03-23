@@ -151,7 +151,7 @@ jobs:
 
             | Platform | File |
             |---|---|
-            | Windows | `.msi` (installer) or `shun-windows-x64.zip` (portable) |
+            | Windows | `*-setup.exe` (installer, no admin required) or `shun-windows-x64.zip` (portable) |
             | macOS | `.dmg` |
             | Linux | `.AppImage` or `.deb` |
           releaseDraft: false
@@ -305,4 +305,4 @@ jobs:
         with:
           identifier: yukimemi.shun
           token: ${{ secrets.WINGET_TOKEN }}
-          installers-regex: '\.(msi|exe)$'
+          installers-regex: '_x64-setup\.exe$'
