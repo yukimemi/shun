@@ -33,6 +33,12 @@ fn matches_re(query: &str, target: &str, mode: &SearchMode, re: Option<&regex::R
             Some(r) => r.is_match(target),
             None => crate::migemo::matches(query, target),
         },
+        SearchMode::FuzzyMigemo => {
+            fuzzy_match(query, target) || match re {
+                Some(r) => r.is_match(target),
+                None => crate::migemo::matches(query, target),
+            }
+        }
     }
 }
 

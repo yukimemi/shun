@@ -11,7 +11,26 @@ pub fn filter(items: &[LaunchItem], query: &str, mode: &SearchMode) -> Vec<Launc
         SearchMode::Exact => exact_filter(items, query),
         SearchMode::Fuzzy => fuzzy_filter(items, query),
         SearchMode::Migemo => migemo_filter(items, query),
+        SearchMode::FuzzyMigemo => fuzzy_migemo_filter(items, query),
     }
+}
+
+fn fuzzy_migemo_filter(items: &[LaunchItem], query: &str) -> Vec<LaunchItem> {
+    if query.is_empty() {
+        return items.to_vec();
+    }
+    let fuzzy = fuzzy_filter(items, query);
+    let migemo = migemo_filter(items, query);
+    // fuzzy 結果を優先し、migemo にしか引っかからなかったものを後ろに追加
+    let fuzzy_names: std::collections::HashSet<&str> =
+        fuzzy.iter().map(|i| i.name.as_str()).collect();
+    let migemo_only: Vec<LaunchItem> = migemo
+        .into_iter()
+        .filter(|i| !fuzzy_names.contains(i.name.as_str()))
+        .collect();
+    let mut result = fuzzy;
+    result.extend(migemo_only);
+    result
 }
 
 fn migemo_filter(items: &[LaunchItem], query: &str) -> Vec<LaunchItem> {
@@ -204,5 +223,60 @@ mod tests {
         let r = filter(&items, "hajime", &SearchMode::Migemo);
         assert!(!r.is_empty());
         assert_eq!(r[0].name, "はじめに");
+    }
+
+    // --- fuzzy_migemo_filter ---
+
+    #[test]
+    fn fuzzy_migemo_empty_query_returns_all() {
+        let items = vec![item("Firefox"), item("Notepad")];
+        assert_eq!(fuzzy_migemo_filter(&items, "").len(), 2);
+    }
+
+    #[test]
+    fn fuzzy_migemo_includes_fuzzy_matches() {
+        // "vsc" fuzzy-matches "Visual Studio Code" but not migemo-matches it
+        let items = vec![item("Visual Studio Code"), item("Notepad")];
+        let r = fuzzy_migemo_filter(&items, "vsc");
+        let names: Vec<&str> = r.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"Visual Studio Code"));
+        assert!(!names.contains(&"Notepad"));
+    }
+
+    #[test]
+    fn fuzzy_migemo_includes_migemo_only_matches() {
+        // "hajime" migemo-matches Japanese but doesn't fuzzy-match ASCII items
+        let items = vec![item("はじめに"), item("Notepad"), item("Firefox")];
+        let r = fuzzy_migemo_filter(&items, "hajime");
+        let names: Vec<&str> = r.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"はじめに"));
+        assert!(!names.contains(&"Notepad"));
+    }
+
+    #[test]
+    fn fuzzy_migemo_union_no_duplicates() {
+        // "fire" matches both fuzzy and migemo — should appear only once
+        let items = vec![item("Firefox"), item("Notepad")];
+        let r = fuzzy_migemo_filter(&items, "fire");
+        let firefox_count = r.iter().filter(|i| i.name == "Firefox").count();
+        assert_eq!(firefox_count, 1);
+    }
+
+    #[test]
+    fn fuzzy_migemo_fuzzy_results_come_first() {
+        // fuzzy-matched items should precede migemo-only items
+        let items = vec![item("はじめに"), item("firefox")];
+        // "fi" fuzzy-matches "firefox"; migemo for "fi" unlikely to match Japanese
+        let r = fuzzy_migemo_filter(&items, "fi");
+        assert!(!r.is_empty());
+        assert_eq!(r[0].name, "firefox");
+    }
+
+    #[test]
+    fn filter_dispatches_fuzzy_migemo() {
+        let items = vec![item("はじめに"), item("Visual Studio Code"), item("Notepad")];
+        let r = filter(&items, "hajime", &SearchMode::FuzzyMigemo);
+        let names: Vec<&str> = r.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"はじめに"));
     }
 }
