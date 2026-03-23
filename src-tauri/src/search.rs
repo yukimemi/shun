@@ -293,7 +293,11 @@ mod tests {
 
     #[test]
     fn filter_dispatches_fuzzy_migemo() {
-        let items = vec![item("はじめに"), item("Visual Studio Code"), item("Notepad")];
+        let items = vec![
+            item("はじめに"),
+            item("Visual Studio Code"),
+            item("Notepad"),
+        ];
         let r = filter(&items, "hajime", &SearchMode::FuzzyMigemo);
         let names: Vec<&str> = r.iter().map(|i| i.name.as_str()).collect();
         assert!(names.contains(&"はじめに"));
