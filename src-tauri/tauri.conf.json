@@ -44,6 +44,9 @@
     "windows": {
       "webviewInstallMode": {
         "type": "embedBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser"
       }
     },
     "icon": [

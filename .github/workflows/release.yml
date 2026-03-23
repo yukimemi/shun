@@ -305,4 +305,4 @@ jobs:
         with:
           identifier: yukimemi.shun
           token: ${{ secrets.WINGET_TOKEN }}
-          installers-regex: '\.msi$'
+          installers-regex: '\.(msi|exe)$'
