@@ -149,6 +149,14 @@
     }
   }
 
+  // args mode に入るとき、argItem が変わる場合のみ override をリセット
+  function applyArgItem(newItem) {
+    if (newItem?.name !== argItem?.name) {
+      argsModeSearchOverride = null;
+    }
+    argItem = newItem;
+  }
+
   function resetToSearch({ skipFocus = false } = {}) {
     mode = "search";
     helpVisible = false;
@@ -159,7 +167,7 @@
     completionIndex = 0;
     lastArgsGhost = "";
     historyArgs = [];
-    argsModeSearchOverride = null;
+    // argsModeSearchOverride はここではリセットしない（同じ argItem を再選択したとき保持するため）
     resizeForSearch(filtered.length);
     if (!skipFocus) setTimeout(() => inputEl?.focus(), 10);
   }
@@ -443,6 +451,7 @@
       debug("show-launcher: resetting state");
       mode = "search";
       argItem = null;
+      argsModeSearchOverride = null;
       extraArgs = "";
       query = "";
       completionPrefix = "";
@@ -645,9 +654,9 @@
       if (filteredSlash.length > 0) {
         const cmd = filteredSlash[selectedIndex] ?? filteredSlash[0];
         if (cmd.completions?.length > 0) {
-          argItem = { name: cmd.name, path: "", args: [], workdir: null,
-                      source: "SlashCmd", completion: "list",
-                      completion_list: cmd.completions, completion_command: null };
+          applyArgItem({ name: cmd.name, path: "", args: [], workdir: null,
+                         source: "SlashCmd", completion: "list",
+                         completion_list: cmd.completions, completion_command: null });
           extraArgs = "";
           allCompletions = cmd.completions;
           completionIndex = 0;
@@ -679,9 +688,9 @@
           const baseConfigItem = filtered.find(
             (i) => i.source === "Config" && (i.name === baseKey || i.path === baseKey),
           );
-          argItem = baseConfigItem
+          applyArgItem(baseConfigItem
             ? { ...baseConfigItem, history_key: null }
-            : { ...item, name: baseName, args: [], source: "ScanDir", history_key: null };
+            : { ...item, name: baseName, args: [], source: "ScanDir", history_key: null });
           extraArgs = "";
           mode = "args";
           lastArgsGhost = item.args.join(" ");
@@ -696,7 +705,7 @@
             if (candidates.length > 0) lastArgsGhost = candidates[0];
           });
         } else if (canHaveArgs(item)) {
-          argItem = item;
+          applyArgItem(item);
           mode = "args";
           lastArgsGhost = "";
           historyArgs = [];
@@ -942,9 +951,9 @@
   async function runSlashCommand(cmd) {
     if (cmd.name === "/save") {
       // Enter on /save → enter args mode to pick which setting to save
-      argItem = { name: cmd.name, path: "", args: [], workdir: null,
-                  source: "SlashCmd", completion: "list",
-                  completion_list: cmd.completions, completion_command: null };
+      applyArgItem({ name: cmd.name, path: "", args: [], workdir: null,
+                     source: "SlashCmd", completion: "list",
+                     completion_list: cmd.completions, completion_command: null });
       extraArgs = "";
       allCompletions = cmd.completions;
       completionIndex = 0;
