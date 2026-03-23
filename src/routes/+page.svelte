@@ -58,7 +58,7 @@
   let configWarnings = $state([]);
   let currentPreset = $state("catppuccin-mocha");
   let uiSearchMode = $state("fuzzy");   // "fuzzy" | "exact" | "migemo" | "fuzzy_migemo" | "exact_migemo"
-  let argsModeSearchOverride = $state(null); // session-level override for args mode search
+  let argsModeSearchOverrides = $state(new Map()); // per-item override: item.name → search mode
   let uiSortOrder = $state("count_first"); // "count_first" | "recent_first"
   let iconStyle = $state("unicode");    // "unicode" | "svg"
 
@@ -110,9 +110,9 @@
   });
 
   // args モードでの有効な検索モード:
-  //   argsModeSearchOverride (Ctrl+Shift+m で上書き) > completion_search_mode > uiSearchMode
+  //   argsModeSearchOverrides[item.name] (Ctrl+Shift+m で上書き) > completion_search_mode > uiSearchMode
   let effectiveSearchMode = $derived(
-    getEffectiveSearchMode(mode, argsModeSearchOverride, argItem?.completion_search_mode ?? null, uiSearchMode)
+    getEffectiveSearchMode(mode, argItem?.name ? (argsModeSearchOverrides.get(argItem.name) ?? null) : null, argItem?.completion_search_mode ?? null, uiSearchMode)
   );
 
   // search モード: 選択中候補の path がクエリのプレフィックスならghost表示
@@ -149,11 +149,7 @@
     }
   }
 
-  // args mode に入るとき、argItem が変わる場合のみ override をリセット
   function applyArgItem(newItem) {
-    if (newItem?.name !== argItem?.name) {
-      argsModeSearchOverride = null;
-    }
     argItem = newItem;
   }
 
@@ -167,7 +163,6 @@
     completionIndex = 0;
     lastArgsGhost = "";
     historyArgs = [];
-    // argsModeSearchOverride はここではリセットしない（同じ argItem を再選択したとき保持するため）
     resizeForSearch(filtered.length);
     if (!skipFocus) setTimeout(() => inputEl?.focus(), 10);
   }
@@ -397,8 +392,8 @@
   const SORT_ORDERS = ["count_first", "recent_first"];
 
   function cycleSearchMode() {
-    if (mode === "args") {
-      argsModeSearchOverride = nextSearchMode(effectiveSearchMode, SEARCH_MODES);
+    if (mode === "args" && argItem?.name) {
+      argsModeSearchOverrides = new Map(argsModeSearchOverrides).set(argItem.name, nextSearchMode(effectiveSearchMode, SEARCH_MODES));
     } else {
       uiSearchMode = nextSearchMode(uiSearchMode, SEARCH_MODES);
     }
