@@ -446,7 +446,6 @@
       debug("show-launcher: resetting state");
       mode = "search";
       argItem = null;
-      argsModeSearchOverride = null;
       extraArgs = "";
       query = "";
       completionPrefix = "";
