@@ -45,6 +45,11 @@ curl -fsSL https://yukimemi.github.io/shun/install.sh | sh
 <details>
 <summary>Package managers & direct download</summary>
 
+**Windows — winget**
+```powershell
+winget install yukimemi.shun
+```
+
 **Windows — Scoop**
 ```powershell
 scoop bucket add yukimemi https://github.com/yukimemi/scoop-bucket
