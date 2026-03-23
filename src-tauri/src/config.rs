@@ -28,6 +28,7 @@ pub enum SearchMode {
     Exact,       // 部分一致
     Migemo,      // migemo 検索（日本語ローマ字入力で日本語ファイル名を検索）
     FuzzyMigemo, // fuzzy と migemo の OR（union）
+    ExactMigemo, // exact と migemo の OR（union）
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

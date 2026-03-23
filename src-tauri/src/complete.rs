@@ -39,6 +39,12 @@ fn matches_re(query: &str, target: &str, mode: &SearchMode, re: Option<&regex::R
                 None => crate::migemo::matches(query, target),
             }
         }
+        SearchMode::ExactMigemo => {
+            exact_match(query, target) || match re {
+                Some(r) => r.is_match(target),
+                None => crate::migemo::matches(query, target),
+            }
+        }
     }
 }
 

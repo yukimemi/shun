@@ -12,6 +12,7 @@ pub fn filter(items: &[LaunchItem], query: &str, mode: &SearchMode) -> Vec<Launc
         SearchMode::Fuzzy => fuzzy_filter(items, query),
         SearchMode::Migemo => migemo_filter(items, query),
         SearchMode::FuzzyMigemo => fuzzy_migemo_filter(items, query),
+        SearchMode::ExactMigemo => exact_migemo_filter(items, query),
     }
 }
 
@@ -29,6 +30,24 @@ fn fuzzy_migemo_filter(items: &[LaunchItem], query: &str) -> Vec<LaunchItem> {
         .filter(|i| !fuzzy_names.contains(i.name.as_str()))
         .collect();
     let mut result = fuzzy;
+    result.extend(migemo_only);
+    result
+}
+
+fn exact_migemo_filter(items: &[LaunchItem], query: &str) -> Vec<LaunchItem> {
+    if query.is_empty() {
+        return items.to_vec();
+    }
+    let exact = exact_filter(items, query);
+    let migemo = migemo_filter(items, query);
+    // exact 結果を優先し、migemo にしか引っかからなかったものを後ろに追加
+    let exact_names: std::collections::HashSet<&str> =
+        exact.iter().map(|i| i.name.as_str()).collect();
+    let migemo_only: Vec<LaunchItem> = migemo
+        .into_iter()
+        .filter(|i| !exact_names.contains(i.name.as_str()))
+        .collect();
+    let mut result = exact;
     result.extend(migemo_only);
     result
 }
@@ -276,6 +295,57 @@ mod tests {
     fn filter_dispatches_fuzzy_migemo() {
         let items = vec![item("はじめに"), item("Visual Studio Code"), item("Notepad")];
         let r = filter(&items, "hajime", &SearchMode::FuzzyMigemo);
+        let names: Vec<&str> = r.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"はじめに"));
+    }
+
+    // --- exact_migemo_filter ---
+
+    #[test]
+    fn exact_migemo_empty_query_returns_all() {
+        let items = vec![item("Firefox"), item("Notepad")];
+        assert_eq!(exact_migemo_filter(&items, "").len(), 2);
+    }
+
+    #[test]
+    fn exact_migemo_includes_exact_matches() {
+        let items = vec![item("Firefox"), item("fire_starter"), item("Notepad")];
+        let r = exact_migemo_filter(&items, "fire");
+        let names: Vec<&str> = r.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"Firefox"));
+        assert!(names.contains(&"fire_starter"));
+        assert!(!names.contains(&"Notepad"));
+    }
+
+    #[test]
+    fn exact_migemo_includes_migemo_only_matches() {
+        let items = vec![item("はじめに"), item("Notepad")];
+        let r = exact_migemo_filter(&items, "hajime");
+        let names: Vec<&str> = r.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"はじめに"));
+        assert!(!names.contains(&"Notepad"));
+    }
+
+    #[test]
+    fn exact_migemo_union_no_duplicates() {
+        let items = vec![item("Firefox"), item("Notepad")];
+        let r = exact_migemo_filter(&items, "fire");
+        let firefox_count = r.iter().filter(|i| i.name == "Firefox").count();
+        assert_eq!(firefox_count, 1);
+    }
+
+    #[test]
+    fn exact_migemo_exact_results_come_first() {
+        let items = vec![item("はじめに"), item("firefox")];
+        let r = exact_migemo_filter(&items, "fi");
+        assert!(!r.is_empty());
+        assert_eq!(r[0].name, "firefox");
+    }
+
+    #[test]
+    fn filter_dispatches_exact_migemo() {
+        let items = vec![item("はじめに"), item("Firefox"), item("Notepad")];
+        let r = filter(&items, "hajime", &SearchMode::ExactMigemo);
         let names: Vec<&str> = r.iter().map(|i| i.name.as_str()).collect();
         assert!(names.contains(&"はじめに"));
     }

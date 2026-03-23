@@ -21,8 +21,8 @@
 ## Features
 
 - **Instant popup** — global hotkey brings up the launcher anywhere; appears on cursor's monitor by default, or fixed to `"primary"` / index via `monitor` config
-- **Fuzzy / exact / migemo / fuzzy+migemo search** — fuzzy via [nucleo-matcher](https://github.com/helix-editor/nucleo); migemo via [rustmigemo](https://github.com/oguna/rustmigemo) / [jsmigemo](https://github.com/oguna/jsmigemo) (type `hajime` to match `初めて`); `fuzzy_migemo` returns union of both
-- **Status badges** — subtle pill in the input corner shows current search mode (`≋` / `―` / `あ` / `≋あ`) and sort order (`#` / `⌚`); click or use keybindings to cycle
+- **Fuzzy / exact / migemo / combined search** — fuzzy via [nucleo-matcher](https://github.com/helix-editor/nucleo); migemo via [rustmigemo](https://github.com/oguna/rustmigemo) / [jsmigemo](https://github.com/oguna/jsmigemo) (type `hajime` to match `初めて`); `fuzzy_migemo` / `exact_migemo` return union of both
+- **Status badges** — subtle pill in the input corner shows current search mode (`≋` / `―` / `あ` / `≋あ` / `―あ`) and sort order (`#` / `⌚`); click or use keybindings to cycle
 - **Args mode** — press `Tab` to pass extra arguments; path / list / command completion with ghost text
 - **Launch history** — frecency sorting; previous args remembered and suggested as ghost text
 - **Slash commands** — `/reload`, `/config`, `/update`, `/theme` and more
@@ -126,7 +126,7 @@ After editing config, run `/reload` to apply all changes without restarting.
 ### All options
 
 ```toml
-# Search mode: "fuzzy" (default) | "exact" | "migemo" | "fuzzy_migemo"
+# Search mode: "fuzzy" (default) | "exact" | "migemo" | "fuzzy_migemo" | "exact_migemo"
 search_mode = "fuzzy"
 
 # Sort order: "count_first" (default) | "recent_first"

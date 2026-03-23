@@ -57,7 +57,7 @@
   let updateVersion = $state("");
   let configWarnings = $state([]);
   let currentPreset = $state("catppuccin-mocha");
-  let uiSearchMode = $state("fuzzy");   // "fuzzy" | "exact" | "migemo" | "fuzzy_migemo"
+  let uiSearchMode = $state("fuzzy");   // "fuzzy" | "exact" | "migemo" | "fuzzy_migemo" | "exact_migemo"
   let argsModeSearchOverride = $state(null); // session-level override for args mode search
   let uiSortOrder = $state("count_first"); // "count_first" | "recent_first"
   let iconStyle = $state("unicode");    // "unicode" | "svg"
@@ -385,7 +385,7 @@
     configWarnings = [...backendWarnings, ...kbWarnings];
   }
 
-  const SEARCH_MODES = ["fuzzy", "exact", "migemo", "fuzzy_migemo"];
+  const SEARCH_MODES = ["fuzzy", "exact", "migemo", "fuzzy_migemo", "exact_migemo"];
   const SORT_ORDERS = ["count_first", "recent_first"];
 
   function cycleSearchMode() {
@@ -1065,7 +1065,7 @@
                 <svg width="14" height="14" viewBox="0 0 16 16">
                   <text x="8" y="13" text-anchor="middle" font-size="13" fill="currentColor" font-family="sans-serif">あ</text>
                 </svg>
-              {:else}
+              {:else if uiSearchMode === "fuzzy_migemo"}
                 <!-- ≋あ = fuzzy + migemo -->
                 <svg width="20" height="14" viewBox="0 0 22 16">
                   <path d="M1 4.5 C2.5 3 4 6 5.5 4.5 C7 3 8.5 6 10 4.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
@@ -1073,9 +1073,15 @@
                   <path d="M1 11.5 C2.5 10 4 13 5.5 11.5 C7 10 8.5 13 10 11.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
                   <text x="17" y="13" text-anchor="middle" font-size="12" fill="currentColor" font-family="sans-serif">あ</text>
                 </svg>
+              {:else}
+                <!-- ―あ = exact + migemo -->
+                <svg width="20" height="14" viewBox="0 0 22 16">
+                  <line x1="1" y1="8" x2="10" y2="8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  <text x="17" y="13" text-anchor="middle" font-size="12" fill="currentColor" font-family="sans-serif">あ</text>
+                </svg>
               {/if}
             {:else}
-              {uiSearchMode === "fuzzy" ? "≋" : uiSearchMode === "exact" ? "―" : uiSearchMode === "migemo" ? "あ" : "≋あ"}
+              {uiSearchMode === "fuzzy" ? "≋" : uiSearchMode === "exact" ? "―" : uiSearchMode === "migemo" ? "あ" : uiSearchMode === "fuzzy_migemo" ? "≋あ" : "―あ"}
             {/if}
           </button>
           <div class="badge-sep"></div>
@@ -1108,7 +1114,7 @@
             </div>
             <div class="help-row">
               <span class="help-label">search mode</span>
-              <span class="help-value">{uiSearchMode} {uiSearchMode === "fuzzy" ? "≋" : uiSearchMode === "exact" ? "―" : uiSearchMode === "migemo" ? "あ" : "≋あ"}</span>
+              <span class="help-value">{uiSearchMode} {uiSearchMode === "fuzzy" ? "≋" : uiSearchMode === "exact" ? "―" : uiSearchMode === "migemo" ? "あ" : uiSearchMode === "fuzzy_migemo" ? "≋あ" : "―あ"}</span>
               <span class="help-key">{keybindings.cycle_search_mode}</span>
             </div>
             <div class="help-row">
@@ -1247,16 +1253,21 @@
                 <svg width="14" height="14" viewBox="0 0 16 16">
                   <text x="8" y="13" text-anchor="middle" font-size="13" fill="currentColor" font-family="sans-serif">あ</text>
                 </svg>
-              {:else}
+              {:else if effectiveSearchMode === "fuzzy_migemo"}
                 <svg width="20" height="14" viewBox="0 0 22 16">
                   <path d="M1 4.5 C2.5 3 4 6 5.5 4.5 C7 3 8.5 6 10 4.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
                   <path d="M1 8   C2.5 6.5 4 9.5 5.5 8 C7 6.5 8.5 9.5 10 8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
                   <path d="M1 11.5 C2.5 10 4 13 5.5 11.5 C7 10 8.5 13 10 11.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
                   <text x="17" y="13" text-anchor="middle" font-size="12" fill="currentColor" font-family="sans-serif">あ</text>
                 </svg>
+              {:else}
+                <svg width="20" height="14" viewBox="0 0 22 16">
+                  <line x1="1" y1="8" x2="10" y2="8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  <text x="17" y="13" text-anchor="middle" font-size="12" fill="currentColor" font-family="sans-serif">あ</text>
+                </svg>
               {/if}
             {:else}
-              {effectiveSearchMode === "fuzzy" ? "≋" : effectiveSearchMode === "exact" ? "―" : effectiveSearchMode === "migemo" ? "あ" : "≋あ"}
+              {effectiveSearchMode === "fuzzy" ? "≋" : effectiveSearchMode === "exact" ? "―" : effectiveSearchMode === "migemo" ? "あ" : effectiveSearchMode === "fuzzy_migemo" ? "≋あ" : "―あ"}
             {/if}
           </button>
           <div class="badge-sep"></div>
