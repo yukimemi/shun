@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { firstSepIdx, isPathQuery, matchKey, fuzzyMatch, shouldBypassTemplate } from "./utils.js";
+import { firstSepIdx, isPathQuery, matchKey, fuzzyMatch, shouldBypassTemplate, getEffectiveSearchMode, nextSearchMode } from "./utils.js";
 
 // --- firstSepIdx ---
 
@@ -249,6 +249,55 @@ describe("shouldBypassTemplate", () => {
     const history = ["~/memo/20260321-hoge.md"];
     // "hoge" は fuzzy match するが includes() には引っかからない
     expect(shouldBypassTemplate("hoge", history, memoNewItem)).toBe(false);
+  });
+});
+
+// --- getEffectiveSearchMode ---
+
+const MODES = ["fuzzy", "exact", "migemo"];
+
+describe("getEffectiveSearchMode", () => {
+  it("returns uiSearchMode in search mode regardless of overrides", () => {
+    expect(getEffectiveSearchMode("search", "migemo", "exact", "fuzzy")).toBe("fuzzy");
+  });
+
+  it("returns uiSearchMode in args mode when no overrides", () => {
+    expect(getEffectiveSearchMode("args", null, null, "fuzzy")).toBe("fuzzy");
+  });
+
+  it("returns completion_search_mode over uiSearchMode in args mode", () => {
+    expect(getEffectiveSearchMode("args", null, "exact", "fuzzy")).toBe("exact");
+  });
+
+  it("returns argsModeSearchOverride over completion_search_mode in args mode", () => {
+    expect(getEffectiveSearchMode("args", "migemo", "exact", "fuzzy")).toBe("migemo");
+  });
+
+  it("returns argsModeSearchOverride over uiSearchMode when no completion_search_mode", () => {
+    expect(getEffectiveSearchMode("args", "exact", null, "fuzzy")).toBe("exact");
+  });
+
+  it("uiSearchMode change is reflected when in search mode", () => {
+    expect(getEffectiveSearchMode("search", null, "exact", "migemo")).toBe("migemo");
+  });
+});
+
+// --- nextSearchMode ---
+
+describe("nextSearchMode", () => {
+  it("cycles fuzzy → exact → migemo → fuzzy", () => {
+    expect(nextSearchMode("fuzzy", MODES)).toBe("exact");
+    expect(nextSearchMode("exact", MODES)).toBe("migemo");
+    expect(nextSearchMode("migemo", MODES)).toBe("fuzzy");
+  });
+
+  it("wraps around at the end", () => {
+    expect(nextSearchMode("migemo", MODES)).toBe("fuzzy");
+  });
+
+  it("works with unknown current (falls back to first)", () => {
+    // indexOf returns -1, so (−1 + 1) % 3 = 0
+    expect(nextSearchMode("unknown", MODES)).toBe("fuzzy");
   });
 });
 

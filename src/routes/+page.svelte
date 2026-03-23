@@ -6,7 +6,7 @@
   import { getVersion } from "@tauri-apps/api/app";
   import { debug, info } from "@tauri-apps/plugin-log";
   import { onMount, tick } from "svelte";
-  import { firstSepIdx, isPathQuery, matchKey, fuzzyMatch, shouldBypassTemplate } from "$lib/utils.js";
+  import { firstSepIdx, isPathQuery, matchKey, fuzzyMatch, shouldBypassTemplate, getEffectiveSearchMode, nextSearchMode } from "$lib/utils.js";
 
   // migemo インスタンス（lazy load）
   let migemoInstance = $state(null);
@@ -58,6 +58,7 @@
   let configWarnings = $state([]);
   let currentPreset = $state("catppuccin-mocha");
   let uiSearchMode = $state("fuzzy");   // "fuzzy" | "exact" | "migemo"
+  let argsModeSearchOverride = $state(null); // session-level override for args mode search
   let uiSortOrder = $state("count_first"); // "count_first" | "recent_first"
   let iconStyle = $state("unicode");    // "unicode" | "svg"
 
@@ -108,6 +109,12 @@
     return "";
   });
 
+  // args モードでの有効な検索モード:
+  //   argsModeSearchOverride (Ctrl+Shift+m で上書き) > completion_search_mode > uiSearchMode
+  let effectiveSearchMode = $derived(
+    getEffectiveSearchMode(mode, argsModeSearchOverride, argItem?.completion_search_mode ?? null, uiSearchMode)
+  );
+
   // search モード: 選択中候補の path がクエリのプレフィックスならghost表示
   let searchGhostSuffix = $derived(() => {
     if (!query || filtered.length === 0) return "";
@@ -152,6 +159,7 @@
     completionIndex = 0;
     lastArgsGhost = "";
     historyArgs = [];
+    argsModeSearchOverride = null;
     resizeForSearch(filtered.length);
     if (!skipFocus) setTimeout(() => inputEl?.focus(), 10);
   }
@@ -381,7 +389,11 @@
   const SORT_ORDERS = ["count_first", "recent_first"];
 
   function cycleSearchMode() {
-    uiSearchMode = SEARCH_MODES[(SEARCH_MODES.indexOf(uiSearchMode) + 1) % SEARCH_MODES.length];
+    if (mode === "args") {
+      argsModeSearchOverride = nextSearchMode(effectiveSearchMode, SEARCH_MODES);
+    } else {
+      uiSearchMode = nextSearchMode(uiSearchMode, SEARCH_MODES);
+    }
   }
 
   function cycleSortOrder() {
@@ -845,9 +857,9 @@
     }
 
     const input = extraArgs;
-    const completionMode = argItem?.completion_search_mode ?? null;
+    const completionMode = effectiveSearchMode;
 
-    // historyArgs を入力でフィルタ（completion_search_mode に応じて切り替え）
+    // historyArgs を入力でフィルタ（effectiveSearchMode に応じて切り替え）
     function completionMatches(query, target) {
       if (!query) return true;
       if (completionMode === "migemo" && migemoInstance) {
@@ -891,7 +903,7 @@
       completionCommand: argItem?.completion_command ?? null,
       workdir: argItem?.workdir ?? null,
       itemArgs: argItem?.args ?? null,
-      completionSearchMode: argItem?.completion_search_mode ?? null,
+      completionSearchMode: effectiveSearchMode,
     }).then((result) => {
       // Rust 側でフィルタ済み。prefix 一致を上位に並べる
       const stem = input.slice(result.prefix.length).toLowerCase();
@@ -1211,15 +1223,15 @@
           />
         </div>
         <div class="status-badges" aria-hidden="true">
-          <button class="badge" title="search mode: {uiSearchMode}" onclick={cycleSearchMode}>
+          <button class="badge" title="search mode: {effectiveSearchMode}" onclick={cycleSearchMode}>
             {#if iconStyle === "svg"}
-              {#if uiSearchMode === "fuzzy"}
+              {#if effectiveSearchMode === "fuzzy"}
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
                   <path d="M2 4.5 C4 3 6 6 8 4.5 C10 3 12 6 14 4.5"/>
                   <path d="M2 8   C4 6.5 6 9.5 8 8   C10 6.5 12 9.5 14 8"/>
                   <path d="M2 11.5 C4 10 6 13 8 11.5 C10 10 12 13 14 11.5"/>
                 </svg>
-              {:else if uiSearchMode === "exact"}
+              {:else if effectiveSearchMode === "exact"}
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
                   <line x1="2" y1="8" x2="14" y2="8"/>
                 </svg>
@@ -1229,7 +1241,7 @@
                 </svg>
               {/if}
             {:else}
-              {uiSearchMode === "fuzzy" ? "≋" : uiSearchMode === "exact" ? "―" : "あ"}
+              {effectiveSearchMode === "fuzzy" ? "≋" : effectiveSearchMode === "exact" ? "―" : "あ"}
             {/if}
           </button>
           <div class="badge-sep"></div>

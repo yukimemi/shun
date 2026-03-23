@@ -59,6 +59,34 @@ export function shouldBypassTemplate(candidate, historyArgs, argItem) {
 }
 
 /**
+ * Returns the effective search mode for args mode.
+ * Priority: session override (argsModeSearchOverride) > per-app completion_search_mode > global uiSearchMode
+ *
+ * @param {string} mode - current UI mode ("search" | "args")
+ * @param {string|null} argsModeSearchOverride - session-level override set by Ctrl+Shift+m in args mode
+ * @param {string|null} completionSearchMode - per-app completion_search_mode from config
+ * @param {string} uiSearchMode - global search mode
+ * @returns {string} effective search mode
+ */
+export function getEffectiveSearchMode(mode, argsModeSearchOverride, completionSearchMode, uiSearchMode) {
+  if (mode === "args") {
+    return argsModeSearchOverride ?? completionSearchMode ?? uiSearchMode;
+  }
+  return uiSearchMode;
+}
+
+/**
+ * Returns the next search mode after cycling from current.
+ *
+ * @param {string} current - current search mode
+ * @param {string[]} modes - ordered list of modes to cycle through
+ * @returns {string} next mode
+ */
+export function nextSearchMode(current, modes) {
+  return modes[(modes.indexOf(current) + 1) % modes.length];
+}
+
+/**
  * Returns true if the KeyboardEvent matches the binding string.
  * Binding format: "Ctrl+f", "Alt+Space", "Enter", "Ctrl+Shift+P", etc.
  */
