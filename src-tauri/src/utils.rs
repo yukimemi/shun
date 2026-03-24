@@ -66,8 +66,9 @@ fn expand_env_vars(s: &str) -> String {
             result.push('$');
             i += 1;
         } else {
-            result.push(bytes[i] as char);
-            i += 1;
+            let ch = s[i..].chars().next().unwrap();
+            result.push(ch);
+            i += ch.len_utf8();
         }
     }
 
@@ -116,6 +117,20 @@ mod tests {
     fn expand_missing_var_keeps_sigil() {
         let result = expand_path("$SHUN_NONEXISTENT_XYZ_VAR/path");
         assert!(result.starts_with('$'));
+    }
+
+    #[test]
+    fn expand_multibyte_unchanged() {
+        let s = "/path/to/日本語.md";
+        assert_eq!(expand_path(s), s);
+    }
+
+    #[test]
+    fn expand_multibyte_with_var() {
+        std::env::set_var("SHUN_TEST_MB", "/memo");
+        let result = expand_path("$SHUN_TEST_MB/日本語.md");
+        std::env::remove_var("SHUN_TEST_MB");
+        assert_eq!(result, "/memo/日本語.md");
     }
 }
 
