@@ -167,13 +167,22 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
                     add_common(&mut c);
                     c
                 }
-                ResolvedCmd::Other => cmd,
+                ResolvedCmd::Other => {
+                    // .exe 以外の非スクリプトファイル (.xlsx, .pdf, .py 等) かつ
+                    // args/workdir 指定なし → OS 関連付けで開く
+                    if expanded_args.is_empty() && item.workdir.is_none() {
+                        return tauri_plugin_opener::open_path(&path, None::<&str>)
+                            .map_err(|e| e.to_string());
+                    }
+                    cmd
+                }
             }
         }
     };
 
     // macOS: System アイテム (.app バンドル等) と Path アイテム (ファイル/ディレクトリ) は
-    // `open` コマンド経由で起動する。Config/ScanDir のコマンドは直接 spawn する。
+    // `open` コマンド経由で起動する。
+    // 実行bit なし かつ args/workdir なしのファイル (.xlsx, .pdf 等) も OS 関連付けで開く。
     #[cfg(target_os = "macos")]
     let mut cmd = {
         let use_open = matches!(item.source, ItemSource::System | ItemSource::Path)
@@ -191,6 +200,15 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
             }
             c
         } else {
+            // 実行bit なし かつ args/workdir なし → OS 関連付けで開く
+            use std::os::unix::fs::PermissionsExt;
+            let is_executable = std::fs::metadata(&path)
+                .map(|m| m.permissions().mode() & 0o111 != 0)
+                .unwrap_or(true);
+            if !is_executable && expanded_args.is_empty() && item.workdir.is_none() {
+                return tauri_plugin_opener::open_path(&path, None::<&str>)
+                    .map_err(|e| e.to_string());
+            }
             cmd
         }
     };
