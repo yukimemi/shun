@@ -269,7 +269,13 @@ pub struct ScanDir {
 /// スキャンで登録されたアイテムへの上書き設定。name で大文字小文字を無視してマッチする。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppOverride {
+    /// stem 名マッチ（大文字小文字無視）
+    #[serde(default)]
     pub name: String,
+    /// 拡張子マッチ（"xlsx", "pdf" など、ドットなし）
+    pub ext: Option<String>,
+    /// 実行ファイルの上書き（ext マッチ時に元ファイルを {{ file_path }} 等で参照できる）
+    pub path: Option<String>,
     pub completion: Option<CompletionType>,
     #[serde(default)]
     pub completion_list: Vec<String>,

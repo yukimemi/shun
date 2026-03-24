@@ -3448,7 +3448,7 @@ version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e67ba7e9b2b56446f1d419b1d807906278ffa1a658a8a5d8a39dcb1f5a78614f"
 dependencies = [
- "toml_edit 0.25.8+spec-1.1.0",
+ "toml_edit 0.25.6+spec-1.1.0",
 ]
 
 [[package]]
@@ -4390,7 +4390,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "shun"
-version = "3.5.3"
+version = "3.6.0"
 dependencies = [
  "dirs-next",
  "futures-util",
@@ -4412,7 +4412,7 @@ dependencies = [
  "tera",
  "tokio",
  "toml 1.1.0+spec-1.1.0",
- "toml_edit 0.25.8+spec-1.1.0",
+ "toml_edit 0.25.6+spec-1.1.0",
  "webview2-com",
  "windows-core 0.61.2",
  "zip 8.4.0",
@@ -5385,9 +5385,9 @@ dependencies = [
 
 [[package]]
 name = "toml_edit"
-version = "0.25.8+spec-1.1.0"
+version = "0.25.6+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16bff38f1d86c47f9ff0647e6838d7bb362522bdf44006c7068c2b1e606f1f3c"
+checksum = "0db3bae107c9522f86d361697dee1d7386a2ddcf659d5aea5159819a21a3c4a7"
 dependencies = [
  "indexmap 2.13.0",
  "toml_datetime 1.1.0+spec-1.1.0",

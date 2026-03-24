@@ -118,6 +118,7 @@ mod tests {
             completion_command: None,
             completion_search_mode: None,
             history_key: None,
+            source_file: None,
         }
     }
 

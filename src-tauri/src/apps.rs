@@ -19,6 +19,10 @@ pub struct LaunchItem {
     /// history での sort キー。`path\targs` 形式。None なら path を使う。
     #[serde(default)]
     pub history_key: Option<String>,
+    /// override で path が差し替えられた場合の元ファイルパス。
+    /// テンプレート内で {{ file_path }} 等として参照できる。
+    #[serde(default)]
+    pub source_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +42,7 @@ pub fn render_template(template: &str, ctx: &tera::Context) -> String {
 pub fn build_template_context(
     extra_args: &[String],
     vars: &std::collections::HashMap<String, String>,
+    source_file: Option<&str>,
 ) -> tera::Context {
     let mut ctx = tera::Context::new();
     ctx.insert("args", &extra_args.join(" "));
@@ -47,6 +52,27 @@ pub fn build_template_context(
     ctx.insert("env", &env_map);
     // ユーザー定義変数を {{ vars.xxx }} として使えるようにする
     ctx.insert("vars", vars);
+    // override で差し替えられた元ファイルのパス変数
+    if let Some(sf) = source_file {
+        let p = std::path::Path::new(sf);
+        ctx.insert("file_path", sf);
+        ctx.insert(
+            "file_name",
+            p.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+        );
+        ctx.insert(
+            "file_stem",
+            p.file_stem().and_then(|n| n.to_str()).unwrap_or(""),
+        );
+        ctx.insert(
+            "file_ext",
+            p.extension().and_then(|n| n.to_str()).unwrap_or(""),
+        );
+        ctx.insert(
+            "file_dir",
+            p.parent().and_then(|d| d.to_str()).unwrap_or(""),
+        );
+    }
     ctx
 }
 
@@ -60,7 +86,7 @@ pub fn launch_with_extra(
         || item.args.iter().any(|a| a.contains("{{"))
         || item.workdir.as_deref().is_some_and(|w| w.contains("{{"));
     if has_template || !extra_args.is_empty() {
-        let ctx = build_template_context(&extra_args, vars);
+        let ctx = build_template_context(&extra_args, vars, item.source_file.as_deref());
         let rendered_path = render_template(&item.path, &ctx);
         let rendered_args: Vec<String> =
             item.args.iter().map(|a| render_template(a, &ctx)).collect();
@@ -276,13 +302,27 @@ pub fn collect_items(config: &Config) -> Vec<LaunchItem> {
     // 履歴にある URL / Path アイテムを復元
     items.extend(history_items(config));
 
-    // [[overrides]] を name (大文字小文字無視) でマッチして上書き
+    // [[overrides]] を name (stem, 大文字小文字無視) または ext (拡張子) でマッチして上書き
     for item in &mut items {
-        if let Some(ov) = config
-            .overrides
-            .iter()
-            .find(|o| o.name.to_lowercase() == item.name.to_lowercase())
-        {
+        let item_ext = std::path::Path::new(&item.path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        if let Some(ov) = config.overrides.iter().find(|o| {
+            let name_match =
+                !o.name.is_empty() && o.name.to_lowercase() == item.name.to_lowercase();
+            let ext_match = o
+                .ext
+                .as_deref()
+                .is_some_and(|e| e.to_lowercase() == item_ext);
+            name_match || ext_match
+        }) {
+            // path が指定されていれば元ファイルを source_file に保存して差し替え
+            if let Some(ref v) = ov.path {
+                item.source_file = Some(item.path.clone());
+                item.path = v.clone();
+            }
             if let Some(ref v) = ov.completion {
                 item.completion = v.clone();
             }
@@ -357,6 +397,7 @@ fn history_items(config: &Config) -> Vec<LaunchItem> {
                     completion_command: None,
                     completion_search_mode: None,
                     history_key: Some(key.clone()),
+                    source_file: None,
                 })
             } else if is_url(key) && !key.contains("{{") {
                 // テンプレート URL（{{ }} を含む）は直接開けないのでスキップ
@@ -371,6 +412,7 @@ fn history_items(config: &Config) -> Vec<LaunchItem> {
                     completion_command: None,
                     completion_search_mode: None,
                     history_key: None,
+                    source_file: None,
                 })
             } else if is_path(key) {
                 Some(LaunchItem {
@@ -384,6 +426,7 @@ fn history_items(config: &Config) -> Vec<LaunchItem> {
                     completion_command: None,
                     completion_search_mode: None,
                     history_key: None,
+                    source_file: None,
                 })
             } else {
                 None
@@ -404,6 +447,7 @@ fn launch_item_from_entry(app: &AppEntry) -> LaunchItem {
         completion_command: app.completion_command.clone(),
         completion_search_mode: app.completion_search_mode.clone(),
         history_key: None,
+        source_file: None,
     }
 }
 
@@ -464,6 +508,7 @@ fn collect_files(
                 completion_command: None,
                 completion_search_mode: None,
                 history_key: None,
+                source_file: None,
             });
         }
     }
@@ -516,6 +561,7 @@ fn collect_lnk_files(dir: &Path, items: &mut Vec<LaunchItem>) {
                 completion_command: None,
                 completion_search_mode: None,
                 history_key: None,
+                source_file: None,
             });
         }
     }
@@ -569,6 +615,7 @@ fn collect_app_bundles(dir: &Path, items: &mut Vec<LaunchItem>) {
                     completion_command: None,
                     completion_search_mode: None,
                     history_key: None,
+                    source_file: None,
                 });
             }
         }
@@ -734,21 +781,24 @@ mod tests {
 
     #[test]
     fn template_args_substitution() {
-        let ctx = build_template_context(&["hello world".to_string()], &Default::default());
+        let ctx = build_template_context(&["hello world".to_string()], &Default::default(), None);
         assert_eq!(render_template("{{ args }}", &ctx), "hello world");
     }
 
     #[test]
     fn template_args_urlencode() {
-        let ctx = build_template_context(&["hello world".to_string()], &Default::default());
+        let ctx = build_template_context(&["hello world".to_string()], &Default::default(), None);
         let result = render_template("{{ args | urlencode }}", &ctx);
         assert_eq!(result, "hello%20world");
     }
 
     #[test]
     fn template_args_list() {
-        let ctx =
-            build_template_context(&["foo".to_string(), "bar".to_string()], &Default::default());
+        let ctx = build_template_context(
+            &["foo".to_string(), "bar".to_string()],
+            &Default::default(),
+            None,
+        );
         assert_eq!(
             render_template("{{ args_list | join(sep=',') }}", &ctx),
             "foo,bar"
@@ -757,7 +807,7 @@ mod tests {
 
     #[test]
     fn template_no_placeholder_unchanged() {
-        let ctx = build_template_context(&["something".to_string()], &Default::default());
+        let ctx = build_template_context(&["something".to_string()], &Default::default(), None);
         assert_eq!(
             render_template("https://example.com", &ctx),
             "https://example.com"
@@ -766,7 +816,11 @@ mod tests {
 
     #[test]
     fn template_url_search() {
-        let ctx = build_template_context(&["rust borrow checker".to_string()], &Default::default());
+        let ctx = build_template_context(
+            &["rust borrow checker".to_string()],
+            &Default::default(),
+            None,
+        );
         let result = render_template(
             "https://www.google.com/search?q={{ args | urlencode }}",
             &ctx,
@@ -780,7 +834,7 @@ mod tests {
     #[test]
     fn template_env_var() {
         std::env::set_var("SHUN_TEST_VAR", "hello");
-        let ctx = build_template_context(&[], &Default::default());
+        let ctx = build_template_context(&[], &Default::default(), None);
         let result = render_template("{{ env.SHUN_TEST_VAR }}/world", &ctx);
         assert_eq!(result, "hello/world");
     }
@@ -789,14 +843,14 @@ mod tests {
     fn template_vars_substitution() {
         let mut vars = std::collections::HashMap::new();
         vars.insert("src_dir".to_string(), "/home/user/src".to_string());
-        let ctx = build_template_context(&["myproject".to_string()], &vars);
+        let ctx = build_template_context(&["myproject".to_string()], &vars, None);
         let result = render_template("{{ vars.src_dir }}/{{ args }}", &ctx);
         assert_eq!(result, "/home/user/src/myproject");
     }
 
     #[test]
     fn template_vars_empty_by_default() {
-        let ctx = build_template_context(&[], &Default::default());
+        let ctx = build_template_context(&[], &Default::default(), None);
         // 未定義 vars は Tera エラーになるが render_template はそのまま返す
         let result = render_template("{{ vars.missing | default(value=\"fallback\") }}", &ctx);
         assert_eq!(result, "fallback");
@@ -830,7 +884,7 @@ mod tests {
         // → Tera renders to "~/.memolist/todo.md", then launch() expand_path expands ~
         let mut vars = std::collections::HashMap::new();
         vars.insert("memo_path".to_string(), "~/.memolist/todo.md".to_string());
-        let ctx = build_template_context(&[], &vars);
+        let ctx = build_template_context(&[], &vars, None);
         let rendered = render_template("{{ vars.memo_path }}", &ctx);
         // rendered is still "~/.memolist/todo.md" — expand_path in launch() finishes the job
         assert_eq!(rendered, "~/.memolist/todo.md");
@@ -849,13 +903,40 @@ mod tests {
             "memo_path".to_string(),
             "{{ env.USERPROFILE }}/.memolist/todo.md".to_string(),
         );
-        let ctx = build_template_context(&[], &vars);
+        let ctx = build_template_context(&[], &vars, None);
         let rendered = render_template("{{ vars.memo_path }}", &ctx);
         // the inner {{ }} is NOT re-rendered
         assert!(
             rendered.contains("{{ env.USERPROFILE }}"),
             "unexpected double-render: {rendered}"
         );
+    }
+
+    // --- file template variables ---
+
+    #[test]
+    fn template_file_variables() {
+        let ctx = build_template_context(
+            &[],
+            &Default::default(),
+            Some("/home/user/docs/report.xlsx"),
+        );
+        assert_eq!(
+            render_template("{{ file_path }}", &ctx),
+            "/home/user/docs/report.xlsx"
+        );
+        assert_eq!(render_template("{{ file_name }}", &ctx), "report.xlsx");
+        assert_eq!(render_template("{{ file_stem }}", &ctx), "report");
+        assert_eq!(render_template("{{ file_ext }}", &ctx), "xlsx");
+        assert_eq!(render_template("{{ file_dir }}", &ctx), "/home/user/docs");
+    }
+
+    #[test]
+    fn template_file_variables_absent_when_no_source_file() {
+        let ctx = build_template_context(&[], &Default::default(), None);
+        // undefined variables fall back to the raw template (Tera error → original string)
+        let result = render_template("{{ file_path | default(value=\"none\") }}", &ctx);
+        assert_eq!(result, "none");
     }
 
     // --- launch_with_extra merges args ---
@@ -873,6 +954,7 @@ mod tests {
             completion_command: None,
             completion_search_mode: None,
             history_key: None,
+            source_file: None,
         };
         // launch_with_extra builds merged args internally; we verify it doesn't panic
         // by using an extra_args that won't actually spawn anything harmful

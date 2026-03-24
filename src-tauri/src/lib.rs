@@ -222,7 +222,7 @@ fn extract_template_base_path(
     if prefix.is_empty() {
         return None;
     }
-    let ctx = apps::build_template_context(&[], vars);
+    let ctx = apps::build_template_context(&[], vars, None);
     let rendered = apps::render_template(prefix, &ctx);
     let rendered = rendered.replace('\\', "/");
     if !rendered.ends_with('/') {
@@ -259,7 +259,7 @@ fn launch_item(
         // base も同時に record すると同じ秒になり recent_first の tiebreaker で base が勝ってしまうため
         // item.args にテンプレートが含まれる場合は展開した結果を記録する
         let history_args: Vec<String> = if item.args.iter().any(|a| a.contains("{{")) {
-            let ctx = apps::build_template_context(&extra, &vars);
+            let ctx = apps::build_template_context(&extra, &vars, item.source_file.as_deref());
             item.args
                 .iter()
                 .map(|a| apps::render_template(a, &ctx))
@@ -291,7 +291,7 @@ fn launch_item(
         item.args.clone()
     };
     let path = if item.path.contains("{{") {
-        let ctx = apps::build_template_context(&template_args, &vars);
+        let ctx = apps::build_template_context(&template_args, &vars, item.source_file.as_deref());
         apps::render_template(&item.path, &ctx)
     } else {
         item.path.clone()
