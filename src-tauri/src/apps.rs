@@ -694,6 +694,7 @@ fn parse_desktop_file(path: &Path) -> Option<LaunchItem> {
         completion_command: None,
         completion_search_mode: None,
         history_key: None,
+        source_file: None,
     })
 }
 
