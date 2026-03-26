@@ -823,14 +823,19 @@
       return;
     }
     if (isPathQuery(query)) {
-      invoke("complete_path", { input: query, completionType: "path", completionList: [], completionCommand: null, workdir: null })
-        .then((result) => {
-          filtered = result.completions.length > 0
-            ? result.completions.map(makePathItem)
-            : [makePathItem(query)];
-          selectedIndex = 0;
-          resizeForSearch(filtered.length);
-        });
+      Promise.all([
+        invoke("complete_path", { input: query, completionType: "path", completionList: [], completionCommand: null, workdir: null }),
+        invoke("search_items", { query, searchMode: uiSearchMode, sortOrder: uiSortOrder }),
+      ]).then(([pathResult, searchResults]) => {
+        const historyItems = searchResults.filter(i => i.source === "Path" || i.source === "History");
+        const pathCompletions = pathResult.completions.map(makePathItem);
+        const historyPathSet = new Set(historyItems.map(i => i.path));
+        const uniqueCompletions = pathCompletions.filter(i => !historyPathSet.has(i.path));
+        const combined = [...historyItems, ...uniqueCompletions];
+        filtered = combined.length > 0 ? combined : [makePathItem(query)];
+        selectedIndex = 0;
+        resizeForSearch(filtered.length);
+      });
       return;
     }
     // Read configWarnings synchronously so $effect tracks it as a dependency
