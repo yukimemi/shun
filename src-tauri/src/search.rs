@@ -354,4 +354,39 @@ mod tests {
         let names: Vec<&str> = r.iter().map(|i| i.name.as_str()).collect();
         assert!(names.contains(&"はじめに"));
     }
+
+    // --- インフラWBS マッチ調査 ---
+
+    #[test]
+    fn infrawbs_match_investigation() {
+        let items = vec![item("インフラWBS")];
+
+        let fuzzy_infura = !fuzzy_filter(&items, "infura").is_empty();
+        let fuzzy_wbs = !fuzzy_filter(&items, "wbs").is_empty();
+        let fuzzy_infurawbs = !fuzzy_filter(&items, "infurawbs").is_empty();
+
+        let migemo_infura = !migemo_filter(&items, "infura").is_empty();
+        let migemo_wbs = !migemo_filter(&items, "wbs").is_empty();
+        let migemo_infurawbs = !migemo_filter(&items, "infurawbs").is_empty();
+
+        let fuzzymigemo_infura = !fuzzy_migemo_filter(&items, "infura").is_empty();
+        let fuzzymigemo_wbs = !fuzzy_migemo_filter(&items, "wbs").is_empty();
+        let fuzzymigemo_infurawbs = !fuzzy_migemo_filter(&items, "infurawbs").is_empty();
+
+        println!(
+            "fuzzy       : infura={fuzzy_infura}, wbs={fuzzy_wbs}, infurawbs={fuzzy_infurawbs}"
+        );
+        println!(
+            "migemo      : infura={migemo_infura}, wbs={migemo_wbs}, infurawbs={migemo_infurawbs}"
+        );
+        println!("fuzzy_migemo: infura={fuzzymigemo_infura}, wbs={fuzzymigemo_wbs}, infurawbs={fuzzymigemo_infurawbs}");
+
+        // migemo パターンも出力して確認
+        let pat_infura = crate::migemo::query_to_pattern("infura");
+        let pat_wbs = crate::migemo::query_to_pattern("wbs");
+        let pat_infurawbs = crate::migemo::query_to_pattern("infurawbs");
+        println!("migemo pattern infura    = {pat_infura}");
+        println!("migemo pattern wbs       = {pat_wbs}");
+        println!("migemo pattern infurawbs = {pat_infurawbs}");
+    }
 }
