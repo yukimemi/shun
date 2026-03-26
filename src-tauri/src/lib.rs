@@ -425,7 +425,7 @@ fn should_check_update(interval_secs: u64) -> bool {
     let Ok(elapsed) = modified.elapsed() else {
         return true;
     };
-    elapsed.as_secs() > interval_secs
+    elapsed.as_secs() >= interval_secs
 }
 
 fn record_update_check() {
@@ -920,12 +920,21 @@ pub fn run() {
                 loop {
                     if should_check_update(interval) {
                         log::info!("update check triggered (interval={interval}s)");
-                        record_update_check();
-                        if let Ok(updater) = app_for_update.updater() {
-                            if let Ok(Some(update)) = updater.check().await {
-                                let _ =
-                                    app_for_update.emit("update-available", update.version.clone());
-                            }
+                        match app_for_update.updater() {
+                            Err(e) => log::warn!("update check: failed to get updater: {e}"),
+                            Ok(updater) => match updater.check().await {
+                                Err(e) => log::warn!("update check: check() failed: {e}"),
+                                Ok(None) => {
+                                    log::info!("update check: no update available");
+                                    record_update_check();
+                                }
+                                Ok(Some(update)) => {
+                                    log::info!("update check: new version found: {}", update.version);
+                                    record_update_check();
+                                    let _ = app_for_update
+                                        .emit("update-available", update.version.clone());
+                                }
+                            },
                         }
                     }
                     tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
