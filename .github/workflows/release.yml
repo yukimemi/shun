@@ -291,8 +291,44 @@ jobs:
           git diff --cached --quiet || git commit -m "chore: update shun to ${{ github.ref_name }}"
           git push
 
-  submit-winget:
+  test-installer:
     needs: release
+    if: github.event_name == 'push' && success()
+    runs-on: windows-latest
+    steps:
+      - name: Download installer
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release download "${{ github.ref_name }}" --pattern "*_x64-setup.exe" --repo yukimemi/shun
+
+      - name: Test silent install (/S)
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem "*_x64-setup.exe" | Select-Object -First 1
+          Write-Host "Testing silent install: $($exe.Name) /S"
+          $p = Start-Process $exe.FullName -ArgumentList "/S" -Wait -PassThru
+          Write-Host "Exit code (/S): $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { Write-Error "/S install failed (exit $($p.ExitCode))"; exit 1 }
+          if (-not (Test-Path "$env:LocalAppData\shun\shun.exe")) {
+            Write-Error "shun.exe not found after /S install"
+            exit 1
+          }
+          Write-Host "OK: /S silent install succeeded"
+
+      - name: Uninstall after /S test
+        shell: pwsh
+        run: |
+          $uninstaller = "$env:LocalAppData\shun\uninstall.exe"
+          if (Test-Path $uninstaller) {
+            $p = Start-Process $uninstaller -ArgumentList "/S" -Wait -PassThru
+            Write-Host "Uninstall exit code: $($p.ExitCode)"
+          } else {
+            Write-Host "Uninstaller not found, skipping"
+          }
+
+
+  submit-winget:
+    needs: [release, test-installer]
     if: github.event_name == 'push' && success()
     runs-on: windows-latest
     env:
