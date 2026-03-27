@@ -4031,7 +4031,7 @@ dependencies = [
 [[package]]
 name = "rustmigemo"
 version = "0.1.7-dev.0"
-source = "git+https://github.com/yukimemi/rustmigemo?rev=14e8f564c95aa252314101662f237409dc68397a#14e8f564c95aa252314101662f237409dc68397a"
+source = "git+https://github.com/yukimemi/rustmigemo?rev=36a17c4f3e945fdfd7ffc421468f4f90bc50251e#36a17c4f3e945fdfd7ffc421468f4f90bc50251e"
 dependencies = [
  "byteorder",
 ]
@@ -4390,7 +4390,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "shun"
-version = "3.7.1"
+version = "3.7.2"
 dependencies = [
  "dirs-next",
  "futures-util",

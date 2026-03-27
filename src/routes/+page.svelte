@@ -12,6 +12,8 @@
   let migemoInstance = $state(null);
 
   let WINDOW_WIDTH = $state(620);
+  let PREVIEW_WIDTH = $state(400);
+  let MAX_PREVIEW_LINES = $state(30);
   const INPUT_HEIGHT = 52;
   const ITEM_HEIGHT = 40;
   const BORDER_HEIGHT = 1;
@@ -80,6 +82,15 @@
   let helpVisible = $state(false);
   // スラッシュコマンド結果表示中フラグ（search effect をスキップするため）
   let slashResult = $state(false);
+  // プレビュー
+  let previewContent = $state("");
+  let previewVisible = $derived(
+    mode === "args" &&
+    argItem?.completion === "path" &&
+    allCompletions.length > 0 &&
+    !!allCompletions[completionIndex] &&
+    !allCompletions[completionIndex].endsWith("/")
+  );
 
   // モード: "search" | "args"
   let mode = $state("search");
@@ -128,9 +139,10 @@
   let _lastSize = { w: 0, h: 0 };
 
   function _setSize(w, h) {
-    if (_lastSize.w === w && _lastSize.h === h) return;
-    _lastSize = { w, h };
-    win.setSize(new LogicalSize(w, h));
+    const totalW = previewVisible ? w + PREVIEW_WIDTH : w;
+    if (_lastSize.w === totalW && _lastSize.h === h) return;
+    _lastSize = { w: totalW, h };
+    win.setSize(new LogicalSize(totalW, h));
   }
 
   function resizeForSearch(itemCount) {
@@ -373,9 +385,12 @@
     const { config: cfg, warnings: backendWarnings } = await invoke("get_config_and_warnings");
     configFiles = await invoke("list_config_files");
     if (cfg?.keybindings) keybindings = { ...keybindings, ...cfg.keybindings };
-    if (cfg?.window_width)    WINDOW_WIDTH    = cfg.window_width;
-    if (cfg?.max_items)       MAX_ITEMS       = cfg.max_items;
-    if (cfg?.max_completions) MAX_COMPLETIONS = cfg.max_completions;
+    if (cfg?.window_width)      WINDOW_WIDTH      = cfg.window_width;
+    if (cfg?.max_items)         MAX_ITEMS         = cfg.max_items;
+    if (cfg?.max_completions)   MAX_COMPLETIONS   = cfg.max_completions;
+    if (cfg?.preview_width)     PREVIEW_WIDTH     = cfg.preview_width;
+    if (cfg?.max_preview_lines) MAX_PREVIEW_LINES = cfg.max_preview_lines;
+    document.documentElement.style.setProperty('--launcher-width', (cfg?.window_width ?? WINDOW_WIDTH) + 'px');
     if (cfg?.font_size)       document.documentElement.style.setProperty('--font-size', cfg.font_size + 'px');
     if (cfg?.opacity != null) document.documentElement.style.setProperty('--opacity', cfg.opacity);
     if (cfg?.icon_style)      iconStyle     = cfg.icon_style;
@@ -759,6 +774,34 @@
       cycleSortOrder();
     }
   }
+
+  // プレビュー表示切り替え時: ウィンドウ位置を再調整してリサイズ
+  $effect(() => {
+    const visible = previewVisible;
+    _lastSize = { w: 0, h: 0 }; // キャッシュクリアして強制リサイズ
+    if (mode === "args") {
+      resizeForArgs(allCompletions.length);
+    } else {
+      resizeForSearch(filtered.length);
+    }
+    invoke("adjust_for_preview", { show: visible, previewWidth: PREVIEW_WIDTH });
+  });
+
+  // プレビューコンテンツ取得
+  $effect(() => {
+    if (!previewVisible) {
+      previewContent = "";
+      return;
+    }
+    const comp = allCompletions[completionIndex];
+    if (!comp || comp.endsWith("/")) {
+      previewContent = "";
+      return;
+    }
+    invoke("read_preview", { path: comp, maxLines: MAX_PREVIEW_LINES }).then(text => {
+      previewContent = text;
+    });
+  });
 
   // 選択アイテムの name が truncate されている場合に scrollLeft でスクロール
   $effect(() => {
@@ -1328,6 +1371,11 @@
       {/if}
     {/if}
   </div>
+  {#if previewVisible}
+    <div class="preview-panel">
+      <pre class="preview-content">{previewContent || "..."}</pre>
+    </div>
+  {/if}
 </main>
 
 <style>
@@ -1346,17 +1394,39 @@
   }
 
   main {
+    display: flex;
     width: 100vw;
     height: 100vh;
     background: transparent;
   }
 
   .launcher {
-    width: 100%;
+    width: var(--launcher-width, 620px);
+    flex-shrink: 0;
     height: 100%;
     background: var(--color-bg, #1e1e2e);
     overflow: hidden;
     opacity: var(--opacity, 1);
+  }
+
+  .preview-panel {
+    flex: 1;
+    height: 100%;
+    overflow-y: auto;
+    background: var(--color-bg, #1e1e2e);
+    opacity: var(--opacity, 1);
+    border-left: 1px solid var(--color-surface1, #313244);
+  }
+
+  .preview-content {
+    padding: 10px 12px;
+    margin: 0;
+    font-family: monospace;
+    font-size: calc(var(--font-size, 14px) - 1px);
+    color: var(--color-subtext0, #a6adc8);
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.5;
   }
 
   .search-wrap {
