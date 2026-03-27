@@ -365,7 +365,8 @@ fn register_launch_shortcut(app: &tauri::AppHandle) -> Result<(), String> {
                         refresh_cache_bg(cache);
                     } else {
                         debug!("shortcut: window hidden → show");
-                        center_on_monitor(&window, &config::load_config().0.monitor);
+                        let cfg = config::load_config().0;
+                        center_on_monitor(&window, &cfg.monitor, cfg.window_width as f64);
                         window.show().ok();
                         window.set_focus().ok();
                         window.emit("show-launcher", ()).ok();
@@ -763,7 +764,36 @@ fn save_to_local(
     Ok(format!("{} saved to config.local.toml", display))
 }
 
-fn center_on_monitor(window: &tauri::WebviewWindow, target: &config::MonitorTarget) {
+#[tauri::command]
+fn read_preview(path: String, max_lines: usize) -> String {
+    use std::io::BufRead;
+    let expanded = crate::utils::expand_path(&path);
+    let Ok(file) = std::fs::File::open(&expanded) else {
+        return String::new();
+    };
+    let reader = std::io::BufReader::new(file);
+    let mut lines = Vec::new();
+    for line in reader.lines().take(max_lines) {
+        match line {
+            Ok(l) => lines.push(l),
+            Err(_) => return String::new(), // バイナリファイルは空を返す
+        }
+    }
+    lines.join("\n")
+}
+
+#[tauri::command]
+fn adjust_for_preview(window: tauri::WebviewWindow, show: bool, preview_width: u32) {
+    let cfg = config::load_config().0;
+    let total_width = if show {
+        cfg.window_width as f64 + preview_width as f64
+    } else {
+        cfg.window_width as f64
+    };
+    center_on_monitor(&window, &cfg.monitor, total_width);
+}
+
+fn center_on_monitor(window: &tauri::WebviewWindow, target: &config::MonitorTarget, win_w: f64) {
     let monitors = match window.available_monitors() {
         Ok(m) => m,
         Err(_) => return,
@@ -810,7 +840,6 @@ fn center_on_monitor(window: &tauri::WebviewWindow, target: &config::MonitorTarg
     let mon_w = size.width as f64 / scale;
     let mon_h = size.height as f64 / scale;
 
-    let win_w = 620.0_f64;
     let x = mon_x + (mon_w - win_w) / 2.0;
     let y = mon_y + mon_h * 0.25;
 
@@ -957,7 +986,8 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(win) = app.get_webview_window("main") {
-                            center_on_monitor(&win, &config::load_config().0.monitor);
+                            let cfg = config::load_config().0;
+                            center_on_monitor(&win, &cfg.monitor, cfg.window_width as f64);
                             win.show().ok();
                             win.set_focus().ok();
                             win.emit("show-launcher", ()).ok();
@@ -995,7 +1025,8 @@ pub fn run() {
                 // フロントエンドの初期化完了を待ってから表示
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(500));
-                    center_on_monitor(&window_warn, &config::load_config().0.monitor);
+                    let cfg = config::load_config().0;
+                    center_on_monitor(&window_warn, &cfg.monitor, cfg.window_width as f64);
                     window_warn.show().ok();
                     window_warn.set_focus().ok();
                     window_warn.emit("show-launcher", ()).ok();
@@ -1020,7 +1051,9 @@ pub fn run() {
             reload,
             get_last_args,
             get_args_history,
-            install_update
+            install_update,
+            read_preview,
+            adjust_for_preview
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

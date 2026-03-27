@@ -96,6 +96,10 @@ pub struct Config {
     pub icon_style: IconStyle,
     #[serde(default)]
     pub monitor: MonitorTarget,
+    #[serde(default = "default_preview_width")]
+    pub preview_width: u32,
+    #[serde(default = "default_max_preview_lines")]
+    pub max_preview_lines: usize,
     #[serde(default)]
     pub vars: HashMap<String, String>,
     #[serde(default)]
@@ -194,6 +198,12 @@ fn default_update_check_interval() -> u64 {
 }
 fn default_window_width() -> u32 {
     620
+}
+fn default_preview_width() -> u32 {
+    400
+}
+fn default_max_preview_lines() -> usize {
+    30
 }
 fn default_max_items() -> usize {
     8
@@ -349,6 +359,8 @@ impl Default for Config {
             log: LogConfig::default(),
             icon_style: IconStyle::default(),
             monitor: MonitorTarget::default(),
+            preview_width: default_preview_width(),
+            max_preview_lines: default_max_preview_lines(),
             vars: HashMap::new(),
             apps: vec![],
             scan_dirs: vec![],
