@@ -225,7 +225,7 @@ fn default_preview_width() -> u32 {
     400
 }
 fn default_max_preview_lines() -> usize {
-    30
+    500
 }
 fn default_max_items() -> usize {
     8

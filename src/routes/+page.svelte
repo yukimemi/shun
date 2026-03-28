@@ -7,13 +7,14 @@
   import { debug, info } from "@tauri-apps/plugin-log";
   import { onMount, tick } from "svelte";
   import { firstSepIdx, isPathQuery, matchKey, fuzzyMatch, shouldBypassTemplate, getEffectiveSearchMode, nextSearchMode } from "$lib/utils.js";
+  import { highlight, shikiTheme } from "$lib/highlight.js";
 
   // migemo インスタンス（lazy load）
   let migemoInstance = $state(null);
 
   let WINDOW_WIDTH = $state(620);
   let PREVIEW_WIDTH = $state(400);
-  let MAX_PREVIEW_LINES = $state(30);
+  let MAX_PREVIEW_LINES = $state(500);
   const INPUT_HEIGHT = 52;
   const ITEM_HEIGHT = 40;
   const BORDER_HEIGHT = 1;
@@ -90,6 +91,7 @@
   let previewSearch = $state(false);
   let previewPanelEl = $state(null);
   let previewContent = $state("");
+  let previewHighlighted = $state(null);
   // 個々のアイテムのプレビュー対象パス
   let previewTarget = $derived(() => {
     if (mode === "args" && previewArgs && argItem?.completion === "path") {
@@ -824,12 +826,20 @@
     invoke("adjust_for_preview", { show, previewWidth: PREVIEW_WIDTH });
   });
 
-  // プレビューコンテンツ取得（Ctrl+n/p でアイテムが変わっても位置・サイズは変化しない）
+  // プレビューコンテンツ取得 + ハイライト（Ctrl+n/p でアイテムが変わっても位置・サイズは変化しない）
   $effect(() => {
     const target = previewTarget();
-    if (!target) { previewContent = ""; return; }
+    if (!target) { previewContent = ""; previewHighlighted = null; return; }
     invoke("read_preview", { path: target, maxLines: MAX_PREVIEW_LINES }).then(text => {
       previewContent = text;
+      previewHighlighted = null; // いったんプレーンテキストを表示
+      if (!text) return;
+      // 非同期でハイライト（完了したら差し替え）
+      shikiTheme(currentPreset).then(theme =>
+        highlight(target, text, theme).then(html => {
+          if (previewTarget() === target) previewHighlighted = html;
+        })
+      );
     });
   });
 
@@ -1403,7 +1413,11 @@
   </div>
   {#if previewVisible}
     <div class="preview-panel" bind:this={previewPanelEl}>
-      <pre class="preview-content">{previewContent}</pre>
+      {#if previewHighlighted}
+        {@html previewHighlighted}
+      {:else}
+        <pre class="preview-content">{previewContent}</pre>
+      {/if}
     </div>
   {/if}
 </main>
@@ -1427,6 +1441,7 @@
     display: flex;
     width: 100vw;
     height: 100vh;
+    overflow: hidden;
     background: transparent;
   }
 
@@ -1441,11 +1456,42 @@
 
   .preview-panel {
     flex: 1;
-    height: 100%;
+    min-height: 0; /* flex アイテムの min-height: auto を上書き → overflow-y が効く */
     overflow-y: auto;
     background: var(--color-bg, #1e1e2e);
     opacity: var(--opacity, 1);
     border-left: 1px solid var(--color-surface1, #313244);
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-surface1, #313244) transparent;
+  }
+
+  .preview-panel::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .preview-panel::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .preview-panel::-webkit-scrollbar-thumb {
+    background: var(--color-surface1, #313244);
+    border-radius: 2px;
+  }
+
+  .preview-panel::-webkit-scrollbar-thumb:hover {
+    background: var(--color-overlay0, #6c7086);
+  }
+
+  /* Shiki が出力する pre > code のスタイル調整 */
+  .preview-panel :global(pre) {
+    margin: 0;
+    padding: 10px 12px;
+    font-family: monospace;
+    font-size: calc(var(--font-size, 14px) - 1px);
+    white-space: pre-wrap;
+    word-break: break-all;
+    background: transparent !important;
+    overflow: visible !important; /* 親 .preview-panel がスクロールを担う */
   }
 
   .preview-content {
