@@ -100,6 +100,10 @@ pub struct Config {
     pub preview_width: u32,
     #[serde(default = "default_max_preview_lines")]
     pub max_preview_lines: usize,
+    #[serde(default = "default_true")]
+    pub preview_args: bool,
+    #[serde(default)]
+    pub preview_search: bool,
     #[serde(default)]
     pub vars: HashMap<String, String>,
     #[serde(default)]
@@ -140,6 +144,12 @@ pub struct Keybindings {
     pub cycle_search_mode: String,
     #[serde(default = "default_cycle_sort_order")]
     pub cycle_sort_order: String,
+    #[serde(default = "default_toggle_preview")]
+    pub toggle_preview: String,
+    #[serde(default = "default_preview_scroll_down")]
+    pub preview_scroll_down: String,
+    #[serde(default = "default_preview_scroll_up")]
+    pub preview_scroll_up: String,
 }
 
 pub fn default_launch() -> String {
@@ -183,6 +193,18 @@ fn default_cycle_search_mode() -> String {
 }
 fn default_cycle_sort_order() -> String {
     "Ctrl+Shift+o".to_string()
+}
+fn default_toggle_preview() -> String {
+    "Ctrl+Shift+p".to_string()
+}
+fn default_preview_scroll_down() -> String {
+    "Ctrl+j".to_string()
+}
+fn default_preview_scroll_up() -> String {
+    "Ctrl+k".to_string()
+}
+fn default_true() -> bool {
+    true
 }
 fn default_log_level() -> String {
     "warn".to_string()
@@ -238,6 +260,9 @@ impl Default for Keybindings {
             delete_item: default_delete_item(),
             cycle_search_mode: default_cycle_search_mode(),
             cycle_sort_order: default_cycle_sort_order(),
+            toggle_preview: default_toggle_preview(),
+            preview_scroll_down: default_preview_scroll_down(),
+            preview_scroll_up: default_preview_scroll_up(),
         }
     }
 }
@@ -361,6 +386,8 @@ impl Default for Config {
             monitor: MonitorTarget::default(),
             preview_width: default_preview_width(),
             max_preview_lines: default_max_preview_lines(),
+            preview_args: default_true(),
+            preview_search: false,
             vars: HashMap::new(),
             apps: vec![],
             scan_dirs: vec![],

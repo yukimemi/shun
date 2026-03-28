@@ -37,8 +37,11 @@
     run_query:         "Shift+Enter",
     close:             "Escape",
     delete_item:       "Ctrl+d",
-    cycle_search_mode: "Ctrl+Shift+m",
-    cycle_sort_order:  "Ctrl+Shift+o",
+    cycle_search_mode:    "Ctrl+Shift+m",
+    cycle_sort_order:     "Ctrl+Shift+o",
+    toggle_preview:       "Ctrl+Shift+p",
+    preview_scroll_down:  "Ctrl+j",
+    preview_scroll_up:    "Ctrl+k",
   });
 
   function makePathItem(p) {
@@ -82,15 +85,27 @@
   let helpVisible = $state(false);
   // スラッシュコマンド結果表示中フラグ（search effect をスキップするため）
   let slashResult = $state(false);
-  // プレビュー
+  // プレビュー on/off (モードごと独立)
+  let previewArgs = $state(true);
+  let previewSearch = $state(false);
+  let previewPanelEl = $state(null);
   let previewContent = $state("");
-  let previewVisible = $derived(
-    mode === "args" &&
-    argItem?.completion === "path" &&
-    allCompletions.length > 0 &&
-    !!allCompletions[completionIndex] &&
-    !allCompletions[completionIndex].endsWith("/")
-  );
+  // 個々のアイテムのプレビュー対象パス
+  let previewTarget = $derived(() => {
+    if (mode === "args" && previewArgs && argItem?.completion === "path") {
+      const comp = allCompletions[completionIndex];
+      return (comp && !comp.endsWith("/")) ? comp : "";
+    }
+    if (mode === "search" && previewSearch) {
+      const item = filtered[selectedIndex];
+      const p = item?.path ?? "";
+      const skip = !p || p.endsWith("/") || p.endsWith("\\") || item?.source === "Url" || item?.source === "History";
+      return skip ? "" : p;
+    }
+    return "";
+  });
+  // コンテンツが取得できた場合のみパネル表示（バイナリは表示しない）
+  let previewVisible = $derived(previewTarget() !== "" && previewContent !== "");
 
   // モード: "search" | "args"
   let mode = $state("search");
@@ -140,9 +155,12 @@
 
   function _setSize(w, h) {
     const totalW = previewVisible ? w + PREVIEW_WIDTH : w;
-    if (_lastSize.w === totalW && _lastSize.h === h) return;
-    _lastSize = { w: totalW, h };
-    win.setSize(new LogicalSize(totalW, h));
+    // プレビュー表示中は高さを max に固定（候補数に関わらずパネルの高さを一定に保つ）
+    const maxH = INPUT_HEIGHT + BORDER_HEIGHT + MAX_ITEMS * ITEM_HEIGHT + RESULTS_PADDING;
+    const totalH = previewVisible ? maxH : h;
+    if (_lastSize.w === totalW && _lastSize.h === totalH) return;
+    _lastSize = { w: totalW, h: totalH };
+    win.setSize(new LogicalSize(totalW, totalH));
   }
 
   function resizeForSearch(itemCount) {
@@ -388,8 +406,10 @@
     if (cfg?.window_width)      WINDOW_WIDTH      = cfg.window_width;
     if (cfg?.max_items)         MAX_ITEMS         = cfg.max_items;
     if (cfg?.max_completions)   MAX_COMPLETIONS   = cfg.max_completions;
-    if (cfg?.preview_width)     PREVIEW_WIDTH     = cfg.preview_width;
-    if (cfg?.max_preview_lines) MAX_PREVIEW_LINES = cfg.max_preview_lines;
+    if (cfg?.preview_width)          PREVIEW_WIDTH  = cfg.preview_width;
+    if (cfg?.max_preview_lines)      MAX_PREVIEW_LINES = cfg.max_preview_lines;
+    if (cfg?.preview_args  != null)  previewArgs    = cfg.preview_args;
+    if (cfg?.preview_search != null) previewSearch  = cfg.preview_search;
     document.documentElement.style.setProperty('--launcher-width', (cfg?.window_width ?? WINDOW_WIDTH) + 'px');
     if (cfg?.font_size)       document.documentElement.style.setProperty('--font-size', cfg.font_size + 'px');
     if (cfg?.opacity != null) document.documentElement.style.setProperty('--opacity', cfg.opacity);
@@ -631,6 +651,14 @@
       } else if (matchKey(e, keybindings.cycle_sort_order)) {
         e.preventDefault();
         cycleSortOrder();
+      } else if (matchKey(e, keybindings.toggle_preview)) {
+        e.preventDefault();
+        if (mode === "args") previewArgs = !previewArgs;
+        else previewSearch = !previewSearch;
+      } else if (matchKey(e, keybindings.preview_scroll_down)) {
+        if (previewPanelEl) { e.preventDefault(); previewPanelEl.scrollBy(0, 60); }
+      } else if (matchKey(e, keybindings.preview_scroll_up)) {
+        if (previewPanelEl) { e.preventDefault(); previewPanelEl.scrollBy(0, -60); }
       }
       return;
     }
@@ -772,33 +800,35 @@
     } else if (matchKey(e, keybindings.cycle_sort_order)) {
       e.preventDefault();
       cycleSortOrder();
+    } else if (matchKey(e, keybindings.toggle_preview)) {
+      e.preventDefault();
+      if (mode === "args") previewArgs = !previewArgs;
+      else previewSearch = !previewSearch;
+    } else if (matchKey(e, keybindings.preview_scroll_down)) {
+      if (previewPanelEl) { e.preventDefault(); previewPanelEl.scrollBy(0, 60); }
+    } else if (matchKey(e, keybindings.preview_scroll_up)) {
+      if (previewPanelEl) { e.preventDefault(); previewPanelEl.scrollBy(0, -60); }
     }
   }
 
-  // プレビュー表示切り替え時: ウィンドウ位置を再調整してリサイズ
+  // previewContent が確定したタイミングでウィンドウ位置・サイズ再調整
   $effect(() => {
-    const visible = previewVisible;
+    const target = previewTarget();
+    const show = target !== "" && previewContent !== ""; // previewContent を直接読んでトラッキング保証
     _lastSize = { w: 0, h: 0 }; // キャッシュクリアして強制リサイズ
     if (mode === "args") {
       resizeForArgs(allCompletions.length);
     } else {
       resizeForSearch(filtered.length);
     }
-    invoke("adjust_for_preview", { show: visible, previewWidth: PREVIEW_WIDTH });
+    invoke("adjust_for_preview", { show, previewWidth: PREVIEW_WIDTH });
   });
 
-  // プレビューコンテンツ取得
+  // プレビューコンテンツ取得（Ctrl+n/p でアイテムが変わっても位置・サイズは変化しない）
   $effect(() => {
-    if (!previewVisible) {
-      previewContent = "";
-      return;
-    }
-    const comp = allCompletions[completionIndex];
-    if (!comp || comp.endsWith("/")) {
-      previewContent = "";
-      return;
-    }
-    invoke("read_preview", { path: comp, maxLines: MAX_PREVIEW_LINES }).then(text => {
+    const target = previewTarget();
+    if (!target) { previewContent = ""; return; }
+    invoke("read_preview", { path: target, maxLines: MAX_PREVIEW_LINES }).then(text => {
       previewContent = text;
     });
   });
@@ -1372,8 +1402,8 @@
     {/if}
   </div>
   {#if previewVisible}
-    <div class="preview-panel">
-      <pre class="preview-content">{previewContent || "..."}</pre>
+    <div class="preview-panel" bind:this={previewPanelEl}>
+      <pre class="preview-content">{previewContent}</pre>
     </div>
   {/if}
 </main>
