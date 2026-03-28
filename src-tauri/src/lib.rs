@@ -8,7 +8,6 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_updater::UpdaterExt;
-use tokio::io::AsyncBufReadExt;
 
 mod apps;
 mod complete;
@@ -482,45 +481,6 @@ fn detect_install_method() -> InstallMethod {
 }
 
 #[cfg(target_os = "windows")]
-async fn run_pkg_manager_update(
-    app: &tauri::AppHandle,
-    program: &str,
-    args: &[&str],
-) -> Result<(), String> {
-    run_pkg_manager_update_env(app, program, args, &[]).await
-}
-
-async fn run_pkg_manager_update_env(
-    app: &tauri::AppHandle,
-    program: &str,
-    args: &[&str],
-    envs: &[(&str, &str)],
-) -> Result<(), String> {
-    let mut cmd = tokio::process::Command::new(program);
-    cmd.args(args)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    for (k, v) in envs {
-        cmd.env(k, v);
-    }
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("failed to run {program}: {e}"))?;
-
-    if let Some(stdout) = child.stdout.take() {
-        let mut lines = tokio::io::BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            let _ = app.emit("update-log", serde_json::json!({ "line": line }));
-        }
-    }
-
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-    if !status.success() {
-        return Err(format!("{program} exited with status {status}"));
-    }
-    Ok(())
-}
-
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     match detect_install_method() {
@@ -529,12 +489,24 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         InstallMethod::Scoop => {
             #[cfg(target_os = "windows")]
             {
-                run_pkg_manager_update(
-                    &app,
-                    "powershell",
-                    &["-NoProfile", "-Command", "scoop update shun"],
-                )
-                .await
+                // shun 起動中は exe がロックされるため、終了後に update を実行する
+                let _ = app.emit(
+                    "update-log",
+                    serde_json::json!({ "line": "Quitting shun to run: scoop update shun ..." }),
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                std::process::Command::new("powershell")
+                    .args([
+                        "-NoProfile",
+                        "-WindowStyle",
+                        "Hidden",
+                        "-Command",
+                        "Start-Sleep -Milliseconds 1000; scoop update shun",
+                    ])
+                    .spawn()
+                    .map_err(|e| format!("failed to spawn scoop update: {e}"))?;
+                app.exit(0);
+                Ok(())
             }
             #[cfg(not(target_os = "windows"))]
             {
@@ -543,16 +515,21 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         }
 
         InstallMethod::Homebrew => {
-            run_pkg_manager_update_env(
-                &app,
-                "brew",
-                &["upgrade", "--cask", "shun"],
-                &[
-                    ("HOMEBREW_NO_AUTO_UPDATE", "1"),
-                    ("HOMEBREW_NO_INTERACTIVE", "1"),
-                ],
-            )
-            .await
+            // shun 起動中はアプリがロックされるため、終了後に update を実行する
+            let _ = app.emit(
+                "update-log",
+                serde_json::json!({ "line": "Quitting shun to run: brew upgrade --cask shun ..." }),
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            std::process::Command::new("sh")
+                .args([
+                    "-c",
+                    "sleep 1 && HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INTERACTIVE=1 brew upgrade --cask shun",
+                ])
+                .spawn()
+                .map_err(|e| format!("failed to spawn brew upgrade: {e}"))?;
+            app.exit(0);
+            Ok(())
         }
 
         InstallMethod::Standard => {
