@@ -455,6 +455,19 @@ enum InstallMethod {
 fn detect_install_method() -> InstallMethod {
     let exe = std::env::current_exe().ok();
 
+    let exe_str = exe
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+
+    // パッケージマネージャーのパスを先に判定（portable.txt より優先）
+    if exe_str.contains("\\scoop\\apps\\") {
+        return InstallMethod::Scoop;
+    }
+    if exe_str.contains("/homebrew/") || exe_str.contains("/cellar/") {
+        return InstallMethod::Homebrew;
+    }
+
     // portable.txt が exe の隣にあればポータブルモード
     if exe
         .as_ref()
@@ -465,18 +478,7 @@ fn detect_install_method() -> InstallMethod {
         return InstallMethod::Portable;
     }
 
-    let exe_str = exe
-        .as_ref()
-        .map(|p| p.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
-
-    if exe_str.contains("\\scoop\\apps\\") {
-        InstallMethod::Scoop
-    } else if exe_str.contains("/homebrew/") || exe_str.contains("/cellar/") {
-        InstallMethod::Homebrew
-    } else {
-        InstallMethod::Standard
-    }
+    InstallMethod::Standard
 }
 
 #[cfg(target_os = "windows")]
