@@ -1009,6 +1009,18 @@ max_completions = 6
 # Monitor to show the launcher on: "cursor" (default) | "primary" | 0 | 1 | ...
 # monitor = "cursor"
 
+# Preview panel: show when browsing files in args mode (default: true)
+# preview_args = true
+
+# Preview panel: show when navigating search results (default: false)
+# preview_search = false
+
+# Preview panel width in pixels (default: 400)
+# preview_width = 400
+
+# Max lines to load for file preview (default: 500)
+# max_preview_lines = 500
+
 [keybindings]
 launch            = "Ctrl+Space"   # Global hotkey to show/hide
 next              = "Ctrl+n"
@@ -1022,8 +1034,11 @@ delete_line       = "Ctrl+u"      # Delete to beginning of line
 run_query         = "Shift+Enter" # Run typed query directly (skip history results)
 close             = "Escape"
 delete_item       = "Ctrl+d"      # Delete selected history item
-cycle_search_mode = "Ctrl+Shift+m" # Cycle search mode (fuzzy → exact → migemo)
-cycle_sort_order  = "Ctrl+Shift+o" # Cycle sort order (count_first ↔ recent_first)
+cycle_search_mode   = "Ctrl+Shift+m" # Cycle search mode (fuzzy → exact → migemo)
+cycle_sort_order    = "Ctrl+Shift+o" # Cycle sort order (count_first ↔ recent_first)
+toggle_preview      = "Ctrl+Shift+p" # Toggle file preview panel
+preview_scroll_down = "Ctrl+j"       # Scroll preview panel down
+preview_scroll_up   = "Ctrl+k"       # Scroll preview panel up
 
 # Theme — preset + optional per-color overrides
 # preset: "catppuccin-mocha" (default) | "catppuccin-latte" | "nord" | "dracula" | "tokyo-night" | "one-half-dark" | "solarized-dark" | "solarized-light"

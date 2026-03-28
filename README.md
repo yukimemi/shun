@@ -182,6 +182,9 @@ max_completions = 6
 # Max lines to load for file preview (default: 500)
 # max_preview_lines = 500
 
+# Note: preview panel height is fixed to max_items × item height when visible,
+# so increasing max_items also increases the preview panel height.
+
 [keybindings]
 launch      = "Ctrl+Space"   # Global hotkey to show/hide
 next        = "Ctrl+n"

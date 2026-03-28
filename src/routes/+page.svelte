@@ -6,8 +6,15 @@
   import { getVersion } from "@tauri-apps/api/app";
   import { debug, info } from "@tauri-apps/plugin-log";
   import { onMount, tick } from "svelte";
-  import { firstSepIdx, isPathQuery, matchKey, fuzzyMatch, shouldBypassTemplate, getEffectiveSearchMode, nextSearchMode } from "$lib/utils.js";
+  import { firstSepIdx, isPathQuery, matchKey, fuzzyMatch, shouldBypassTemplate, getEffectiveSearchMode, nextSearchMode, makePathItem, makeWarningItem, canHaveArgs, validateKeybindings, normalizeConfigFileName, completionMatches } from "$lib/utils.js";
   import { highlight, shikiTheme } from "$lib/highlight.js";
+  import SearchModeIcon from "$lib/SearchModeIcon.svelte";
+  import SortOrderIcon from "$lib/SortOrderIcon.svelte";
+  import PreviewPanel from "$lib/PreviewPanel.svelte";
+  import HelpPanel from "$lib/HelpPanel.svelte";
+  import SearchResults from "$lib/SearchResults.svelte";
+  import CompletionList from "$lib/CompletionList.svelte";
+  import { THEME_PRESETS, applyThemeCssVars } from "$lib/themes.js";
 
   // migemo インスタンス（lazy load）
   let migemoInstance = $state(null);
@@ -46,19 +53,6 @@
     preview_scroll_up:    "Ctrl+k",
   });
 
-  function makePathItem(p) {
-    return { name: p, path: p, args: [], workdir: null,
-             source: "Path", completion: "none", completion_list: [], completion_command: null };
-  }
-
-  function canHaveArgs(item) {
-    return item?.source !== "Url" && item?.source !== "Path" && item?.source !== "History" && item?.source !== "Warning";
-  }
-
-  function makeWarningItem(file, error) {
-    return { name: file, path: file, args: [], workdir: null, source: "Warning",
-      completion: "none", completion_list: [], completion_command: null, _warning_error: error };
-  }
 
   let appVersion = $state("");
   let updateVersion = $state("");
@@ -69,7 +63,7 @@
   let uiSortOrder = $state("count_first"); // "count_first" | "recent_first"
   let iconStyle = $state("unicode");    // "unicode" | "svg"
 
-  const THEME_PRESETS = ["catppuccin-mocha", "catppuccin-latte", "nord", "dracula", "tokyo-night", "one-half-dark", "solarized-dark", "solarized-light"];
+  // THEME_PRESETS は themes.js から import
   let configFiles = $state(["config.toml"]);
   let SLASH_COMMANDS = $derived([
     { name: "/exit",    description: "Quit app" },
@@ -258,149 +252,8 @@
     allCompletions = [];
   }
 
-  // --- テーマ定義 ---
-  const THEMES = {
-    "catppuccin-mocha": {
-      "--color-bg":      "#1e1e2e",
-      "--color-surface": "#313244",
-      "--color-overlay": "#45475a",
-      "--color-muted":   "#585b70",
-      "--color-text":    "#cdd6f4",
-      "--color-blue":    "#89b4fa",
-      "--color-purple":  "#cba6f7",
-      "--color-green":   "#a6e3a1",
-      "--color-red":     "#f38ba8",
-    },
-    "catppuccin-latte": {
-      "--color-bg":      "#eff1f5",
-      "--color-surface": "#ccd0da",
-      "--color-overlay": "#acb0be",
-      "--color-muted":   "#9ca0b0",
-      "--color-text":    "#4c4f69",
-      "--color-blue":    "#1e66f5",
-      "--color-purple":  "#8839ef",
-      "--color-green":   "#40a02b",
-      "--color-red":     "#d20f39",
-    },
-    "nord": {
-      "--color-bg":      "#2e3440",
-      "--color-surface": "#3b4252",
-      "--color-overlay": "#434c5e",
-      "--color-muted":   "#4c566a",
-      "--color-text":    "#d8dee9",
-      "--color-blue":    "#88c0d0",
-      "--color-purple":  "#b48ead",
-      "--color-green":   "#a3be8c",
-      "--color-red":     "#bf616a",
-    },
-    "dracula": {
-      "--color-bg":      "#282a36",
-      "--color-surface": "#44475a",
-      "--color-overlay": "#6272a4",
-      "--color-muted":   "#6272a4",
-      "--color-text":    "#f8f8f2",
-      "--color-blue":    "#8be9fd",
-      "--color-purple":  "#bd93f9",
-      "--color-green":   "#50fa7b",
-      "--color-red":     "#ff5555",
-    },
-    "tokyo-night": {
-      "--color-bg":      "#1a1b26",
-      "--color-surface": "#24283b",
-      "--color-overlay": "#414868",
-      "--color-muted":   "#565f89",
-      "--color-text":    "#c0caf5",
-      "--color-blue":    "#7aa2f7",
-      "--color-purple":  "#bb9af7",
-      "--color-green":   "#9ece6a",
-      "--color-red":     "#f7768e",
-    },
-    "one-half-dark": {
-      "--color-bg":      "#282c34",
-      "--color-surface": "#3b4048",
-      "--color-overlay": "#4b5263",
-      "--color-muted":   "#5c6370",
-      "--color-text":    "#dcdfe4",
-      "--color-blue":    "#61afef",
-      "--color-purple":  "#c678dd",
-      "--color-green":   "#98c379",
-      "--color-red":     "#e06c75",
-    },
-    "solarized-dark": {
-      "--color-bg":      "#002b36",
-      "--color-surface": "#073642",
-      "--color-overlay": "#586e75",
-      "--color-muted":   "#657b83",
-      "--color-text":    "#839496",
-      "--color-blue":    "#268bd2",
-      "--color-purple":  "#6c71c4",
-      "--color-green":   "#859900",
-      "--color-red":     "#dc322f",
-    },
-    "solarized-light": {
-      "--color-bg":      "#fdf6e3",
-      "--color-surface": "#eee8d5",
-      "--color-overlay": "#93a1a1",
-      "--color-muted":   "#839496",
-      "--color-text":    "#657b83",
-      "--color-blue":    "#268bd2",
-      "--color-purple":  "#6c71c4",
-      "--color-green":   "#859900",
-      "--color-red":     "#dc322f",
-    },
-  };
-
   function applyTheme(themeConfig) {
-    const preset = themeConfig?.preset || "catppuccin-mocha";
-    currentPreset = preset;
-    const base = THEMES[preset] ?? THEMES["catppuccin-mocha"];
-    const root = document.documentElement;
-    // preset のデフォルト色を適用
-    for (const [key, val] of Object.entries(base)) {
-      root.style.setProperty(key, val);
-    }
-    // 個別上書き
-    const MAP = {
-      bg: "--color-bg", surface: "--color-surface", overlay: "--color-overlay",
-      muted: "--color-muted", text: "--color-text", blue: "--color-blue",
-      purple: "--color-purple", green: "--color-green", red: "--color-red",
-    };
-    for (const [field, cssVar] of Object.entries(MAP)) {
-      if (themeConfig?.[field]) root.style.setProperty(cssVar, themeConfig[field]);
-    }
-  }
-
-  const VALID_MODIFIERS = new Set(["Ctrl", "Alt", "Shift", "Meta", "Cmd"]);
-  const MODIFIER_NAMES = ["Ctrl", "Control", "Alt", "Shift", "Meta", "Cmd", "Super"];
-  function validateKeybindings(kb) {
-    const warnings = [];
-    for (const [name, binding] of Object.entries(kb)) {
-      if (!binding) continue;
-      const parts = binding.split("+");
-      const key = parts[parts.length - 1];
-      const mods = parts.slice(0, -1);
-      if (!key) {
-        warnings.push(["config.toml", `keybindings.${name} = "${binding}": missing key`]);
-        continue;
-      }
-      // Detect "Ctrlp" style (modifier name concatenated without "+")
-      let detected = false;
-      for (const mod of MODIFIER_NAMES) {
-        if (key.startsWith(mod) && key.length > mod.length) {
-          warnings.push(["config.toml", `keybindings.${name} = "${binding}": did you mean "${[...mods, mod, key.slice(mod.length)].join("+")}"?`]);
-          detected = true;
-          break;
-        }
-      }
-      if (detected) continue;
-      for (const mod of mods) {
-        if (!VALID_MODIFIERS.has(mod)) {
-          warnings.push(["config.toml", `keybindings.${name} = "${binding}": unknown modifier "${mod}"`]);
-          break;
-        }
-      }
-    }
-    return warnings;
+    currentPreset = applyThemeCssVars(themeConfig);
   }
 
   async function applyConfig({ resetModes = false } = {}) {
@@ -500,193 +353,159 @@
     });
   });
 
-  async function onKeydown(e) {
-    if (helpVisible) {
-      e.preventDefault();
-      helpVisible = false;
-      query = "";
-      _setSize(WINDOW_WIDTH, INPUT_HEIGHT);
-      return;
+  // スラッシュコマンドの args mode で Enter/Shift+Enter が押されたときの処理。
+  // 対象コマンドなら処理して true を返す。通常アイテムは false を返す。
+  async function confirmSlashArg(cmdName, value) {
+    if (!value) return false;
+    if (cmdName === "/config") {
+      const name = normalizeConfigFileName(value);
+      resetToSearch({ skipFocus: true });
+      await tick();
+      win.hide();
+      await invoke("open_config", { name });
+      return true;
     }
-    if (mode === "args") {
-      if (matchKey(e, keybindings.close)) {
-        e.preventDefault();
-        if (allCompletions.length > 0) {
-          allCompletions = [];
-        } else {
-          resetToSearch();
-        }
-      } else if (matchKey(e, keybindings.confirm)) {
-        e.preventDefault();
-        // /config の args mode: 選択したファイルを開いて閉じる
-        if (argItem?.source === "SlashCmd" && argItem?.name === "/config") {
-          const raw = (allCompletions.length > 0 ? allCompletions[completionIndex] : extraArgs.trim());
-          if (raw) {
-            // hoge → config.hoge.toml / hoge.toml → config.hoge.toml / config.hoge.toml → そのまま
-            let name = raw;
-            if (!name.startsWith("config.")) name = "config." + name;
-            if (!name.endsWith(".toml"))     name = name + ".toml";
-            resetToSearch({ skipFocus: true });
-            await tick();
-            win.hide();
-            await invoke("open_config", { name });
-          }
-          return;
-        }
-        // /theme の args mode: 選択したプリセットを適用して閉じる
-        if (argItem?.source === "SlashCmd" && argItem?.name === "/theme") {
-          const preset = allCompletions.length > 0
-            ? allCompletions[completionIndex]
-            : extraArgs.trim();
-          if (preset) {
-            info(`/theme: applying preset=${preset}`);
-            applyTheme({ preset });            // CSS 即時適用（同期）
-            resetToSearch({ skipFocus: true }); // focus タイマー不要（隠す直前）
-            query = "";                         // query もリセット（/theme が残ると $effect が resize IPC を余分に飛ばす）
-            await tick();
-            win.hide();
-          }
-          return;
-        }
-        // /save の args mode: 選択した設定を config.local.toml に保存
-        if (argItem?.source === "SlashCmd" && argItem?.name === "/save") {
-          const key = allCompletions.length > 0
-            ? allCompletions[completionIndex]
-            : extraArgs.trim();
-          if (key) {
-            const valueMap = {
-              theme:       currentPreset,
-              search_mode: uiSearchMode,
-              sort_order:  uiSortOrder,
-              monitor:     "",  // Rust 側で自動検出
-              position:    "",  // Rust 側で自動検出
-            };
-            const value = valueMap[key] ?? "";
-            try {
-              const msg = await invoke("save_to_local", { key, value });
-              query = `/save — ${msg}`;
-            } catch (e) {
-              query = `/save — error: ${e}`;
-            }
-            resetToSearch({ skipFocus: true });
-            await tick();
-            win.hide();
-          }
-          return;
-        }
-        // /reset の args mode: 選択した設定を config.local.toml から削除
-        if (argItem?.source === "SlashCmd" && argItem?.name === "/reset") {
-          const key = allCompletions.length > 0
-            ? allCompletions[completionIndex]
-            : extraArgs.trim();
-          if (key) {
-            try {
-              const msg = await invoke("reset_local", { key });
-              query = `/reset — ${msg}`;
-            } catch (e) {
-              query = `/reset — error: ${e}`;
-            }
-            resetToSearch({ skipFocus: true });
-            await tick();
-            win.hide();
-          }
-          return;
-        }
-        if (allCompletions.length > 0) {
-          const candidate = allCompletions[completionIndex];
-          applySelectedCompletion();
-          if (!candidate.endsWith('/') && argItem) {
-            // history エントリ + テンプレート args の場合: レンダリング済みパスをそのまま渡す
-            if (shouldBypassTemplate(candidate, historyArgs, argItem)) {
-              launchItem({ ...argItem, args: [] }, candidate);
-            } else {
-              launchItem(argItem, extraArgs);
-            }
-          }
-        } else if (argItem) {
-          launchItem(argItem, extraArgs);
-        }
-      } else if (matchKey(e, keybindings.arg_mode)) {
-        e.preventDefault();
-        if (allCompletions.length > 0) {
-          applySelectedCompletion();
-        }
-      } else if (matchKey(e, keybindings.accept_line)) {
-        e.preventDefault();
-        acceptLine();
-      } else if (matchKey(e, keybindings.accept_word)) {
-        e.preventDefault();
-        acceptWord();
-      } else if (matchKey(e, keybindings.delete_word)) {
-        e.preventDefault();
-        deleteWord();
-      } else if (matchKey(e, keybindings.delete_line)) {
-        e.preventDefault();
-        deleteLine();
-      } else if (matchKey(e, keybindings.run_query)) {
-        // 補完を無視して入力をそのまま起動
-        e.preventDefault();
-        if (argItem?.source === "SlashCmd" && argItem?.name === "/config") {
-          const raw = extraArgs.trim();
-          if (raw) {
-            let name = raw;
-            if (!name.startsWith("config.")) name = "config." + name;
-            if (!name.endsWith(".toml"))     name = name + ".toml";
-            resetToSearch({ skipFocus: true });
-            await tick();
-            win.hide();
-            await invoke("open_config", { name });
-          }
-        } else if (argItem) {
-          launchItem(argItem, extraArgs);
-        }
-      } else if (matchKey(e, keybindings.next)) {
-        e.preventDefault();
-        if (allCompletions.length > 0) {
-          completionIndex = (completionIndex + 1) % allCompletions.length;
-        }
-      } else if (matchKey(e, keybindings.prev)) {
-        e.preventDefault();
-        if (allCompletions.length > 0) {
-          completionIndex = (completionIndex - 1 + allCompletions.length) % allCompletions.length;
-        }
-      } else if (matchKey(e, keybindings.delete_item)) {
-        e.preventDefault();
+    if (cmdName === "/theme") {
+      info(`/theme: applying preset=${value}`);
+      applyTheme({ preset: value }); // CSS 即時適用（同期）
+      resetToSearch({ skipFocus: true });
+      query = ""; // query もリセット（/theme が残ると $effect が resize IPC を余分に飛ばす）
+      await tick();
+      win.hide();
+      return true;
+    }
+    if (cmdName === "/save") {
+      const valueMap = {
+        theme:       currentPreset,
+        search_mode: uiSearchMode,
+        sort_order:  uiSortOrder,
+        monitor:     "", // Rust 側で自動検出
+        position:    "", // Rust 側で自動検出
+      };
+      try {
+        const msg = await invoke("save_to_local", { key: value, value: valueMap[value] ?? "" });
+        query = `/save — ${msg}`;
+      } catch (e) {
+        query = `/save — error: ${e}`;
+      }
+      resetToSearch({ skipFocus: true });
+      await tick();
+      win.hide();
+      return true;
+    }
+    if (cmdName === "/reset") {
+      try {
+        const msg = await invoke("reset_local", { key: value });
+        query = `/reset — ${msg}`;
+      } catch (e) {
+        query = `/reset — error: ${e}`;
+      }
+      resetToSearch({ skipFocus: true });
+      await tick();
+      win.hide();
+      return true;
+    }
+    return false;
+  }
+
+  async function handleArgsKeydown(e) {
+    if (matchKey(e, keybindings.close)) {
+      e.preventDefault();
+      if (allCompletions.length > 0) {
+        allCompletions = [];
+      } else {
+        resetToSearch();
+      }
+    } else if (matchKey(e, keybindings.confirm)) {
+      e.preventDefault();
+      if (argItem?.source === "SlashCmd") {
+        const value = allCompletions.length > 0 ? allCompletions[completionIndex] : extraArgs.trim();
+        if (await confirmSlashArg(argItem.name, value)) return;
+      }
+      if (allCompletions.length > 0) {
         const candidate = allCompletions[completionIndex];
-        // /config: config.toml 以外のファイルを削除
-        if (argItem?.source === "SlashCmd" && argItem?.name === "/config") {
-          if (candidate && candidate !== "config.toml") {
-            await invoke("delete_config_file", { name: candidate });
-            configFiles = configFiles.filter((f) => f !== candidate);
-            allCompletions = allCompletions.filter((_, i) => i !== completionIndex);
-            completionIndex = Math.min(completionIndex, allCompletions.length - 1);
+        applySelectedCompletion();
+        if (!candidate.endsWith('/') && argItem) {
+          // history エントリ + テンプレート args の場合: レンダリング済みパスをそのまま渡す
+          if (shouldBypassTemplate(candidate, historyArgs, argItem)) {
+            launchItem({ ...argItem, args: [] }, candidate);
+          } else {
+            launchItem(argItem, extraArgs);
           }
-        } else if (candidate !== undefined && historyArgs.includes(candidate)) {
-          const baseKey = argItem?.source === "Config" ? argItem.name : argItem?.path ?? "";
-          invoke("delete_history_item", { key: `${baseKey}\t${candidate}` });
-          historyArgs = historyArgs.filter((a) => a !== candidate);
+        }
+      } else if (argItem) {
+        launchItem(argItem, extraArgs);
+      }
+    } else if (matchKey(e, keybindings.arg_mode)) {
+      e.preventDefault();
+      if (allCompletions.length > 0) {
+        applySelectedCompletion();
+      }
+    } else if (matchKey(e, keybindings.accept_line)) {
+      e.preventDefault();
+      acceptLine();
+    } else if (matchKey(e, keybindings.accept_word)) {
+      e.preventDefault();
+      acceptWord();
+    } else if (matchKey(e, keybindings.delete_word)) {
+      e.preventDefault();
+      deleteWord();
+    } else if (matchKey(e, keybindings.delete_line)) {
+      e.preventDefault();
+      deleteLine();
+    } else if (matchKey(e, keybindings.run_query)) {
+      // 補完を無視して入力をそのまま起動
+      e.preventDefault();
+      if (argItem?.source === "SlashCmd") {
+        await confirmSlashArg(argItem.name, extraArgs.trim());
+      } else if (argItem) {
+        launchItem(argItem, extraArgs);
+      }
+    } else if (matchKey(e, keybindings.next)) {
+      e.preventDefault();
+      if (allCompletions.length > 0) {
+        completionIndex = (completionIndex + 1) % allCompletions.length;
+      }
+    } else if (matchKey(e, keybindings.prev)) {
+      e.preventDefault();
+      if (allCompletions.length > 0) {
+        completionIndex = (completionIndex - 1 + allCompletions.length) % allCompletions.length;
+      }
+    } else if (matchKey(e, keybindings.delete_item)) {
+      e.preventDefault();
+      const candidate = allCompletions[completionIndex];
+      // /config: config.toml 以外のファイルを削除
+      if (argItem?.source === "SlashCmd" && argItem?.name === "/config") {
+        if (candidate && candidate !== "config.toml") {
+          await invoke("delete_config_file", { name: candidate });
+          configFiles = configFiles.filter((f) => f !== candidate);
           allCompletions = allCompletions.filter((_, i) => i !== completionIndex);
           completionIndex = Math.min(completionIndex, allCompletions.length - 1);
         }
-      } else if (matchKey(e, keybindings.cycle_search_mode)) {
-        e.preventDefault();
-        cycleSearchMode();
-      } else if (matchKey(e, keybindings.cycle_sort_order)) {
-        e.preventDefault();
-        cycleSortOrder();
-      } else if (matchKey(e, keybindings.toggle_preview)) {
-        e.preventDefault();
-        if (mode === "args") previewArgs = !previewArgs;
-        else previewSearch = !previewSearch;
-      } else if (matchKey(e, keybindings.preview_scroll_down)) {
-        if (previewPanelEl) { e.preventDefault(); previewPanelEl.scrollBy(0, 60); }
-      } else if (matchKey(e, keybindings.preview_scroll_up)) {
-        if (previewPanelEl) { e.preventDefault(); previewPanelEl.scrollBy(0, -60); }
+      } else if (candidate !== undefined && historyArgs.includes(candidate)) {
+        const baseKey = argItem?.source === "Config" ? argItem.name : argItem?.path ?? "";
+        invoke("delete_history_item", { key: `${baseKey}\t${candidate}` });
+        historyArgs = historyArgs.filter((a) => a !== candidate);
+        allCompletions = allCompletions.filter((_, i) => i !== completionIndex);
+        completionIndex = Math.min(completionIndex, allCompletions.length - 1);
       }
-      return;
+    } else if (matchKey(e, keybindings.cycle_search_mode)) {
+      e.preventDefault();
+      cycleSearchMode();
+    } else if (matchKey(e, keybindings.cycle_sort_order)) {
+      e.preventDefault();
+      cycleSortOrder();
+    } else if (matchKey(e, keybindings.toggle_preview)) {
+      e.preventDefault();
+      previewArgs = !previewArgs;
+    } else if (matchKey(e, keybindings.preview_scroll_down)) {
+      if (previewPanelEl) { e.preventDefault(); previewPanelEl.scrollBy(0, 60); }
+    } else if (matchKey(e, keybindings.preview_scroll_up)) {
+      if (previewPanelEl) { e.preventDefault(); previewPanelEl.scrollBy(0, -60); }
     }
+  }
 
-    // search モード
+  async function handleSearchKeydown(e) {
     if (matchKey(e, keybindings.close)) {
       win.hide();
     } else if (e.key === "ArrowDown" || matchKey(e, keybindings.next)) {
@@ -825,8 +644,7 @@
       cycleSortOrder();
     } else if (matchKey(e, keybindings.toggle_preview)) {
       e.preventDefault();
-      if (mode === "args") previewArgs = !previewArgs;
-      else previewSearch = !previewSearch;
+      previewSearch = !previewSearch;
     } else if (matchKey(e, keybindings.preview_scroll_down)) {
       if (previewPanelEl) { e.preventDefault(); previewPanelEl.scrollBy(0, 60); }
     } else if (matchKey(e, keybindings.preview_scroll_up)) {
@@ -834,11 +652,26 @@
     }
   }
 
+  async function onKeydown(e) {
+    if (helpVisible) {
+      e.preventDefault();
+      helpVisible = false;
+      query = "";
+      _setSize(WINDOW_WIDTH, INPUT_HEIGHT);
+      return;
+    }
+    if (mode === "args") {
+      return handleArgsKeydown(e);
+    }
+    return handleSearchKeydown(e);
+  }
+
   // previewContent が確定したタイミングでウィンドウサイズ再調整（位置はそのまま）
   $effect(() => {
     previewTarget(); // reactive dep として登録
     previewContent;  // previewContent を直接読んでトラッキング保証
     _lastSize = { w: 0, h: 0 }; // キャッシュクリアして強制リサイズ
+    if (helpVisible) return;     // ヘルプパネル表示中はサイズを変えない
     if (mode === "args") {
       resizeForArgs(allCompletions.length);
     } else {
@@ -972,19 +805,7 @@
     const completionMode = effectiveSearchMode;
 
     // historyArgs を入力でフィルタ（effectiveSearchMode に応じて切り替え）
-    function completionMatches(query, target) {
-      if (!query) return true;
-      if (completionMode === "migemo" && migemoInstance) {
-        try {
-          return new RegExp(migemoInstance.query(query), "i").test(target);
-        } catch {
-          return fuzzyMatch(query, target);
-        }
-      }
-      if (completionMode === "exact") return target.toLowerCase().includes(query.toLowerCase());
-      return fuzzyMatch(query, target);
-    }
-    const filteredHistory = historyArgs.filter((h) => completionMatches(input, h));
+    const filteredHistory = historyArgs.filter((h) => completionMatches(input, h, completionMode, migemoInstance));
 
     // list 補完: 未入力でも completion_list を即時表示
     if (!input && argItem?.completion === "list") {
@@ -1072,7 +893,7 @@
       helpVisible = true;
       // ヘルプパネルの高さ: ステータス3行 + 共通7行 + args 2行 = 12行 + divider×2 + padding + footer
       const HELP_ROW_HEIGHT = 30;
-      const HELP_ROWS = 12;
+      const HELP_ROWS = 14;
       const HELP_EXTRA = 17 + 8 + 12 + 28; // divider + panel padding + section padding + footer
       _setSize(WINDOW_WIDTH, INPUT_HEIGHT + BORDER_HEIGHT + HELP_ROWS * HELP_ROW_HEIGHT + HELP_EXTRA + RESULTS_PADDING * 2);
       return;
@@ -1162,175 +983,27 @@
         />
         <div class="status-badges" aria-hidden="true">
           <button class="badge" title="search mode: {uiSearchMode}" onclick={cycleSearchMode}>
-            {#if iconStyle === "svg"}
-              {#if uiSearchMode === "fuzzy"}
-                <!-- 3 wavy lines = fuzzy/approximate -->
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
-                  <path d="M2 4.5 C4 3 6 6 8 4.5 C10 3 12 6 14 4.5"/>
-                  <path d="M2 8   C4 6.5 6 9.5 8 8   C10 6.5 12 9.5 14 8"/>
-                  <path d="M2 11.5 C4 10 6 13 8 11.5 C10 10 12 13 14 11.5"/>
-                </svg>
-              {:else if uiSearchMode === "exact"}
-                <!-- 1 straight line = exact/literal -->
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-                  <line x1="2" y1="8" x2="14" y2="8"/>
-                </svg>
-              {:else if uiSearchMode === "migemo"}
-                <!-- あ = migemo -->
-                <svg width="14" height="14" viewBox="0 0 16 16">
-                  <text x="8" y="13" text-anchor="middle" font-size="13" fill="currentColor" font-family="sans-serif">あ</text>
-                </svg>
-              {:else if uiSearchMode === "fuzzy_migemo"}
-                <!-- ≋あ = fuzzy + migemo -->
-                <svg width="20" height="14" viewBox="0 0 22 16">
-                  <path d="M1 4.5 C2.5 3 4 6 5.5 4.5 C7 3 8.5 6 10 4.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                  <path d="M1 8   C2.5 6.5 4 9.5 5.5 8 C7 6.5 8.5 9.5 10 8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                  <path d="M1 11.5 C2.5 10 4 13 5.5 11.5 C7 10 8.5 13 10 11.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                  <text x="17" y="13" text-anchor="middle" font-size="12" fill="currentColor" font-family="sans-serif">あ</text>
-                </svg>
-              {:else}
-                <!-- ―あ = exact + migemo -->
-                <svg width="20" height="14" viewBox="0 0 22 16">
-                  <line x1="1" y1="8" x2="10" y2="8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                  <text x="17" y="13" text-anchor="middle" font-size="12" fill="currentColor" font-family="sans-serif">あ</text>
-                </svg>
-              {/if}
-            {:else}
-              {uiSearchMode === "fuzzy" ? "≋" : uiSearchMode === "exact" ? "―" : uiSearchMode === "migemo" ? "あ" : uiSearchMode === "fuzzy_migemo" ? "≋あ" : "―あ"}
-            {/if}
+            <SearchModeIcon mode={uiSearchMode} {iconStyle} />
           </button>
           <div class="badge-sep"></div>
           <button class="badge" title="sort order: {uiSortOrder}" onclick={cycleSortOrder}>
-            {#if iconStyle === "svg"}
-              {#if uiSortOrder === "count_first"}
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                  <rect x="1" y="10" width="4" height="5" rx="0.5"/>
-                  <rect x="6" y="6" width="4" height="9" rx="0.5"/>
-                  <rect x="11" y="2" width="4" height="13" rx="0.5"/>
-                </svg>
-              {:else}
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="8" cy="8" r="6"/>
-                  <polyline points="8,4 8,8 11,10"/>
-                </svg>
-              {/if}
-            {:else}
-              {uiSortOrder === "count_first" ? "#" : "⌚"}
-            {/if}
+            <SortOrderIcon order={uiSortOrder} {iconStyle} />
           </button>
         </div>
       </div>
       {#if helpVisible}
-        <div class="help-panel">
-          <div class="help-section">
-            <div class="help-row">
-              <span class="help-label">theme</span>
-              <span class="help-value">{currentPreset}</span>
-            </div>
-            <div class="help-row">
-              <span class="help-label">search mode</span>
-              <span class="help-value">{uiSearchMode} {uiSearchMode === "fuzzy" ? "≋" : uiSearchMode === "exact" ? "―" : uiSearchMode === "migemo" ? "あ" : uiSearchMode === "fuzzy_migemo" ? "≋あ" : "―あ"}</span>
-              <span class="help-key">{keybindings.cycle_search_mode}</span>
-            </div>
-            <div class="help-row">
-              <span class="help-label">sort order</span>
-              <span class="help-value">{uiSortOrder} {uiSortOrder === "count_first" ? "#" : "⌚"}</span>
-              <span class="help-key">{keybindings.cycle_sort_order}</span>
-            </div>
-          </div>
-          <div class="help-divider"></div>
-          <div class="help-section">
-            <div class="help-row">
-              <span class="help-label">show / hide</span>
-              <span class="help-key">{keybindings.launch}</span>
-            </div>
-            <div class="help-row">
-              <span class="help-label">next / prev</span>
-              <span class="help-key">{keybindings.next} / {keybindings.prev}</span>
-            </div>
-            <div class="help-row">
-              <span class="help-label">launch</span>
-              <span class="help-key">{keybindings.confirm}</span>
-            </div>
-            <div class="help-row">
-              <span class="help-label">args mode</span>
-              <span class="help-key">{keybindings.arg_mode}</span>
-            </div>
-            <div class="help-row">
-              <span class="help-label">run query</span>
-              <span class="help-key">{keybindings.run_query}</span>
-            </div>
-            <div class="help-row">
-              <span class="help-label">accept word / line</span>
-              <span class="help-key">{keybindings.accept_word} / {keybindings.accept_line}</span>
-            </div>
-            <div class="help-row">
-              <span class="help-label">delete word / line</span>
-              <span class="help-key">{keybindings.delete_word} / {keybindings.delete_line}</span>
-            </div>
-            <div class="help-row">
-              <span class="help-label">delete item</span>
-              <span class="help-key">{keybindings.delete_item}</span>
-            </div>
-            <div class="help-row">
-              <span class="help-label">close</span>
-              <span class="help-key">{keybindings.close}</span>
-            </div>
-          </div>
-          <div class="help-footer">any key to close</div>
-        </div>
-      {:else if !slashResult && filteredSlash.length > 0}
-        <div class="results">
-          {#each filteredSlash as cmd, i}
-            <div
-              class="item"
-              class:selected={i === selectedIndex}
-              onmouseenter={() => (selectedIndex = i)}
-              onclick={() => runSlashCommand(cmd)}
-              role="option"
-              aria-selected={i === selectedIndex}
-            >
-              <span class="item-name slash-name">{cmd.name}</span>
-              <span class="item-source">{cmd.description}</span>
-            </div>
-          {/each}
-        </div>
-      {:else if !slashResult && filtered.length > 0}
-        {@const winStart = Math.max(0, Math.min(selectedIndex - Math.floor(MAX_ITEMS / 2), filtered.length - MAX_ITEMS))}
-        {@const visible = filtered.slice(winStart, winStart + MAX_ITEMS)}
-        <div class="results">
-          {#each visible as item, i}
-            {@const globalIdx = winStart + i}
-            <div
-              class="item"
-              class:selected={globalIdx === selectedIndex}
-              class:warning-item={item.source === "Warning"}
-              onmouseenter={() => (selectedIndex = globalIdx)}
-              onclick={() => item.source === "Warning" ? invoke("open_config", { name: item.path }) : launchItem(item, null)}
-              role="option"
-              aria-selected={globalIdx === selectedIndex}
-            >
-              <span class="item-name" class:scrolling={globalIdx === selectedIndex} data-warning={item.source === "Warning" ? "true" : null}>{item.source === "Warning" ? "⚠ " : ""}{item.name}</span>
-              <div class="item-right">
-                {#if item.source === "Warning"}
-                  <span class="item-warning-error">{item._warning_error}</span>
-                {:else}
-                  {#if canHaveArgs(item)}
-                    <span class="item-tab-hint">tab</span>
-                  {/if}
-                  {#if filtered.length > MAX_ITEMS}
-                    <span class="completion-count">{globalIdx + 1}/{filtered.length}</span>
-                  {/if}
-                  <span class="item-source" data-source={item.source}>{item.source}</span>
-                {/if}
-              </div>
-            </div>
-          {/each}
-        </div>
-      {:else if !slashResult}
-        <div class="results">
-          <div class="empty">No results</div>
-        </div>
+        <HelpPanel {keybindings} {currentPreset} {uiSearchMode} {uiSortOrder} />
+      {:else}
+        <SearchResults
+          {filtered}
+          {filteredSlash}
+          bind:selectedIndex
+          {slashResult}
+          {MAX_ITEMS}
+          onrunslash={runSlashCommand}
+          onlaunch={(item) => launchItem(item, null)}
+          onopenconfig={(name) => invoke("open_config", { name })}
+        />
       {/if}
     {:else}
       <!-- args モード -->
@@ -1353,96 +1026,26 @@
         </div>
         <div class="status-badges" aria-hidden="true">
           <button class="badge" title="search mode: {effectiveSearchMode}" onclick={cycleSearchMode}>
-            {#if iconStyle === "svg"}
-              {#if effectiveSearchMode === "fuzzy"}
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
-                  <path d="M2 4.5 C4 3 6 6 8 4.5 C10 3 12 6 14 4.5"/>
-                  <path d="M2 8   C4 6.5 6 9.5 8 8   C10 6.5 12 9.5 14 8"/>
-                  <path d="M2 11.5 C4 10 6 13 8 11.5 C10 10 12 13 14 11.5"/>
-                </svg>
-              {:else if effectiveSearchMode === "exact"}
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-                  <line x1="2" y1="8" x2="14" y2="8"/>
-                </svg>
-              {:else if effectiveSearchMode === "migemo"}
-                <svg width="14" height="14" viewBox="0 0 16 16">
-                  <text x="8" y="13" text-anchor="middle" font-size="13" fill="currentColor" font-family="sans-serif">あ</text>
-                </svg>
-              {:else if effectiveSearchMode === "fuzzy_migemo"}
-                <svg width="20" height="14" viewBox="0 0 22 16">
-                  <path d="M1 4.5 C2.5 3 4 6 5.5 4.5 C7 3 8.5 6 10 4.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                  <path d="M1 8   C2.5 6.5 4 9.5 5.5 8 C7 6.5 8.5 9.5 10 8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                  <path d="M1 11.5 C2.5 10 4 13 5.5 11.5 C7 10 8.5 13 10 11.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                  <text x="17" y="13" text-anchor="middle" font-size="12" fill="currentColor" font-family="sans-serif">あ</text>
-                </svg>
-              {:else}
-                <svg width="20" height="14" viewBox="0 0 22 16">
-                  <line x1="1" y1="8" x2="10" y2="8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                  <text x="17" y="13" text-anchor="middle" font-size="12" fill="currentColor" font-family="sans-serif">あ</text>
-                </svg>
-              {/if}
-            {:else}
-              {effectiveSearchMode === "fuzzy" ? "≋" : effectiveSearchMode === "exact" ? "―" : effectiveSearchMode === "migemo" ? "あ" : effectiveSearchMode === "fuzzy_migemo" ? "≋あ" : "―あ"}
-            {/if}
+            <SearchModeIcon mode={effectiveSearchMode} {iconStyle} />
           </button>
           <div class="badge-sep"></div>
           <button class="badge" title="sort order: {uiSortOrder}" onclick={cycleSortOrder}>
-            {#if iconStyle === "svg"}
-              {#if uiSortOrder === "count_first"}
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                  <rect x="1" y="10" width="4" height="5" rx="0.5"/>
-                  <rect x="6" y="6" width="4" height="9" rx="0.5"/>
-                  <rect x="11" y="2" width="4" height="13" rx="0.5"/>
-                </svg>
-              {:else}
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="8" cy="8" r="6"/>
-                  <polyline points="8,4 8,8 11,10"/>
-                </svg>
-              {/if}
-            {:else}
-              {uiSortOrder === "count_first" ? "#" : "⌚"}
-            {/if}
+            <SortOrderIcon order={uiSortOrder} {iconStyle} />
           </button>
         </div>
       </div>
-      {#if allCompletions.length > 0}
-        {@const winStart = Math.max(0, Math.min(completionIndex - Math.floor(MAX_COMPLETIONS / 2), allCompletions.length - MAX_COMPLETIONS))}
-        {@const visible = allCompletions.slice(winStart, winStart + MAX_COMPLETIONS)}
-        <div class="results">
-          {#each visible as comp, i}
-            {@const globalIdx = winStart + i}
-            <div
-              class="item"
-              class:selected={globalIdx === completionIndex}
-              onmouseenter={() => selectCompletion(globalIdx)}
-              onclick={() => { selectCompletion(globalIdx); applySelectedCompletion(); }}
-              role="option"
-              aria-selected={globalIdx === completionIndex}
-            >
-              <span class="item-name completion-path" class:is-dir={comp.endsWith('/')}>{comp}</span>
-              <div class="item-right">
-                {#if allCompletions.length > MAX_COMPLETIONS}
-                  <span class="completion-count">{globalIdx + 1}/{allCompletions.length}</span>
-                {/if}
-                {#if historyArgs.includes(comp)}
-                  <span class="item-source" data-source="History">History</span>
-                {/if}
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
+      <CompletionList
+        {allCompletions}
+        bind:completionIndex
+        {MAX_COMPLETIONS}
+        {historyArgs}
+        onselectcompletion={selectCompletion}
+        onapplycompletion={applySelectedCompletion}
+      />
     {/if}
   </div>
   {#if previewVisible}
-    <div class="preview-panel" bind:this={previewPanelEl}>
-      {#if previewHighlighted}
-        {@html previewHighlighted}
-      {:else}
-        <pre class="preview-content">{previewContent}</pre>
-      {/if}
-    </div>
+    <PreviewPanel highlighted={previewHighlighted} content={previewContent} bind:el={previewPanelEl} />
   {/if}
 </main>
 
@@ -1498,57 +1101,6 @@
     line-height: 1;
     user-select: none;
     pointer-events: none;
-  }
-
-  .preview-panel {
-    flex: 1;
-    min-height: 0; /* flex アイテムの min-height: auto を上書き → overflow-y が効く */
-    overflow-y: auto;
-    background: var(--color-bg, #1e1e2e);
-    opacity: var(--opacity, 1);
-    border-left: 1px solid var(--color-surface1, #313244);
-    scrollbar-width: thin;
-    scrollbar-color: var(--color-surface1, #313244) transparent;
-  }
-
-  .preview-panel::-webkit-scrollbar {
-    width: 4px;
-  }
-
-  .preview-panel::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .preview-panel::-webkit-scrollbar-thumb {
-    background: var(--color-surface1, #313244);
-    border-radius: 2px;
-  }
-
-  .preview-panel::-webkit-scrollbar-thumb:hover {
-    background: var(--color-overlay0, #6c7086);
-  }
-
-  /* Shiki が出力する pre > code のスタイル調整 */
-  .preview-panel :global(pre) {
-    margin: 0;
-    padding: 10px 12px;
-    font-family: monospace;
-    font-size: calc(var(--font-size, 14px) - 1px);
-    white-space: pre-wrap;
-    word-break: break-all;
-    background: transparent !important;
-    overflow: visible !important; /* 親 .preview-panel がスクロールを担う */
-  }
-
-  .preview-content {
-    padding: 10px 12px;
-    margin: 0;
-    font-family: monospace;
-    font-size: calc(var(--font-size, 14px) - 1px);
-    color: var(--color-subtext0, #a6adc8);
-    white-space: pre-wrap;
-    word-break: break-all;
-    line-height: 1.5;
   }
 
   .search-wrap {
@@ -1688,180 +1240,5 @@
 
   .args-input::placeholder { color: var(--color-muted, #585b70); }
 
-  /* 共通リスト */
-  .results {
-    border-top: 1px solid var(--color-surface, #313244);
-    overflow-y: auto;
-    padding-bottom: 8px;
-  }
-
-  .item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 20px;
-    cursor: pointer;
-    color: var(--color-text, #cdd6f4);
-  }
-
-  .item.selected { background: var(--color-surface, #313244); }
-
-  .item-name {
-    font-size: var(--font-size, 14px);
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .item-name.scrolling {
-    overflow: auto;
-    text-overflow: clip;
-    scrollbar-width: none;
-  }
-
-  .item-name.scrolling::-webkit-scrollbar {
-    display: none;
-  }
-
-  .completion-path {
-    font-size: calc(var(--font-size, 14px) - 1px);
-    color: var(--color-text, #cdd6f4);
-    font-family: monospace;
-  }
-
-  .completion-path.is-dir {
-    color: var(--color-blue, #89b4fa);
-  }
-
-  .completion-count {
-    font-size: calc(var(--font-size, 14px) - 4px);
-    color: var(--color-overlay, #45475a);
-    flex-shrink: 0;
-  }
-
-  .item-right {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .item-tab-hint {
-    font-size: calc(var(--font-size, 14px) - 4px);
-    color: var(--color-overlay, #45475a);
-    background: var(--color-surface, #313244);
-    padding: 1px 5px;
-    border-radius: 3px;
-  }
-
-  .item-source {
-    font-size: calc(var(--font-size, 14px) - 3px);
-    color: var(--color-muted, #585b70);
-    text-transform: lowercase;
-  }
-
-  .empty {
-    padding: 16px 20px;
-    color: var(--color-muted, #585b70);
-    font-size: var(--font-size, 14px);
-  }
-
-  /* ヘルプパネル */
-  .help-panel {
-    padding: 8px 0 4px;
-  }
-
-  .help-section {
-    padding: 2px 20px;
-  }
-
-  .help-row {
-    display: flex;
-    align-items: center;
-    height: 30px;
-    gap: 8px;
-    font-size: calc(var(--font-size, 14px) - 1px);
-  }
-
-  .help-label {
-    width: 110px;
-    flex-shrink: 0;
-    color: var(--color-muted, #585b70);
-  }
-
-  .help-value {
-    flex: 1;
-    color: var(--color-text, #cdd6f4);
-  }
-
-  .help-key {
-    margin-left: auto;
-    color: var(--color-blue, #89b4fa);
-    font-family: monospace;
-    font-size: calc(var(--font-size, 14px) - 2px);
-    background: var(--color-surface, #313244);
-    padding: 2px 6px;
-    border-radius: 4px;
-  }
-
-  .help-divider {
-    height: 1px;
-    background: var(--color-surface, #313244);
-    margin: 8px 20px;
-  }
-
-  .help-footer {
-    padding: 4px 20px 6px;
-    font-size: calc(var(--font-size, 14px) - 3px);
-    color: var(--color-overlay, #45475a);
-    text-align: right;
-  }
-
-  .slash-name {
-    color: var(--color-purple, #cba6f7);
-    font-family: monospace;
-    font-size: var(--font-size, 14px);
-  }
-
-  :global(.item-source[data-source="Url"]) {
-    color: var(--color-blue, #89b4fa);
-  }
-
-  :global(.item-source[data-source="Path"]) {
-    color: var(--color-green, #a6e3a1);
-  }
-
-  :global(.item-source[data-source="History"]) {
-    color: var(--color-red, #f38ba8);
-  }
-
-  .item-warning-error {
-    color: var(--color-red, #f38ba8);
-    font-size: calc(var(--font-size, 14px) - 2px);
-    opacity: 0.85;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  /* warning アイテムはエラーテキスト側を伸ばす */
-  .warning-item .item-name {
-    flex: 0 0 auto;
-  }
-  .warning-item .item-right {
-    flex: 1;
-    min-width: 0;
-    margin-left: 12px;
-    justify-content: flex-end;
-  }
-  .warning-item .item-warning-error {
-    flex: 1;
-    min-width: 0;
-  }
-
-  :global(.item-name[data-warning="true"]) {
-    color: var(--color-red, #f38ba8);
-  }
 
 </style>

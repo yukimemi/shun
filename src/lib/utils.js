@@ -87,6 +87,104 @@ export function nextSearchMode(current, modes) {
 }
 
 /**
+ * Returns a synthetic Path item for filesystem path queries.
+ */
+export function makePathItem(p) {
+  return { name: p, path: p, args: [], workdir: null,
+           source: "Path", completion: "none", completion_list: [], completion_command: null };
+}
+
+/**
+ * Returns a synthetic Warning item shown when a config file has parse errors.
+ */
+export function makeWarningItem(file, error) {
+  return { name: file, path: file, args: [], workdir: null, source: "Warning",
+    completion: "none", completion_list: [], completion_command: null, _warning_error: error };
+}
+
+/**
+ * Returns true if the item can accept extra args (i.e. Tab enters args mode).
+ * Url, Path, History, and Warning items cannot have args.
+ */
+export function canHaveArgs(item) {
+  return item?.source !== "Url" && item?.source !== "Path" &&
+         item?.source !== "History" && item?.source !== "Warning";
+}
+
+const VALID_MODIFIERS = new Set(["Ctrl", "Alt", "Shift", "Meta", "Cmd"]);
+const MODIFIER_NAMES = ["Ctrl", "Control", "Alt", "Shift", "Meta", "Cmd", "Super"];
+
+/**
+ * Validates a keybindings object and returns an array of [file, message] warning pairs.
+ * Detects missing keys, concatenated modifiers (e.g. "Ctrlp"), and unknown modifiers.
+ */
+export function validateKeybindings(kb) {
+  const warnings = [];
+  for (const [name, binding] of Object.entries(kb)) {
+    if (!binding) continue;
+    const parts = binding.split("+");
+    const key = parts[parts.length - 1];
+    const mods = parts.slice(0, -1);
+    if (!key) {
+      warnings.push(["config.toml", `keybindings.${name} = "${binding}": missing key`]);
+      continue;
+    }
+    // Detect "Ctrlp" style (modifier name concatenated without "+")
+    let detected = false;
+    for (const mod of MODIFIER_NAMES) {
+      if (key.startsWith(mod) && key.length > mod.length) {
+        warnings.push(["config.toml", `keybindings.${name} = "${binding}": did you mean "${[...mods, mod, key.slice(mod.length)].join("+")}"?`]);
+        detected = true;
+        break;
+      }
+    }
+    if (detected) continue;
+    for (const mod of mods) {
+      if (!VALID_MODIFIERS.has(mod)) {
+        warnings.push(["config.toml", `keybindings.${name} = "${binding}": unknown modifier "${mod}"`]);
+        break;
+      }
+    }
+  }
+  return warnings;
+}
+
+/**
+ * Normalizes a raw config file name to the canonical "config.*.toml" form.
+ * Examples: "hoge" → "config.hoge.toml", "hoge.toml" → "config.hoge.toml",
+ *           "config.hoge.toml" → "config.hoge.toml", "config.toml" → "config.toml"
+ */
+export function normalizeConfigFileName(raw) {
+  let name = raw;
+  if (!name.startsWith("config.")) name = "config." + name;
+  if (!name.endsWith(".toml")) name = name + ".toml";
+  return name;
+}
+
+/**
+ * Returns true if target matches query under the given completion mode.
+ * Modes: "fuzzy" (default), "exact" (substring), "migemo" (romaji→regex via migemoInstance).
+ * Falls back to fuzzy when migemoInstance is null or throws.
+ *
+ * @param {string} query
+ * @param {string} target
+ * @param {string} completionMode - "fuzzy" | "exact" | "migemo"
+ * @param {object|null} migemoInstance - jsmigemo Migemo instance, or null
+ */
+export function completionMatches(query, target, completionMode, migemoInstance = null) {
+  if (!query) return true;
+  if (completionMode === "migemo" && migemoInstance) {
+    try {
+      return new RegExp(migemoInstance.query(query), "i").test(target);
+    } catch {
+      return fuzzyMatch(query, target);
+    }
+  }
+  if (completionMode === "exact") return target.toLowerCase().includes(query.toLowerCase());
+  return fuzzyMatch(query, target);
+}
+
+/**
  * Returns true if the KeyboardEvent matches the binding string.
  * Binding format: "Ctrl+f", "Alt+Space", "Enter", "Ctrl+Shift+P", etc.
  */
