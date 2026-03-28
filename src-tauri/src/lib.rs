@@ -480,7 +480,6 @@ fn detect_install_method() -> InstallMethod {
     InstallMethod::Standard
 }
 
-#[cfg(target_os = "windows")]
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     match detect_install_method() {
