@@ -96,6 +96,8 @@ pub struct Config {
     pub icon_style: IconStyle,
     #[serde(default)]
     pub monitor: MonitorTarget,
+    pub position_x: Option<f64>,
+    pub position_y: Option<f64>,
     #[serde(default = "default_preview_width")]
     pub preview_width: u32,
     #[serde(default = "default_max_preview_lines")]
@@ -384,6 +386,8 @@ impl Default for Config {
             log: LogConfig::default(),
             icon_style: IconStyle::default(),
             monitor: MonitorTarget::default(),
+            position_x: None,
+            position_y: None,
             preview_width: default_preview_width(),
             max_preview_lines: default_max_preview_lines(),
             preview_args: default_true(),

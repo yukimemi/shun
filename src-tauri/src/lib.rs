@@ -366,7 +366,7 @@ fn register_launch_shortcut(app: &tauri::AppHandle) -> Result<(), String> {
                     } else {
                         debug!("shortcut: window hidden → show");
                         let cfg = config::load_config().0;
-                        center_on_monitor(&window, &cfg.monitor, cfg.window_width as f64);
+                        position_window(&window, &cfg, cfg.window_width as f64);
                         window.show().ok();
                         window.set_focus().ok();
                         window.emit("show-launcher", ()).ok();
@@ -755,6 +755,15 @@ fn save_to_local(
             doc["monitor"] = toml_edit::value(index);
             format!("monitor = {}", index)
         }
+        "position" => {
+            let pos = window.outer_position().map_err(|e| e.to_string())?;
+            let scale = window.scale_factor().map_err(|e| e.to_string())?;
+            let lx = pos.x as f64 / scale;
+            let ly = pos.y as f64 / scale;
+            doc["position_x"] = toml_edit::value(lx);
+            doc["position_y"] = toml_edit::value(ly);
+            format!("position = ({}, {})", lx, ly)
+        }
         _ => return Err(format!("unknown setting: {}", key)),
     };
 
@@ -764,6 +773,52 @@ fn save_to_local(
     std::fs::write(&path, doc.to_string()).map_err(|e| e.to_string())?;
 
     Ok(format!("{} saved to config.local.toml", display))
+}
+
+#[tauri::command]
+fn reset_local(key: String) -> Result<String, String> {
+    use toml_edit::DocumentMut;
+    let path = config::local_config_path();
+    let content = if path.exists() {
+        std::fs::read_to_string(&path).unwrap_or_default()
+    } else {
+        return Ok(format!("{} not set in config.local.toml", key));
+    };
+
+    let mut doc = content
+        .parse::<DocumentMut>()
+        .unwrap_or_else(|_| DocumentMut::new());
+
+    let display = match key.as_str() {
+        "search_mode" => {
+            doc.remove("search_mode");
+            "search_mode".to_string()
+        }
+        "sort_order" => {
+            doc.remove("sort_order");
+            "sort_order".to_string()
+        }
+        "theme" => {
+            doc.remove("theme");
+            "theme".to_string()
+        }
+        "monitor" => {
+            doc.remove("monitor");
+            "monitor".to_string()
+        }
+        "position" => {
+            doc.remove("position_x");
+            doc.remove("position_y");
+            "position".to_string()
+        }
+        _ => return Err(format!("unknown setting: {}", key)),
+    };
+
+    std::fs::write(&path, doc.to_string()).map_err(|e| e.to_string())?;
+    Ok(format!(
+        "{} reset (removed from config.local.toml)",
+        display
+    ))
 }
 
 #[tauri::command]
@@ -792,10 +847,33 @@ fn adjust_for_preview(window: tauri::WebviewWindow, show: bool, preview_width: u
     } else {
         cfg.window_width as f64
     };
-    center_on_monitor(&window, &cfg.monitor, total_width);
+    position_window(&window, &cfg, total_width);
 }
 
-fn center_on_monitor(window: &tauri::WebviewWindow, target: &config::MonitorTarget, win_w: f64) {
+fn position_window(window: &tauri::WebviewWindow, cfg: &config::Config, win_w: f64) {
+    // saved position があればそこへ（画面外チェック付き）
+    if let (Some(sx), Some(sy)) = (cfg.position_x, cfg.position_y) {
+        if let Ok(monitors) = window.available_monitors() {
+            let on_screen = monitors.iter().any(|m| {
+                let scale = m.scale_factor();
+                let pos = m.position();
+                let size = m.size();
+                let mx = pos.x as f64 / scale;
+                let my = pos.y as f64 / scale;
+                let mw = size.width as f64 / scale;
+                let mh = size.height as f64 / scale;
+                sx >= mx && sx < mx + mw && sy >= my && sy < my + mh
+            });
+            if on_screen {
+                window
+                    .set_position(tauri::LogicalPosition::new(sx, sy))
+                    .ok();
+                return;
+            }
+        }
+    }
+
+    // saved position なし or 画面外 → モニター中央上部へ
     let monitors = match window.available_monitors() {
         Ok(m) => m,
         Err(_) => return,
@@ -804,7 +882,7 @@ fn center_on_monitor(window: &tauri::WebviewWindow, target: &config::MonitorTarg
         return;
     }
 
-    let monitor = match target {
+    let monitor = match &cfg.monitor {
         config::MonitorTarget::Named(s) if s == "primary" => window
             .primary_monitor()
             .ok()
@@ -812,7 +890,6 @@ fn center_on_monitor(window: &tauri::WebviewWindow, target: &config::MonitorTarg
             .or_else(|| monitors.into_iter().next()),
         config::MonitorTarget::Index(i) => monitors.into_iter().nth(*i),
         _ => {
-            // "cursor" (デフォルト): カーソルのあるモニター
             let cursor = match window.cursor_position() {
                 Ok(p) => p,
                 Err(_) => return,
@@ -989,7 +1066,7 @@ pub fn run() {
                     "show" => {
                         if let Some(win) = app.get_webview_window("main") {
                             let cfg = config::load_config().0;
-                            center_on_monitor(&win, &cfg.monitor, cfg.window_width as f64);
+                            position_window(&win, &cfg, cfg.window_width as f64);
                             win.show().ok();
                             win.set_focus().ok();
                             win.emit("show-launcher", ()).ok();
@@ -1028,7 +1105,7 @@ pub fn run() {
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(500));
                     let cfg = config::load_config().0;
-                    center_on_monitor(&window_warn, &cfg.monitor, cfg.window_width as f64);
+                    position_window(&window_warn, &cfg, cfg.window_width as f64);
                     window_warn.show().ok();
                     window_warn.set_focus().ok();
                     window_warn.emit("show-launcher", ()).ok();
@@ -1050,6 +1127,7 @@ pub fn run() {
             open_history,
             delete_history_item,
             save_to_local,
+            reset_local,
             reload,
             get_last_args,
             get_args_history,

@@ -25,9 +25,11 @@
 - **Status badges** — subtle pill in the input corner shows current search mode (`≋` / `―` / `あ` / `≋あ` / `―あ`) and sort order (`#` / `⌚`); click or use keybindings to cycle
 - **Args mode** — press `Tab` to pass extra arguments; path / list / command completion with ghost text
 - **Launch history** — frecency sorting; previous args remembered and suggested as ghost text
-- **Slash commands** — `/reload`, `/config`, `/update`, `/theme` and more
+- **File preview panel** — `Ctrl+Shift+p` toggles a side panel with Shiki syntax highlighting; scroll with `Ctrl+j` / `Ctrl+k`
+- **Slash commands** — `/reload`, `/config`, `/update`, `/theme`, `/save`, `/reset` and more
 - **Auto-update** — detects new releases on startup; one command to download, install, and restart
 - **Theming** — built-in presets (Catppuccin, Nord, Dracula, Tokyo Night) + per-color overrides
+- **Movable window** — drag the grip at the top of the launcher to reposition; save with `/save position`
 - **Cross-platform** — Windows, macOS, Linux; portable zip with no admin rights required
 
 ## Installation
@@ -116,7 +118,8 @@ After editing config, run `/reload` to apply all changes without restarting.
 | `/update` | Install latest release (shows version if update available) |
 | `/history` | Open history file in default editor |
 | `/version` | Show current version |
-| `/save` | Save a setting to `config.local.toml` (`Tab` to pick: `monitor`, `theme`, `search_mode`, `sort_order`) |
+| `/save` | Save a setting to `config.local.toml` (`Tab` to pick: `monitor`, `position`, `theme`, `search_mode`, `sort_order`) |
+| `/reset` | Reset a setting in `config.local.toml` — falls back to `config.toml` or default (`Tab` to pick) |
 | `/help` | Show keybindings & current status (theme, search mode, sort order) |
 | `/exit` | Quit shun |
 
@@ -163,6 +166,22 @@ max_completions = 6
 # Useful in config.local.toml for per-machine override
 # monitor = "cursor"
 
+# Saved window position (set via /save position; delete to reset to default centering)
+# position_x = 960.0
+# position_y = 300.0
+
+# Preview panel: show when browsing files in args mode (default: true)
+# preview_args = true
+
+# Preview panel: show when navigating search results (default: false)
+# preview_search = false
+
+# Preview panel width in pixels (default: 400)
+# preview_width = 400
+
+# Max lines to load for file preview (default: 500)
+# max_preview_lines = 500
+
 [keybindings]
 launch      = "Ctrl+Space"   # Global hotkey to show/hide
 next        = "Ctrl+n"
@@ -178,6 +197,9 @@ close             = "Escape"
 delete_item       = "Ctrl+d"        # Delete selected history/config item
 cycle_search_mode = "Ctrl+Shift+m"  # Cycle search mode (fuzzy → exact → migemo)
 cycle_sort_order  = "Ctrl+Shift+o"  # Cycle sort order (count_first ↔ recent_first)
+toggle_preview    = "Ctrl+Shift+p"  # Toggle file preview panel
+preview_scroll_down = "Ctrl+j"      # Scroll preview panel down
+preview_scroll_up   = "Ctrl+k"      # Scroll preview panel up
 
 # Logging
 [log]
@@ -394,6 +416,9 @@ All keybindings are configurable via `[keybindings]` in `config.toml`. Changes t
 | `Ctrl+d` | Delete selected history item |
 | `Ctrl+Shift+m` | Cycle search mode (fuzzy → exact → migemo) |
 | `Ctrl+Shift+o` | Cycle sort order (count_first ↔ recent_first) |
+| `Ctrl+Shift+p` | Toggle file preview panel |
+| `Ctrl+j` | Scroll preview panel down |
+| `Ctrl+k` | Scroll preview panel up |
 | `Escape` | Hide launcher |
 
 **Args mode** (default keys):
@@ -410,6 +435,8 @@ All keybindings are configurable via `[keybindings]` in `config.toml`. Changes t
 | `Ctrl+d` | Delete selected history completion |
 | `Ctrl+Shift+m` | Cycle search mode |
 | `Ctrl+Shift+o` | Cycle sort order |
+| `Ctrl+Shift+p` | Toggle file preview panel |
+| `Ctrl+j` / `Ctrl+k` | Scroll preview panel down / up |
 | `Escape` | Back to search |
 
 **Special input:**

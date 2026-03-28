@@ -15,7 +15,8 @@
   let WINDOW_WIDTH = $state(620);
   let PREVIEW_WIDTH = $state(400);
   let MAX_PREVIEW_LINES = $state(500);
-  const INPUT_HEIGHT = 52;
+  const DRAG_HANDLE_HEIGHT = 16;
+  const INPUT_HEIGHT = 52 + DRAG_HANDLE_HEIGHT; // search input + drag handle
   const ITEM_HEIGHT = 40;
   const BORDER_HEIGHT = 1;
   const RESULTS_PADDING = 8;
@@ -78,7 +79,8 @@
     { name: "/version", description: appVersion ? `v${appVersion}` : "Show version" },
     { name: "/update",  description: updateVersion ? `Update to v${updateVersion}` : "Check for updates" },
     { name: "/theme",   description: `current: ${currentPreset} (Tab to pick)`, completions: THEME_PRESETS },
-    { name: "/save",    description: "Save setting to config.local.toml (Tab to pick)", completions: ["monitor", "theme", "search_mode", "sort_order"] },
+    { name: "/save",    description: "Save setting to config.local.toml (Tab to pick)", completions: ["monitor", "position", "theme", "search_mode", "sort_order"] },
+    { name: "/reset",   description: "Reset setting in config.local.toml (Tab to pick)", completions: ["monitor", "position", "theme", "search_mode", "sort_order"] },
     { name: "/help",    description: "Show keybindings & current status" },
   ]);
 
@@ -557,6 +559,7 @@
               search_mode: uiSearchMode,
               sort_order:  uiSortOrder,
               monitor:     "",  // Rust 側で自動検出
+              position:    "",  // Rust 側で自動検出
             };
             const value = valueMap[key] ?? "";
             try {
@@ -564,6 +567,24 @@
               query = `/save — ${msg}`;
             } catch (e) {
               query = `/save — error: ${e}`;
+            }
+            resetToSearch({ skipFocus: true });
+            await tick();
+            win.hide();
+          }
+          return;
+        }
+        // /reset の args mode: 選択した設定を config.local.toml から削除
+        if (argItem?.source === "SlashCmd" && argItem?.name === "/reset") {
+          const key = allCompletions.length > 0
+            ? allCompletions[completionIndex]
+            : extraArgs.trim();
+          if (key) {
+            try {
+              const msg = await invoke("reset_local", { key });
+              query = `/reset — ${msg}`;
+            } catch (e) {
+              query = `/reset — error: ${e}`;
             }
             resetToSearch({ skipFocus: true });
             await tick();
@@ -813,17 +834,17 @@
     }
   }
 
-  // previewContent が確定したタイミングでウィンドウ位置・サイズ再調整
+  // previewContent が確定したタイミングでウィンドウサイズ再調整（位置はそのまま）
   $effect(() => {
-    const target = previewTarget();
-    const show = target !== "" && previewContent !== ""; // previewContent を直接読んでトラッキング保証
+    previewTarget(); // reactive dep として登録
+    previewContent;  // previewContent を直接読んでトラッキング保証
     _lastSize = { w: 0, h: 0 }; // キャッシュクリアして強制リサイズ
     if (mode === "args") {
       resizeForArgs(allCompletions.length);
     } else {
-      resizeForSearch(filtered.length);
+      // スラッシュコマンドモード時は filteredSlash.length を使う（filtered は [] になるため）
+      resizeForSearch(filteredSlash.length > 0 ? filteredSlash.length : filtered.length);
     }
-    invoke("adjust_for_preview", { show, previewWidth: PREVIEW_WIDTH });
   });
 
   // プレビューコンテンツ取得 + ハイライト（Ctrl+n/p でアイテムが変わっても位置・サイズは変化しない）
@@ -1031,8 +1052,8 @@
   );
 
   async function runSlashCommand(cmd) {
-    if (cmd.name === "/save") {
-      // Enter on /save → enter args mode to pick which setting to save
+    if (cmd.name === "/save" || cmd.name === "/reset") {
+      // Enter on /save or /reset → enter args mode to pick which setting
       applyArgItem({ name: cmd.name, path: "", args: [], workdir: null,
                      source: "SlashCmd", completion: "list",
                      completion_list: cmd.completions, completion_command: null });
@@ -1119,6 +1140,9 @@
 
 <main>
   <div class="launcher">
+    <div class="drag-handle" onmousedown={() => win.startDragging()}>
+      <span class="drag-grip">⠿</span>
+    </div>
     {#if mode === "search"}
       <div class="search-wrap">
         {#if searchGhostSuffix()}
@@ -1452,6 +1476,28 @@
     background: var(--color-bg, #1e1e2e);
     overflow: hidden;
     opacity: var(--opacity, 1);
+  }
+
+  .drag-handle {
+    height: 16px;
+    width: 100%;
+    cursor: grab;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .drag-handle:active {
+    cursor: grabbing;
+  }
+
+  .drag-grip {
+    font-size: 12px;
+    color: var(--color-surface1, #313244);
+    line-height: 1;
+    user-select: none;
+    pointer-events: none;
   }
 
   .preview-panel {
