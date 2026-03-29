@@ -173,8 +173,8 @@ max_completions = 6
 # Preview panel: show when browsing files in args mode (default: true)
 # preview_args = true
 
-# Preview panel: show when navigating search results (default: false)
-# preview_search = false
+# Preview panel: show when navigating search results (default: true)
+# preview_search = true
 
 # Preview panel width in pixels (default: 400)
 # preview_width = 400

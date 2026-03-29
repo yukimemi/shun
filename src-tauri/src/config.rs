@@ -104,7 +104,7 @@ pub struct Config {
     pub max_preview_lines: usize,
     #[serde(default = "default_true")]
     pub preview_args: bool,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub preview_search: bool,
     #[serde(default)]
     pub vars: HashMap<String, String>,
@@ -391,7 +391,7 @@ impl Default for Config {
             preview_width: default_preview_width(),
             max_preview_lines: default_max_preview_lines(),
             preview_args: default_true(),
-            preview_search: false,
+            preview_search: default_true(),
             vars: HashMap::new(),
             apps: vec![],
             scan_dirs: vec![],
@@ -1013,7 +1013,7 @@ max_completions = 6
 # preview_args = true
 
 # Preview panel: show when navigating search results (default: false)
-# preview_search = false
+# preview_search = true
 
 # Preview panel width in pixels (default: 400)
 # preview_width = 400
