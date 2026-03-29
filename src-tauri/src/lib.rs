@@ -494,14 +494,14 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                     serde_json::json!({ "line": "Quitting shun to run: scoop update shun ..." }),
                 );
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                let pid = std::process::id();
+                let cmd = format!(
+                    "$proc = Get-Process -Id {pid} -ErrorAction SilentlyContinue; \
+                     if ($proc) {{ $proc | Wait-Process -Timeout 10 }}; \
+                     scoop update shun"
+                );
                 std::process::Command::new("powershell")
-                    .args([
-                        "-NoProfile",
-                        "-WindowStyle",
-                        "Hidden",
-                        "-Command",
-                        "Start-Sleep -Milliseconds 1000; scoop update shun",
-                    ])
+                    .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &cmd])
                     .spawn()
                     .map_err(|e| format!("failed to spawn scoop update: {e}"))?;
                 app.exit(0);
