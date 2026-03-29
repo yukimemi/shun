@@ -494,14 +494,13 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                     serde_json::json!({ "line": "Quitting shun to run: scoop update shun ..." }),
                 );
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                let pid = std::process::id();
-                let cmd = format!(
-                    "$proc = Get-Process -Id {pid} -ErrorAction SilentlyContinue; \
-                     if ($proc) {{ $proc | Wait-Process -Timeout 10 }}; \
-                     scoop update shun"
-                );
-                std::process::Command::new("powershell")
-                    .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &cmd])
+                // Spawn a new shun.exe with --scoop-update, same as portable spawns shun.exe.
+                // This escapes the Tauri Job Object (powershell spawned directly gets killed
+                // when the parent exits, but a new shun.exe instance survives).
+                let current_exe = std::env::current_exe()
+                    .map_err(|e| format!("failed to get current exe: {e}"))?;
+                std::process::Command::new(&current_exe)
+                    .arg("--scoop-update")
                     .spawn()
                     .map_err(|e| format!("failed to spawn scoop update: {e}"))?;
                 app.exit(0);
@@ -905,6 +904,22 @@ fn position_window(window: &tauri::WebviewWindow, cfg: &config::Config, win_w: f
 type WarningsState = Arc<Mutex<Vec<(String, String)>>>;
 
 pub fn run() {
+    // Spawned by install_update (scoop path) to run scoop update outside the
+    // Tauri Job Object. The parent shun has already exited by the time this runs.
+    if std::env::args().any(|a| a == "--scoop-update") {
+        std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                "scoop update shun",
+            ])
+            .status()
+            .ok();
+        return;
+    }
+
     let (config, _) = config::load_config();
     // WarningsState はランタイムエラー（keybinding 登録失敗など）のみ保持
     // config parse エラーは get_config_warnings() で毎回新鮮に取得する
