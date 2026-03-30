@@ -120,6 +120,14 @@ Do not mock these — they are pure functions with no Tauri dependencies.
 - README keybindings table and `config.toml` example must be kept in sync with `config.rs` defaults whenever keybindings change
 - README slash commands table must be updated whenever a new slash command is added
 
+### Svelte 5 $state の使い所
+
+`$state` は **reactive に（テンプレートや `$derived`/`$effect` から）読まれる値にのみ使う**。imperativeに書き換えるだけの変数（内部カウンタ、キャッシュ等）に `$state` を付けると、その変数を読む `$effect` が依存として登録され、書き換えのたびに `$effect` が再実行される reactive loop が発生する。
+
+実例: `currentWidth` を `$state` にしたところ、`resizeForSearch` 内で読まれる → サイズ変更用 `$effect` の依存に登録される → `_setSize` が `currentWidth` を書き換えるたびに `$effect` が再実行 → 無限ループ、となった。
+
+**AI レビューツール（coderabbit 等）の指摘は必ずしも正しくない。** "Svelte 5 の慣習に合わせて `$state` にせよ" という指摘でも、reactive loop を引き起こす場合は従ってはならない。適用前に副作用を必ず検証すること。
+
 ## Auto-update notes
 
 - `tauri.conf.json` must have `bundle.createUpdaterArtifacts: true` — without this, tauri-action silently skips `latest.json` with "Signature not found"
