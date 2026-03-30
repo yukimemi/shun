@@ -20,6 +20,7 @@
   let migemoInstance = $state(null);
 
   let WINDOW_WIDTH = $state(620);
+  let currentWidth = WINDOW_WIDTH; // ユーザーが手動リサイズした幅を追跡
   let PREVIEW_WIDTH = $state(400);
   let MAX_PREVIEW_LINES = $state(500);
   const DRAG_HANDLE_HEIGHT = 16;
@@ -73,8 +74,8 @@
     { name: "/version", description: appVersion ? `v${appVersion}` : "Show version" },
     { name: "/update",  description: updateVersion ? `Update to v${updateVersion}` : "Check for updates" },
     { name: "/theme",   description: `current: ${currentPreset} (Tab to pick)`, completions: THEME_PRESETS },
-    { name: "/save",    description: "Save setting to config.local.toml (Tab to pick)", completions: ["monitor", "position", "theme", "search_mode", "sort_order"] },
-    { name: "/reset",   description: "Reset setting in config.local.toml (Tab to pick)", completions: ["monitor", "position", "theme", "search_mode", "sort_order"] },
+    { name: "/save",    description: "Save setting to config.local.toml (Tab to pick)", completions: ["monitor", "position", "size", "theme", "search_mode", "sort_order"] },
+    { name: "/reset",   description: "Reset setting in config.local.toml (Tab to pick)", completions: ["monitor", "position", "size", "theme", "search_mode", "sort_order"] },
     { name: "/help",    description: "Show keybindings & current status" },
   ]);
 
@@ -158,22 +159,23 @@
     const totalH = previewVisible ? maxH : h;
     if (_lastSize.w === totalW && _lastSize.h === totalH) return;
     _lastSize = { w: totalW, h: totalH };
+    currentWidth = w; // プレビュー幅を含まないランチャー幅を記録
     win.setSize(new LogicalSize(totalW, totalH));
   }
 
   function resizeForSearch(itemCount) {
     const count = Math.min(itemCount, MAX_ITEMS);
     const h = INPUT_HEIGHT + BORDER_HEIGHT + (count > 0 ? count : 1) * ITEM_HEIGHT + RESULTS_PADDING;
-    _setSize(WINDOW_WIDTH, h);
+    _setSize(currentWidth, h);
   }
 
   function resizeForArgs(completionCount) {
     const count = Math.min(completionCount, MAX_COMPLETIONS);
     if (count === 0) {
-      _setSize(WINDOW_WIDTH, INPUT_HEIGHT);
+      _setSize(currentWidth, INPUT_HEIGHT);
     } else {
       const h = INPUT_HEIGHT + BORDER_HEIGHT + count * ITEM_HEIGHT + RESULTS_PADDING;
-      _setSize(WINDOW_WIDTH, h);
+      _setSize(currentWidth, h);
     }
   }
 
@@ -260,7 +262,7 @@
     const { config: cfg, warnings: backendWarnings } = await invoke("get_config_and_warnings");
     configFiles = await invoke("list_config_files");
     if (cfg?.keybindings) keybindings = { ...keybindings, ...cfg.keybindings };
-    if (cfg?.window_width)      WINDOW_WIDTH      = cfg.window_width;
+    if (cfg?.window_width)      { WINDOW_WIDTH = cfg.window_width; currentWidth = WINDOW_WIDTH; }
     if (cfg?.max_items)         MAX_ITEMS         = cfg.max_items;
     if (cfg?.max_completions)   MAX_COMPLETIONS   = cfg.max_completions;
     if (cfg?.preview_width)          PREVIEW_WIDTH  = cfg.preview_width;
@@ -298,6 +300,12 @@
   onMount(async () => {
     await applyConfig({ resetModes: true });
     appVersion = await getVersion();
+
+    // ユーザーの手動リサイズを追跡（プレビュー幅は除く）
+    const handleResize = () => {
+      currentWidth = previewVisible ? window.innerWidth - PREVIEW_WIDTH : window.innerWidth;
+    };
+    window.addEventListener("resize", handleResize);
 
     await listen("update-available", (event) => {
       updateVersion = event.payload;
@@ -381,10 +389,16 @@
         sort_order:  uiSortOrder,
         monitor:     "", // Rust 側で自動検出
         position:    "", // Rust 側で自動検出
+        size:        "", // Rust 側で自動検出
       };
       try {
         const msg = await invoke("save_to_local", { key: value, value: valueMap[value] ?? "" });
         query = `/save — ${msg}`;
+        if (value === "size") {
+          // window_width が変わったので即反映
+          await applyConfig();
+          resizeForSearch(filtered.length);
+        }
       } catch (e) {
         query = `/save — error: ${e}`;
       }
@@ -397,6 +411,12 @@
       try {
         const msg = await invoke("reset_local", { key: value });
         query = `/reset — ${msg}`;
+        if (value === "size") {
+          // デフォルト幅に戻す (applyConfig が currentWidth = WINDOW_WIDTH を更新)
+          await applyConfig();
+          _lastSize = { w: 0, h: 0 }; // キャッシュクリアして強制リサイズ
+          resizeForSearch(filtered.length);
+        }
       } catch (e) {
         query = `/reset — error: ${e}`;
       }
@@ -960,7 +980,7 @@
 <svelte:window onkeydown={onKeydown} />
 
 <main>
-  <div class="launcher">
+  <div class="launcher" class:preview-open={previewVisible}>
     <div class="drag-handle" onmousedown={() => win.startDragging()}>
       <span class="drag-grip">⠿</span>
     </div>
@@ -1073,12 +1093,15 @@
   }
 
   .launcher {
-    width: var(--launcher-width, 620px);
-    flex-shrink: 0;
+    flex: 1;
     height: 100%;
     background: var(--color-bg, #1e1e2e);
     overflow: hidden;
     opacity: var(--opacity, 1);
+  }
+
+  .launcher.preview-open {
+    flex: 0 0 var(--launcher-width, 620px);
   }
 
   .drag-handle {
