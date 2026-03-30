@@ -1,6 +1,15 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::config::{CompletionType, SearchMode};
+
+/// バックスラッシュをスラッシュに変換する。UNC パス（\\server\share）はそのまま返す。
+fn to_slash(s: &str) -> String {
+    if s.starts_with("\\\\") {
+        s.to_string()
+    } else {
+        s.replace('\\', "/")
+    }
+}
 
 /// query が target に fuzzy マッチするか（subsequence、大文字小文字無視）
 fn fuzzy_match(query: &str, target: &str) -> bool {
@@ -80,12 +89,10 @@ fn complete_path(
     base_path: Option<&str>,
     search_mode: &SearchMode,
 ) -> (String, Vec<String>) {
-    // base_path がある場合は base + input を実際のパスとして補完し、結果から base を strip する
-    let effective_input = match base_path {
-        Some(base) => {
-            let base_expanded = crate::utils::expand_path(base).replace('\\', "/");
-            format!("{}{}", base_expanded, input)
-        }
+    // base_path がある場合は PathBuf に展開し、base + input を effective_input にする
+    let base_expanded_path = base_path.map(|b| PathBuf::from(crate::utils::expand_path(b)));
+    let effective_input = match &base_expanded_path {
+        Some(base) => format!("{}{}", to_slash(&base.to_string_lossy()), input),
         None => input.to_string(),
     };
 
@@ -101,13 +108,13 @@ fn complete_path(
     });
     let expanded_path = Path::new(&expanded);
 
-    let (dir, stem) = if expanded.ends_with('/') || expanded.ends_with('\\') {
-        (expanded.as_str().to_string(), String::new())
+    let (dir_path, stem) = if expanded.ends_with('/') || expanded.ends_with('\\') {
+        (expanded_path.to_path_buf(), String::new())
     } else {
         let parent = expanded_path
             .parent()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|| ".".to_string());
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
         let file = expanded_path
             .file_name()
             .map(|f| f.to_string_lossy().to_lowercase())
@@ -115,19 +122,16 @@ fn complete_path(
         (parent, file)
     };
 
-    let dir_path = Path::new(&dir);
     if !dir_path.exists() {
         return (prefix, vec![]);
     }
 
-    let entries = match std::fs::read_dir(dir_path) {
+    let entries = match std::fs::read_dir(&dir_path) {
         Ok(e) => e,
         Err(_) => return (prefix, vec![]),
     };
 
-    // base_path の展開済み文字列（strip 用）
-    let base_expanded = base_path.map(|b| crate::utils::expand_path(b).replace('\\', "/"));
-
+    let home_dir = dirs_next::home_dir();
     // migemo: regex をループ外で1回コンパイル
     let stem_re = crate::migemo::build_regex(&stem);
 
@@ -139,35 +143,39 @@ fn complete_path(
                 return None;
             }
             let full = entry.path();
-            let mut s = full.to_string_lossy().to_string();
-            s = s.replace('\\', "/");
-            if entry.path().is_dir() {
+            let is_dir = full.is_dir();
+
+            // base_path がある場合: Path::strip_prefix でセパレーター差異を吸収して strip する
+            if let Some(ref base) = base_expanded_path {
+                if let Ok(stripped) = full.strip_prefix(base) {
+                    let mut s = to_slash(&stripped.to_string_lossy());
+                    if is_dir && !s.ends_with('/') {
+                        s.push('/');
+                    }
+                    return Some(s);
+                }
+            }
+
+            // Path::starts_with でホームディレクトリを ~ に置換
+            let mut s = to_slash(&full.to_string_lossy());
+            if let Some(ref home) = home_dir {
+                if let Ok(stripped) = full.strip_prefix(home) {
+                    s = format!("~/{}", to_slash(&stripped.to_string_lossy()));
+                }
+            }
+            if is_dir && !s.ends_with('/') {
                 s.push('/');
-            }
-            // base_path がある場合は strip して相対パスで返す
-            if let Some(ref base) = base_expanded {
-                let base = base.trim_end_matches('/');
-                if let Some(stripped) = s.strip_prefix(base) {
-                    return Some(stripped.trim_start_matches('/').to_string());
-                }
-            }
-            if let Some(home) = dirs_next::home_dir() {
-                let home_str = home.to_string_lossy().replace('\\', "/");
-                if s.starts_with(&*home_str) {
-                    s = format!("~{}", &s[home_str.len()..]);
-                }
             }
             Some(s)
         })
         .collect();
 
     sort_completions(&mut completions);
+
     // base_path がある場合は prefix も strip（ユーザー入力の空白区切り部分のみ残す）
-    let final_prefix = if base_path.is_some() {
-        let base_len = base_expanded
-            .as_deref()
-            .map(|b| b.trim_end_matches('/').len() + 1)
-            .unwrap_or(0);
+    let final_prefix = if let Some(ref base) = base_expanded_path {
+        let base_str = to_slash(&base.to_string_lossy());
+        let base_len = base_str.trim_end_matches('/').len() + 1;
         if prefix.len() > base_len {
             prefix[base_len..].to_string()
         } else {
@@ -176,6 +184,7 @@ fn complete_path(
     } else {
         prefix
     };
+
     (final_prefix, completions)
 }
 
