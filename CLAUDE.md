@@ -120,13 +120,13 @@ Do not mock these — they are pure functions with no Tauri dependencies.
 - README keybindings table and `config.toml` example must be kept in sync with `config.rs` defaults whenever keybindings change
 - README slash commands table must be updated whenever a new slash command is added
 
-### Svelte 5 $state の使い所
+### Svelte 5 $state pitfall
 
-`$state` は **reactive に（テンプレートや `$derived`/`$effect` から）読まれる値にのみ使う**。imperativeに書き換えるだけの変数（内部カウンタ、キャッシュ等）に `$state` を付けると、その変数を読む `$effect` が依存として登録され、書き換えのたびに `$effect` が再実行される reactive loop が発生する。
+Only use `$state` for values that are **read reactively** (in templates, `$derived`, or `$effect`). Applying `$state` to a variable that is only written imperatively (internal counters, caches, etc.) will register it as a dependency of any `$effect` that reads it, causing that effect to re-run on every write — creating a reactive loop.
 
-実例: `currentWidth` を `$state` にしたところ、`resizeForSearch` 内で読まれる → サイズ変更用 `$effect` の依存に登録される → `_setSize` が `currentWidth` を書き換えるたびに `$effect` が再実行 → 無限ループ、となった。
+Real example: making `currentWidth` a `$state` caused `resizeForSearch` to track it as a dependency of the resize `$effect`; every `_setSize` call wrote `currentWidth`, re-triggering the effect infinitely.
 
-**AI レビューツール（coderabbit 等）の指摘は必ずしも正しくない。** "Svelte 5 の慣習に合わせて `$state` にせよ" という指摘でも、reactive loop を引き起こす場合は従ってはならない。適用前に副作用を必ず検証すること。
+**AI review tools (coderabbit, etc.) are not always right.** Even a "follow Svelte 5 conventions and use `$state`" suggestion must be verified for side-effects before applying.
 
 ## Auto-update notes
 
