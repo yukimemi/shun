@@ -753,6 +753,13 @@ fn save_to_local(
             doc["position_y"] = toml_edit::value(ly);
             format!("position = ({}, {})", lx, ly)
         }
+        "size" => {
+            let size = window.inner_size().map_err(|e| e.to_string())?;
+            let scale = window.scale_factor().map_err(|e| e.to_string())?;
+            let lw = (size.width as f64 / scale).round() as i64;
+            doc["window_width"] = toml_edit::value(lw);
+            format!("window_width = {}", lw)
+        }
         _ => return Err(format!("unknown setting: {}", key)),
     };
 
@@ -799,6 +806,10 @@ fn reset_local(key: String) -> Result<String, String> {
             doc.remove("position_x");
             doc.remove("position_y");
             "position".to_string()
+        }
+        "size" => {
+            doc.remove("window_width");
+            "size".to_string()
         }
         _ => return Err(format!("unknown setting: {}", key)),
     };
