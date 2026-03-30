@@ -488,6 +488,11 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         InstallMethod::Scoop => {
             #[cfg(target_os = "windows")]
             {
+                // 最新版かどうか確認 — 更新なければ何もしない
+                let updater = app.updater().map_err(|e| e.to_string())?;
+                if updater.check().await.map_err(|e| e.to_string())?.is_none() {
+                    return Ok(());
+                }
                 // shun 起動中は exe がロックされるため、終了後に update を実行する
                 let _ = app.emit(
                     "update-log",
@@ -513,16 +518,22 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         }
 
         InstallMethod::Homebrew => {
+            // 最新版かどうか確認 — 更新なければ何もしない
+            let updater = app.updater().map_err(|e| e.to_string())?;
+            if updater.check().await.map_err(|e| e.to_string())?.is_none() {
+                return Ok(());
+            }
             // shun 起動中はアプリがロックされるため、終了後に update を実行する
             let _ = app.emit(
                 "update-log",
                 serde_json::json!({ "line": "Quitting shun to run: brew upgrade --cask shun ..." }),
             );
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            // brew upgrade 完了後に shun を再起動する
             std::process::Command::new("sh")
                 .args([
                     "-c",
-                    "sleep 1 && HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INTERACTIVE=1 brew upgrade --cask shun",
+                    "sleep 1 && HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INTERACTIVE=1 brew upgrade --cask shun && open -a shun",
                 ])
                 .spawn()
                 .map_err(|e| format!("failed to spawn brew upgrade: {e}"))?;
@@ -917,6 +928,18 @@ pub fn run() {
             ])
             .status()
             .ok();
+        // Launch the updated shun via the `current` junction so we always get the
+        // new version. current_exe() may resolve to the old versioned path
+        // (e.g. apps\shun\4.4.1\shun.exe); going up two levels and re-joining
+        // `current\shun.exe` gives us the junction which scoop just updated.
+        if let Ok(exe) = std::env::current_exe() {
+            let new_exe = exe
+                .parent() // .../apps/shun/<version>/
+                .and_then(|p| p.parent()) // .../apps/shun/
+                .map(|p| p.join("current").join("shun.exe"));
+            let launch = new_exe.filter(|p| p.exists()).unwrap_or(exe);
+            std::process::Command::new(launch).spawn().ok();
+        }
         return;
     }
 
