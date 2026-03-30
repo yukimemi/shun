@@ -20,7 +20,7 @@
   let migemoInstance = $state(null);
 
   let WINDOW_WIDTH = $state(620);
-  let currentWidth = WINDOW_WIDTH; // ユーザーが手動リサイズした幅を追跡
+  let currentWidth = $state(WINDOW_WIDTH); // ユーザーが手動リサイズした幅を追跡
   let PREVIEW_WIDTH = $state(400);
   let MAX_PREVIEW_LINES = $state(500);
   const DRAG_HANDLE_HEIGHT = 16;
@@ -151,6 +151,15 @@
   });
 
   let _lastSize = { w: 0, h: 0 };
+
+  // ユーザーの手動リサイズを追跡（プレビュー幅は除く）
+  $effect(() => {
+    const handleResize = () => {
+      currentWidth = previewVisible ? window.innerWidth - PREVIEW_WIDTH : window.innerWidth;
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  });
 
   function _setSize(w, h) {
     const totalW = previewVisible ? w + PREVIEW_WIDTH : w;
@@ -301,11 +310,6 @@
     await applyConfig({ resetModes: true });
     appVersion = await getVersion();
 
-    // ユーザーの手動リサイズを追跡（プレビュー幅は除く）
-    const handleResize = () => {
-      currentWidth = previewVisible ? window.innerWidth - PREVIEW_WIDTH : window.innerWidth;
-    };
-    window.addEventListener("resize", handleResize);
 
     await listen("update-available", (event) => {
       updateVersion = event.payload;
