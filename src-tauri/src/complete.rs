@@ -2,13 +2,9 @@ use std::path::{Path, PathBuf};
 
 use crate::config::{CompletionType, SearchMode};
 
-/// バックスラッシュをスラッシュに変換する。UNC パス（\\server\share）はそのまま返す。
+/// バックスラッシュをスラッシュに変換する。UNC パス（\\server\share）は //server/share に正規化。
 fn to_slash(s: &str) -> String {
-    if s.starts_with("\\\\") {
-        s.to_string()
-    } else {
-        s.replace('\\', "/")
-    }
+    s.replace('\\', "/")
 }
 
 /// query が target に fuzzy マッチするか（subsequence、大文字小文字無視）

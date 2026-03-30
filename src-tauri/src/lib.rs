@@ -300,6 +300,8 @@ fn launch_item(
         tauri_plugin_opener::open_url(&path, None::<&str>).map_err(|e| e.to_string())
     } else if matches!(item.source, apps::ItemSource::Path) {
         let expanded = utils::expand_path(path.trim_end_matches('/'));
+        #[cfg(target_os = "windows")]
+        let expanded = expanded.replace('/', "\\");
         tauri_plugin_opener::open_path(expanded, None::<&str>).map_err(|e| e.to_string())
     } else {
         apps::launch_with_extra(&item, extra, &vars)
