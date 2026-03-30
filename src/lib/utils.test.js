@@ -86,6 +86,9 @@ describe("isPathQuery", () => {
   it("detects UNC path", () => {
     expect(isPathQuery("\\\\server\\share")).toBe(true);
     expect(isPathQuery("\\\\server\\share\\folder")).toBe(true);
+    // 正規化済み UNC（to_slash 後）は startsWith('/') で検出される
+    expect(isPathQuery("//server/share")).toBe(true);
+    expect(isPathQuery("//server/share/folder")).toBe(true);
   });
 });
 

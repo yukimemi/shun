@@ -123,6 +123,9 @@ pub fn launch_with_extra(
 
 pub fn launch(item: &LaunchItem) -> Result<(), String> {
     let path = crate::utils::expand_path(&item.path);
+    // Windows: 内部正規化（/ 統一）を OS ネイティブ形式（\）に戻す
+    #[cfg(target_os = "windows")]
+    let path = path.replace('/', "\\");
     let expanded_args: Vec<String> = item
         .args
         .iter()
@@ -776,6 +779,9 @@ mod tests {
     fn path_unc() {
         assert!(is_path("\\\\server\\share"));
         assert!(is_path("\\\\server\\share\\folder"));
+        // 正規化済み UNC（to_slash 後）は starts_with('/') で検出される
+        assert!(is_path("//server/share"));
+        assert!(is_path("//server/share/folder"));
     }
 
     // --- render_template ---
