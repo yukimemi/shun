@@ -5,7 +5,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { getVersion } from "@tauri-apps/api/app";
   import { debug, info } from "@tauri-apps/plugin-log";
-  import { onMount, tick } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import { firstSepIdx, isPathQuery, matchKey, fuzzyMatch, shouldBypassTemplate, getEffectiveSearchMode, nextSearchMode, makePathItem, makeWarningItem, canHaveArgs, validateKeybindings, normalizeConfigFileName, completionMatches } from "$lib/utils.js";
   import { highlight, shikiTheme } from "$lib/highlight.js";
   import SearchModeIcon from "$lib/SearchModeIcon.svelte";
@@ -20,7 +20,7 @@
   let migemoInstance = $state(null);
 
   let WINDOW_WIDTH = $state(620);
-  let currentWidth = $state(WINDOW_WIDTH); // ユーザーが手動リサイズした幅を追跡
+  let currentWidth = WINDOW_WIDTH; // ユーザーが手動リサイズした幅を追跡（$state 不可: reactive loop になる）
   let PREVIEW_WIDTH = $state(400);
   let MAX_PREVIEW_LINES = $state(500);
   const DRAG_HANDLE_HEIGHT = 16;
@@ -152,14 +152,6 @@
 
   let _lastSize = { w: 0, h: 0 };
 
-  // ユーザーの手動リサイズを追跡（プレビュー幅は除く）
-  $effect(() => {
-    const handleResize = () => {
-      currentWidth = previewVisible ? window.innerWidth - PREVIEW_WIDTH : window.innerWidth;
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  });
 
   function _setSize(w, h) {
     const totalW = previewVisible ? w + PREVIEW_WIDTH : w;
@@ -306,10 +298,18 @@
     uiSortOrder = SORT_ORDERS[(SORT_ORDERS.indexOf(uiSortOrder) + 1) % SORT_ORDERS.length];
   }
 
+  // ユーザーの手動リサイズを追跡（プレビュー幅は除く）
+  // $state/$effect 不可: currentWidth を $state にすると resizeForSearch 内で読まれ reactive loop になる
+  const _handleResize = () => {
+    currentWidth = previewVisible ? window.innerWidth - PREVIEW_WIDTH : window.innerWidth;
+  };
+  onDestroy(() => window.removeEventListener("resize", _handleResize));
+
   onMount(async () => {
     await applyConfig({ resetModes: true });
     appVersion = await getVersion();
 
+    window.addEventListener("resize", _handleResize);
 
     await listen("update-available", (event) => {
       updateVersion = event.payload;
