@@ -32,6 +32,19 @@ describe("firstSepIdx", () => {
     expect(firstSepIdx(" foo")).toBe(0);
     expect(firstSepIdx("/foo")).toBe(0);
   });
+
+  it("finds backslash", () => {
+    expect(firstSepIdx("Users\\foo")).toBe(5);
+    expect(firstSepIdx("C:\\Users\\foo")).toBe(2);
+  });
+
+  it("returns minimum when backslash before slash", () => {
+    expect(firstSepIdx("foo\\bar/baz")).toBe(3);
+  });
+
+  it("returns minimum when slash before backslash", () => {
+    expect(firstSepIdx("foo/bar\\baz")).toBe(3);
+  });
 });
 
 // --- isPathQuery ---

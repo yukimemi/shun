@@ -10,7 +10,8 @@
 export function firstSepIdx(s) {
   const spaceIdx = s.indexOf(" ");
   const slashIdx = s.indexOf("/");
-  const candidates = [spaceIdx, slashIdx].filter((i) => i !== -1);
+  const backslashIdx = s.indexOf("\\");
+  const candidates = [spaceIdx, slashIdx, backslashIdx].filter((i) => i !== -1);
   return candidates.length === 0 ? -1 : Math.min(...candidates);
 }
 
