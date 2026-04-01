@@ -4,15 +4,11 @@
  */
 
 /**
- * Returns the index of the first space or slash in s, or -1 if neither exists.
+ * Returns the index of the first space, slash, or backslash in s, or -1 if none exists.
  * Used by acceptWord() to advance one segment at a time.
  */
 export function firstSepIdx(s) {
-  const spaceIdx = s.indexOf(" ");
-  const slashIdx = s.indexOf("/");
-  const backslashIdx = s.indexOf("\\");
-  const candidates = [spaceIdx, slashIdx, backslashIdx].filter((i) => i !== -1);
-  return candidates.length === 0 ? -1 : Math.min(...candidates);
+  return s.search(/[ /\\]/);
 }
 
 /**
