@@ -359,9 +359,14 @@ fn is_path(s: &str) -> bool {
         || s.starts_with("\\\\")  // UNC path: \\server\share
         || (s.len() >= 3 && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) && s[1..].starts_with(":/"))
         || (s.len() >= 3 && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) && s[1..].starts_with(":\\"))
-        || (s.starts_with('%') && s[1..].find('%').is_some_and(|end| end > 0)) // %VAR%\...
-        || s.starts_with("${") // ${VAR}/...
-        || (s.starts_with('$') && s.len() > 1 && (s.as_bytes()[1].is_ascii_alphabetic() || s.as_bytes()[1] == b'_')) // $VAR/...
+        || (s.starts_with('%') && s[1..].find('%').is_some_and(|end| end > 0))
+        || (s.starts_with("${")
+            && s.len() > 3
+            && (s.as_bytes()[2].is_ascii_alphabetic() || s.as_bytes()[2] == b'_')
+            && s[2..].find('}').is_some_and(|end| end > 0))
+        || (s.starts_with('$')
+            && s.len() > 1
+            && (s.as_bytes()[1].is_ascii_alphabetic() || s.as_bytes()[1] == b'_'))
 }
 
 fn history_items(config: &Config) -> Vec<LaunchItem> {
@@ -804,6 +809,8 @@ mod tests {
         assert!(is_path("${XDG_DATA_HOME}/foo"));
         assert!(!is_path("$")); // $ のみ
         assert!(!is_path("$1nvalid")); // 数字始まり
+        assert!(!is_path("${")); // 閉じ括弧なし
+        assert!(!is_path("${HOME")); // 閉じ括弧なし
     }
 
     // --- render_template ---

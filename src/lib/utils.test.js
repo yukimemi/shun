@@ -115,6 +115,8 @@ describe("isPathQuery", () => {
   it("rejects lone dollar sign", () => {
     expect(isPathQuery("$")).toBe(false);
     expect(isPathQuery("$1nvalid")).toBe(false);
+    expect(isPathQuery("${")).toBe(false);
+    expect(isPathQuery("${HOME")).toBe(false);
   });
 });
 
