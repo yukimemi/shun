@@ -342,3 +342,7 @@ jobs:
           identifier: yukimemi.shun
           token: ${{ secrets.WINGET_TOKEN }}
           installers-regex: '_x64-setup\.exe$'
+          override-manifest-fields: |
+            InstallerSwitches:
+              Silent: /S
+              SilentWithProgress: /S
