@@ -184,11 +184,15 @@
     argItem = newItem;
   }
 
-  function resetToSearch({ skipFocus = false } = {}) {
+  function resetToSearch({ skipFocus = false, keepQuery = false } = {}) {
     mode = "search";
     helpVisible = false;
     argItem = null;
     extraArgs = "";
+    if (!keepQuery) {
+      query = "";
+      filtered = [];
+    }
     completionPrefix = "";
     allCompletions = [];
     completionIndex = 0;
@@ -381,7 +385,6 @@
       info(`/theme: applying preset=${value}`);
       applyTheme({ preset: value }); // CSS 即時適用（同期）
       resetToSearch({ skipFocus: true });
-      query = ""; // query もリセット（/theme が残ると $effect が resize IPC を余分に飛ばす）
       await tick();
       win.hide();
       return true;
@@ -438,7 +441,7 @@
       if (allCompletions.length > 0) {
         allCompletions = [];
       } else {
-        resetToSearch();
+        resetToSearch({ keepQuery: true });
       }
     } else if (matchKey(e, keybindings.confirm)) {
       e.preventDefault();
@@ -531,6 +534,9 @@
 
   async function handleSearchKeydown(e) {
     if (matchKey(e, keybindings.close)) {
+      e.preventDefault();
+      resetToSearch({ skipFocus: true });
+      await tick();
       win.hide();
     } else if (e.key === "ArrowDown" || matchKey(e, keybindings.next)) {
       e.preventDefault();
