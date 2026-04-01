@@ -90,6 +90,32 @@ describe("isPathQuery", () => {
     expect(isPathQuery("//server/share")).toBe(true);
     expect(isPathQuery("//server/share/folder")).toBe(true);
   });
+
+  it("detects %VAR% style env var path", () => {
+    expect(isPathQuery("%USERPROFILE%\\app")).toBe(true);
+    expect(isPathQuery("%APPDATA%/Roaming")).toBe(true);
+    expect(isPathQuery("%USERPROFILE%")).toBe(true);
+  });
+
+  it("rejects unclosed percent sign", () => {
+    expect(isPathQuery("%NOTAVAR")).toBe(false);
+  });
+
+  it("detects $VAR style env var path", () => {
+    expect(isPathQuery("$HOME/app")).toBe(true);
+    expect(isPathQuery("$XDG_CONFIG_HOME/foo")).toBe(true);
+    expect(isPathQuery("$_VAR/bar")).toBe(true);
+  });
+
+  it("detects ${VAR} style env var path", () => {
+    expect(isPathQuery("${HOME}/app")).toBe(true);
+    expect(isPathQuery("${XDG_DATA_HOME}/foo")).toBe(true);
+  });
+
+  it("rejects lone dollar sign", () => {
+    expect(isPathQuery("$")).toBe(false);
+    expect(isPathQuery("$1nvalid")).toBe(false);
+  });
 });
 
 // --- matchKey ---
