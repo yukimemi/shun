@@ -981,10 +981,16 @@ pub fn run() {
     if std::env::args().any(|a| a == "--scoop-update") {
         // Load config to check log level. Write to log file only when level=debug,
         // because Tauri logger is not yet initialized at this point.
-        let (config, _) = config::load_config();
-        let is_debug = config.log.to_level_filter() >= log::LevelFilter::Debug;
         #[cfg(target_os = "windows")]
-        let log_path = if is_debug { scoop_log_path() } else { None };
+        let log_path = {
+            let (config, _) = config::load_config();
+            let is_debug = config.log.to_level_filter() >= log::LevelFilter::Debug;
+            if is_debug {
+                scoop_log_path()
+            } else {
+                None
+            }
+        };
         #[cfg(not(target_os = "windows"))]
         let log_path: Option<std::path::PathBuf> = None;
 
