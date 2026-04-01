@@ -118,6 +118,13 @@ describe("isPathQuery", () => {
     expect(isPathQuery("${")).toBe(false);
     expect(isPathQuery("${HOME")).toBe(false);
   });
+
+  it("detects shell: special folder", () => {
+    expect(isPathQuery("shell:startup")).toBe(true);
+    expect(isPathQuery("shell:desktop")).toBe(true);
+    expect(isPathQuery("shell:RecycleBinFolder")).toBe(true);
+    expect(isPathQuery("SHELL:startup")).toBe(true);
+  });
 });
 
 // --- matchKey ---

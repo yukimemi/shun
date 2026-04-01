@@ -367,6 +367,7 @@ fn is_path(s: &str) -> bool {
         || (s.starts_with('$')
             && s.len() > 1
             && (s.as_bytes()[1].is_ascii_alphabetic() || s.as_bytes()[1] == b'_'))
+        || s.len() > 6 && s[..6].eq_ignore_ascii_case("shell:")
 }
 
 fn history_items(config: &Config) -> Vec<LaunchItem> {
@@ -811,6 +812,15 @@ mod tests {
         assert!(!is_path("$1nvalid")); // 数字始まり
         assert!(!is_path("${")); // 閉じ括弧なし
         assert!(!is_path("${HOME")); // 閉じ括弧なし
+    }
+
+    #[test]
+    fn path_shell_special_folder() {
+        assert!(is_path("shell:startup"));
+        assert!(is_path("shell:desktop"));
+        assert!(is_path("shell:RecycleBinFolder"));
+        assert!(is_path("SHELL:startup"));
+        assert!(!is_path("shell")); // コロンなし
     }
 
     // --- render_template ---

@@ -28,7 +28,8 @@ export function isPathQuery(q) {
     /^[a-zA-Z]:[/\\]/.test(q) ||
     /^%[^%]+%/.test(q) ||
     /^\$\{[^}]+\}/.test(q) ||
-    /^\$[A-Za-z_]/.test(q)
+    /^\$[A-Za-z_]/.test(q) ||
+    /^shell:/i.test(q)
   );
 }
 
