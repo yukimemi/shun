@@ -25,7 +25,10 @@ export function isPathQuery(q) {
     q.startsWith("~\\") ||
     q.startsWith("/") ||
     q.startsWith("\\\\") ||
-    /^[a-zA-Z]:[/\\]/.test(q)
+    /^[a-zA-Z]:[/\\]/.test(q) ||
+    /^%[^%]+%/.test(q) ||
+    /^\$\{[^}]+\}/.test(q) ||
+    /^\$[A-Za-z_]/.test(q)
   );
 }
 

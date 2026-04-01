@@ -359,6 +359,14 @@ fn is_path(s: &str) -> bool {
         || s.starts_with("\\\\")  // UNC path: \\server\share
         || (s.len() >= 3 && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) && s[1..].starts_with(":/"))
         || (s.len() >= 3 && s.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) && s[1..].starts_with(":\\"))
+        || (s.starts_with('%') && s[1..].find('%').is_some_and(|end| end > 0))
+        || (s.starts_with("${")
+            && s.len() > 3
+            && (s.as_bytes()[2].is_ascii_alphabetic() || s.as_bytes()[2] == b'_')
+            && s[2..].find('}').is_some_and(|end| end > 0))
+        || (s.starts_with('$')
+            && s.len() > 1
+            && (s.as_bytes()[1].is_ascii_alphabetic() || s.as_bytes()[1] == b'_'))
 }
 
 fn history_items(config: &Config) -> Vec<LaunchItem> {
@@ -782,6 +790,27 @@ mod tests {
         // 正規化済み UNC（to_slash 後）は starts_with('/') で検出される
         assert!(is_path("//server/share"));
         assert!(is_path("//server/share/folder"));
+    }
+
+    #[test]
+    fn path_env_var_percent_style() {
+        assert!(is_path("%USERPROFILE%\\foo"));
+        assert!(is_path("%APPDATA%/bar"));
+        assert!(is_path("%USERPROFILE%"));
+        assert!(!is_path("%NOTAVAR")); // 閉じる % なし
+    }
+
+    #[test]
+    fn path_env_var_dollar_style() {
+        assert!(is_path("$HOME/app"));
+        assert!(is_path("$XDG_CONFIG_HOME/foo"));
+        assert!(is_path("$_VAR/bar"));
+        assert!(is_path("${HOME}/app"));
+        assert!(is_path("${XDG_DATA_HOME}/foo"));
+        assert!(!is_path("$")); // $ のみ
+        assert!(!is_path("$1nvalid")); // 数字始まり
+        assert!(!is_path("${")); // 閉じ括弧なし
+        assert!(!is_path("${HOME")); // 閉じ括弧なし
     }
 
     // --- render_template ---
