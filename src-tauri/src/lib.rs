@@ -956,6 +956,9 @@ fn scoop_log_path() -> Option<std::path::PathBuf> {
 fn scoop_debug_log(log_path: Option<&std::path::Path>, msg: &str) {
     use std::io::Write;
     let Some(path) = log_path else { return };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
