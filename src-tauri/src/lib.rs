@@ -300,6 +300,18 @@ fn launch_item(
         tauri_plugin_opener::open_url(&path, None::<&str>).map_err(|e| e.to_string())
     } else if matches!(item.source, apps::ItemSource::Path) {
         let expanded = utils::expand_path(path.trim_end_matches('/'));
+        // Windows: shell: 特殊フォルダは explorer.exe 経由で起動
+        #[cfg(target_os = "windows")]
+        if expanded.len() > 6 && expanded[..6].eq_ignore_ascii_case("shell:") {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            return std::process::Command::new("explorer.exe")
+                .arg(&expanded)
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+                .map(|_| ())
+                .map_err(|e| e.to_string());
+        }
         // Windows: 内部正規化（/ 統一）を OS ネイティブ形式（\）に戻す
         #[cfg(target_os = "windows")]
         let expanded = expanded.replace('/', "\\");
