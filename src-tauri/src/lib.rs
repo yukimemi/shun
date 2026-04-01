@@ -503,11 +503,14 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         InstallMethod::Scoop => {
             #[cfg(target_os = "windows")]
             {
+                log::info!("install_update: Scoop install detected, checking for updates...");
                 // 最新版かどうか確認 — 更新なければ何もしない
                 let updater = app.updater().map_err(|e| e.to_string())?;
                 if updater.check().await.map_err(|e| e.to_string())?.is_none() {
+                    log::info!("install_update: no update available (already up to date)");
                     return Ok(());
                 }
+                log::info!("install_update: update available, spawning --scoop-update");
                 // shun 起動中は exe がロックされるため、終了後に update を実行する
                 let _ = app.emit(
                     "update-log",
@@ -937,6 +940,35 @@ fn position_window(window: &tauri::WebviewWindow, cfg: &config::Config, win_w: f
     window.set_position(tauri::LogicalPosition::new(x, y)).ok();
 }
 
+/// Returns the log file path for pre-Tauri debug logging (Windows only).
+/// Used by the --scoop-update handler which runs before Tauri logger is initialized.
+#[cfg(target_os = "windows")]
+fn scoop_log_path() -> Option<std::path::PathBuf> {
+    std::env::var("LOCALAPPDATA").ok().map(|d| {
+        std::path::PathBuf::from(d)
+            .join("com.yukimemi.shun")
+            .join("logs")
+            .join("shun.log")
+    })
+}
+
+/// Appends a debug log line to the shun log file (pre-Tauri, no logger initialized).
+fn scoop_debug_log(log_path: Option<&std::path::Path>, msg: &str) {
+    use std::io::Write;
+    let Some(path) = log_path else { return };
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(f, "[{secs}][DEBUG] --scoop-update: {msg}");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 type WarningsState = Arc<Mutex<Vec<(String, String)>>>;
 
@@ -944,7 +976,17 @@ pub fn run() {
     // Spawned by install_update (scoop path) to run scoop update outside the
     // Tauri Job Object. The parent shun has already exited by the time this runs.
     if std::env::args().any(|a| a == "--scoop-update") {
-        std::process::Command::new("powershell")
+        // Load config to check log level. Write to log file only when level=debug,
+        // because Tauri logger is not yet initialized at this point.
+        let (config, _) = config::load_config();
+        let is_debug = config.log.to_level_filter() >= log::LevelFilter::Debug;
+        #[cfg(target_os = "windows")]
+        let log_path = if is_debug { scoop_log_path() } else { None };
+        #[cfg(not(target_os = "windows"))]
+        let log_path: Option<std::path::PathBuf> = None;
+
+        scoop_debug_log(log_path.as_deref(), "starting scoop update shun");
+        match std::process::Command::new("powershell")
             .args([
                 "-NoProfile",
                 "-WindowStyle",
@@ -952,8 +994,29 @@ pub fn run() {
                 "-Command",
                 "scoop update shun",
             ])
-            .status()
-            .ok();
+            .output()
+        {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                scoop_debug_log(
+                    log_path.as_deref(),
+                    &format!("exit_status={}", output.status),
+                );
+                if !stdout.trim().is_empty() {
+                    scoop_debug_log(log_path.as_deref(), &format!("stdout={stdout}"));
+                }
+                if !stderr.trim().is_empty() {
+                    scoop_debug_log(log_path.as_deref(), &format!("stderr={stderr}"));
+                }
+            }
+            Err(e) => {
+                scoop_debug_log(
+                    log_path.as_deref(),
+                    &format!("failed to run powershell: {e}"),
+                );
+            }
+        }
         // Launch the updated shun via the `current` junction so we always get the
         // new version. current_exe() may resolve to the old versioned path
         // (e.g. apps\shun\4.4.1\shun.exe); going up two levels and re-joining
@@ -964,6 +1027,10 @@ pub fn run() {
                 .and_then(|p| p.parent()) // .../apps/shun/
                 .map(|p| p.join("current").join("shun.exe"));
             let launch = new_exe.filter(|p| p.exists()).unwrap_or(exe);
+            scoop_debug_log(
+                log_path.as_deref(),
+                &format!("launching {}", launch.display()),
+            );
             std::process::Command::new(launch).spawn().ok();
         }
         return;
