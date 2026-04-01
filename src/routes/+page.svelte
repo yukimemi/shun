@@ -189,6 +189,7 @@
     helpVisible = false;
     argItem = null;
     extraArgs = "";
+    query = "";
     completionPrefix = "";
     allCompletions = [];
     completionIndex = 0;
@@ -381,7 +382,6 @@
       info(`/theme: applying preset=${value}`);
       applyTheme({ preset: value }); // CSS 即時適用（同期）
       resetToSearch({ skipFocus: true });
-      query = ""; // query もリセット（/theme が残ると $effect が resize IPC を余分に飛ばす）
       await tick();
       win.hide();
       return true;
@@ -531,6 +531,8 @@
 
   async function handleSearchKeydown(e) {
     if (matchKey(e, keybindings.close)) {
+      resetToSearch({ skipFocus: true });
+      await tick();
       win.hide();
     } else if (e.key === "ArrowDown" || matchKey(e, keybindings.next)) {
       e.preventDefault();
