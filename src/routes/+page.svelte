@@ -114,7 +114,7 @@
   // Path アイテムはフルパスをそのまま表示すると長すぎて args 入力欄が潰れるためファイル名のみ表示
   let argDisplayName = $derived(
     argItem?.source === "Path"
-      ? (argItem.name.replace(/\\/g, "/").split("/").filter(Boolean).at(-1) ?? argItem.name)
+      ? (argItem.name.split(/[\\/]/).filter(Boolean).at(-1) ?? argItem.name)
       : (argItem?.name ?? "")
   );
   let filtered = $state([]);
