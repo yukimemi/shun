@@ -298,7 +298,8 @@ fn launch_item(
 
     if path.starts_with("http://") || path.starts_with("https://") {
         tauri_plugin_opener::open_url(&path, None::<&str>).map_err(|e| e.to_string())
-    } else if matches!(item.source, apps::ItemSource::Path) {
+    } else if matches!(item.source, apps::ItemSource::Path) && extra.is_empty() {
+        // args なし → OS 関連付けで開く（フォルダ、ドキュメント等）
         let expanded = utils::expand_path(path.trim_end_matches('/'));
         // Windows: shell: 特殊フォルダは explorer.exe 経由で起動
         #[cfg(target_os = "windows")]

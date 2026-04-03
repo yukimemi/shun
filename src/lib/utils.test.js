@@ -426,8 +426,8 @@ describe("canHaveArgs", () => {
     expect(canHaveArgs({ source: "Url" })).toBe(false);
   });
 
-  it("returns false for Path source", () => {
-    expect(canHaveArgs({ source: "Path" })).toBe(false);
+  it("returns true for Path source (executables from scan_dirs can have args)", () => {
+    expect(canHaveArgs({ source: "Path" })).toBe(true);
   });
 
   it("returns false for History source", () => {

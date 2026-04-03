@@ -105,10 +105,11 @@ export function makeWarningItem(file, error) {
 
 /**
  * Returns true if the item can accept extra args (i.e. Tab enters args mode).
- * Url, Path, History, and Warning items cannot have args.
+ * Url, History, and Warning items cannot have args.
+ * Path items can have args (e.g. executables discovered via scan_dirs).
  */
 export function canHaveArgs(item) {
-  return item?.source !== "Url" && item?.source !== "Path" &&
+  return item?.source !== "Url" &&
          item?.source !== "History" && item?.source !== "Warning";
 }
 
