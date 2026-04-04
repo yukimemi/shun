@@ -332,14 +332,19 @@ fn get_last_args(path: String) -> Option<String> {
 fn get_args_history(path: String) -> Vec<String> {
     let hist = history::load();
     let (config, _) = config::load_config();
-    let prefix = format!("{}\t", path);
 
     let mut entries: Vec<(String, u32, u64)> = hist
         .entries
         .iter()
-        .filter_map(|(key, entry)| {
-            key.strip_prefix(&prefix)
-                .map(|args| (args.to_string(), entry.count, entry.last_used))
+        .filter_map(|entry| {
+            if entry.key == path {
+                entry
+                    .args
+                    .as_ref()
+                    .map(|args| (args.join(" "), entry.count, entry.last_used))
+            } else {
+                None
+            }
         })
         .collect();
 
