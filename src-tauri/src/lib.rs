@@ -351,6 +351,20 @@ fn get_args_history(path: String) -> Vec<String> {
     entries.into_iter().map(|(args, _, _)| args).collect()
 }
 
+fn apply_autostart(app: &tauri::AppHandle, want_enabled: bool) {
+    let mgr = app.autolaunch();
+    let is_enabled = mgr.is_enabled().unwrap_or(false);
+    if want_enabled && !is_enabled {
+        if let Err(e) = mgr.enable() {
+            log::warn!("autostart enable failed: {e}");
+        }
+    } else if !want_enabled && is_enabled {
+        if let Err(e) = mgr.disable() {
+            log::warn!("autostart disable failed: {e}");
+        }
+    }
+}
+
 /// Registers the launch shortcut. Falls back to the default key if the configured key is invalid.
 /// Returns `Err` only when even the fallback fails to register (should never happen).
 fn register_launch_shortcut(app: &tauri::AppHandle) -> Result<(), String> {
@@ -402,7 +416,7 @@ fn reload(
     state: tauri::State<CacheState>,
     warnings_state: tauri::State<WarningsState>,
 ) -> Result<(), String> {
-    let (_, _) = config::load_config(); // config reload (warnings are fetched fresh in get_config_warnings)
+    let (cfg, _) = config::load_config();
     app.global_shortcut()
         .unregister_all()
         .map_err(|e| e.to_string())?;
@@ -411,6 +425,8 @@ fn reload(
     // ショートカット登録が完全に失敗した場合のみ Err を返す（呼び出し元がエラー表示する）
     register_launch_shortcut(&app)?;
     *warnings_state.lock().unwrap() = Vec::new();
+
+    apply_autostart(&app, cfg.auto_start);
 
     refresh_cache_bg(Arc::clone(state.inner()));
     Ok(())
@@ -1200,16 +1216,7 @@ pub fn run() {
             }
 
             // auto_start 設定に応じてログイン時自動起動を登録/解除
-            {
-                let mgr = app.autolaunch();
-                if config.auto_start {
-                    if let Err(e) = mgr.enable() {
-                        log::warn!("autostart enable failed: {e}");
-                    }
-                } else if let Err(e) = mgr.disable() {
-                    log::warn!("autostart disable failed: {e}");
-                }
-            }
+            apply_autostart(app.handle(), config.auto_start);
 
             // Config にエラーがある場合は起動時にウィンドウを表示して警告を見せる
             // （launch shortcut が変わっていてウィンドウを開けなくなる問題を防ぐ）

@@ -631,6 +631,7 @@ mod tests {
         assert_eq!(c.search_mode, SearchMode::Fuzzy);
         assert_eq!(c.sort_order, SortOrder::CountFirst);
         assert!(!c.hide_on_blur);
+        assert!(c.auto_start);
         assert_eq!(c.update_check_interval, 3600);
         assert_eq!(c.window_width, 620);
         assert_eq!(c.max_items, 8);
