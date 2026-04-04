@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
+use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_updater::UpdaterExt;
 
@@ -1074,6 +1075,10 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(move |app| {
             let window = app.get_webview_window("main").unwrap();
             window.hide().ok();
@@ -1192,6 +1197,18 @@ pub fn run() {
             // 登録が完全失敗した場合は setup error として伝播する
             if let Err(e) = register_launch_shortcut(app.handle()) {
                 log::warn!("Launch shortcut registration failed: {e}. App will start without a global shortcut.");
+            }
+
+            // auto_start 設定に応じてログイン時自動起動を登録/解除
+            {
+                let mgr = app.autolaunch();
+                if config.auto_start {
+                    if let Err(e) = mgr.enable() {
+                        log::warn!("autostart enable failed: {e}");
+                    }
+                } else if let Err(e) = mgr.disable() {
+                    log::warn!("autostart disable failed: {e}");
+                }
             }
 
             // Config にエラーがある場合は起動時にウィンドウを表示して警告を見せる

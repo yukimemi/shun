@@ -74,6 +74,8 @@ pub struct Config {
     pub sort_order: SortOrder,
     #[serde(default)]
     pub hide_on_blur: bool,
+    #[serde(default = "default_true")]
+    pub auto_start: bool,
     #[serde(default = "default_update_check_interval")]
     pub update_check_interval: u64,
     #[serde(default = "default_window_width")]
@@ -375,6 +377,7 @@ impl Default for Config {
             search_mode: SearchMode::default(),
             sort_order: SortOrder::default(),
             hide_on_blur: false,
+            auto_start: default_true(),
             update_check_interval: default_update_check_interval(),
             window_width: default_window_width(),
             max_items: default_max_items(),

@@ -38,14 +38,7 @@ $shortcut.TargetPath = $exe
 $shortcut.Save()
 Write-Host "Created Start Menu shortcut"
 
-# Startup shortcut (auto-launch on login)
-$startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
-$shortcut = $wsh.CreateShortcut("$startupDir\shun.lnk")
-$shortcut.TargetPath = $exe
-$shortcut.Save()
-Write-Host "Registered shun to run on startup"
-
 Write-Host ""
 Write-Host "shun $version installed successfully!"
-Write-Host "shun will start automatically on next login."
+Write-Host "shun will register itself for auto-start on first launch (set auto_start = false in config.toml to disable)."
 Write-Host "To start now: $exe"
