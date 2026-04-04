@@ -1007,19 +1007,31 @@ pub fn run() {
                 .map(|p| p.join("current").join("shun.exe"))
                 .filter(|p| p.exists())
                 .unwrap_or_else(|| exe.clone());
-            let launch_str = launch.to_string_lossy();
-            // Wait 2 s for this process to fully exit, then update, then relaunch.
+            // Escape single quotes for PowerShell single-quoted strings.
+            let launch_str = launch.to_string_lossy().replace('\'', "''");
+            let pid = std::process::id();
+            // Wait for this process (by PID) to fully exit, then update, then relaunch.
+            // Use -LiteralPath to avoid wildcard interpretation of path characters.
             let ps_cmd = format!(
-                "Start-Sleep -Seconds 2; scoop update shun; if (Test-Path '{launch_str}') {{ Start-Process '{launch_str}' }}"
+                "while (Get-Process -Id {pid} -ErrorAction SilentlyContinue) \
+                 {{ Start-Sleep -Milliseconds 100 }}; \
+                 scoop update shun; \
+                 if (Test-Path -LiteralPath '{launch_str}') \
+                 {{ Start-Process -FilePath '{launch_str}' }}"
             );
             scoop_debug_log(
                 log_path.as_deref(),
                 "spawning deferred powershell and exiting",
             );
-            std::process::Command::new("powershell")
+            if let Err(e) = std::process::Command::new("powershell")
                 .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps_cmd])
                 .spawn()
-                .ok();
+            {
+                scoop_debug_log(
+                    log_path.as_deref(),
+                    &format!("failed to spawn powershell: {e}"),
+                );
+            }
         }
         return;
     }
