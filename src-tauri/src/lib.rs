@@ -1030,14 +1030,29 @@ pub fn run() {
             // Escape single quotes for PowerShell single-quoted strings.
             let launch_str = launch.to_string_lossy().replace('\'', "''");
             let pid = std::process::id();
+            // PowerShell のログファイル（常に書く）
+            let ps_log = launch
+                .parent()
+                .and_then(|p| p.parent())
+                .map(|p| p.join("scoop-update.log"))
+                .unwrap_or_else(|| std::path::PathBuf::from("scoop-update.log"));
+            let ps_log_str = ps_log.to_string_lossy().replace('\'', "''");
             // Wait for this process (by PID) to fully exit, then update, then relaunch.
             // Use -LiteralPath to avoid wildcard interpretation of path characters.
+            // All output is redirected to a log file for post-mortem diagnosis.
             let ps_cmd = format!(
-                "while (Get-Process -Id {pid} -ErrorAction SilentlyContinue) \
+                "$log = '{ps_log_str}'; \
+                 Add-Content $log \"[$(Get-Date -Format 'o')] waiting for pid {pid}\"; \
+                 while (Get-Process -Id {pid} -ErrorAction SilentlyContinue) \
                  {{ Start-Sleep -Milliseconds 100 }}; \
-                 scoop update shun; \
+                 Add-Content $log \"[$(Get-Date -Format 'o')] running: scoop update shun\"; \
+                 $out = (scoop update shun 2>&1 | Out-String); \
+                 Add-Content $log \"[$(Get-Date -Format 'o')] scoop output: $out\"; \
                  if (Test-Path -LiteralPath '{launch_str}') \
-                 {{ Start-Process -FilePath '{launch_str}' }}"
+                 {{ Add-Content $log \"[$(Get-Date -Format 'o')] launching: {launch_str}\"; \
+                    Start-Process -FilePath '{launch_str}' }} \
+                 else \
+                 {{ Add-Content $log \"[$(Get-Date -Format 'o')] ERROR: exe not found: {launch_str}\" }}"
             );
             scoop_debug_log(
                 log_path.as_deref(),
