@@ -74,6 +74,8 @@ pub struct Config {
     pub sort_order: SortOrder,
     #[serde(default)]
     pub hide_on_blur: bool,
+    #[serde(default = "default_true")]
+    pub auto_start: bool,
     #[serde(default = "default_update_check_interval")]
     pub update_check_interval: u64,
     #[serde(default = "default_window_width")]
@@ -375,6 +377,7 @@ impl Default for Config {
             search_mode: SearchMode::default(),
             sort_order: SortOrder::default(),
             hide_on_blur: false,
+            auto_start: default_true(),
             update_check_interval: default_update_check_interval(),
             window_width: default_window_width(),
             max_items: default_max_items(),
@@ -628,6 +631,7 @@ mod tests {
         assert_eq!(c.search_mode, SearchMode::Fuzzy);
         assert_eq!(c.sort_order, SortOrder::CountFirst);
         assert!(!c.hide_on_blur);
+        assert!(c.auto_start);
         assert_eq!(c.update_check_interval, 3600);
         assert_eq!(c.window_width, 620);
         assert_eq!(c.max_items, 8);
@@ -724,6 +728,12 @@ sort_order = "recent_first""#;
     fn parse_hide_on_blur() {
         let c: Config = toml::from_str("hide_on_blur = true").unwrap();
         assert!(c.hide_on_blur);
+    }
+
+    #[test]
+    fn parse_auto_start() {
+        let c: Config = toml::from_str("auto_start = false").unwrap();
+        assert!(!c.auto_start);
     }
 
     #[test]
@@ -981,6 +991,9 @@ sort_order = "count_first"
 
 # Auto-hide when the launcher loses focus
 hide_on_blur = false
+
+# Start automatically at login (default: true); set to false to disable
+auto_start = true
 
 # Update check interval in seconds (0 to disable)
 update_check_interval = 3600

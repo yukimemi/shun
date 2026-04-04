@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
+use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_updater::UpdaterExt;
 
@@ -350,6 +351,20 @@ fn get_args_history(path: String) -> Vec<String> {
     entries.into_iter().map(|(args, _, _)| args).collect()
 }
 
+fn apply_autostart(app: &tauri::AppHandle, want_enabled: bool) {
+    let mgr = app.autolaunch();
+    let is_enabled = mgr.is_enabled().unwrap_or(false);
+    if want_enabled && !is_enabled {
+        if let Err(e) = mgr.enable() {
+            log::warn!("autostart enable failed: {e}");
+        }
+    } else if !want_enabled && is_enabled {
+        if let Err(e) = mgr.disable() {
+            log::warn!("autostart disable failed: {e}");
+        }
+    }
+}
+
 /// Registers the launch shortcut. Falls back to the default key if the configured key is invalid.
 /// Returns `Err` only when even the fallback fails to register (should never happen).
 fn register_launch_shortcut(app: &tauri::AppHandle) -> Result<(), String> {
@@ -401,7 +416,7 @@ fn reload(
     state: tauri::State<CacheState>,
     warnings_state: tauri::State<WarningsState>,
 ) -> Result<(), String> {
-    let (_, _) = config::load_config(); // config reload (warnings are fetched fresh in get_config_warnings)
+    let (cfg, _) = config::load_config();
     app.global_shortcut()
         .unregister_all()
         .map_err(|e| e.to_string())?;
@@ -410,6 +425,8 @@ fn reload(
     // ショートカット登録が完全に失敗した場合のみ Err を返す（呼び出し元がエラー表示する）
     register_launch_shortcut(&app)?;
     *warnings_state.lock().unwrap() = Vec::new();
+
+    apply_autostart(&app, cfg.auto_start);
 
     refresh_cache_bg(Arc::clone(state.inner()));
     Ok(())
@@ -1074,6 +1091,10 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(move |app| {
             let window = app.get_webview_window("main").unwrap();
             window.hide().ok();
@@ -1193,6 +1214,9 @@ pub fn run() {
             if let Err(e) = register_launch_shortcut(app.handle()) {
                 log::warn!("Launch shortcut registration failed: {e}. App will start without a global shortcut.");
             }
+
+            // auto_start 設定に応じてログイン時自動起動を登録/解除
+            apply_autostart(app.handle(), config.auto_start);
 
             // Config にエラーがある場合は起動時にウィンドウを表示して警告を見せる
             // （launch shortcut が変わっていてウィンドウを開けなくなる問題を防ぐ）
