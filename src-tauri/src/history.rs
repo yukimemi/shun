@@ -169,6 +169,10 @@ fn args_matches(entry_args: &Option<Vec<String>>, args_str: Option<&str>) -> boo
 pub fn record(combined_key: &str, max_items: usize) {
     let (key, args_str) = parse_combined_key(combined_key);
     let mut history = load();
+    // 将来バージョンのファイルを上書きすると未知フィールドが失われるため書き込みを拒否する
+    if history.version > CURRENT_VERSION {
+        return;
+    }
     let now = now_secs();
     if let Some(entry) = history
         .entries
@@ -197,6 +201,10 @@ pub fn record_args(path: &str, args: &[String], max_items: usize) {
     }
     let now = now_secs();
     let mut history = load();
+    // 将来バージョンのファイルを上書きすると未知フィールドが失われるため書き込みを拒否する
+    if history.version > CURRENT_VERSION {
+        return;
+    }
 
     if let Some(entry) = history
         .entries
@@ -233,6 +241,10 @@ pub fn get_last_args(path: &str) -> Option<String> {
 pub fn delete(combined_key: &str) -> Result<(), std::io::Error> {
     let (key, args_str) = parse_combined_key(combined_key);
     let mut history = load();
+    // 将来バージョンのファイルを上書きすると未知フィールドが失われるため書き込みを拒否する
+    if history.version > CURRENT_VERSION {
+        return Ok(());
+    }
     history
         .entries
         .retain(|e| !(e.key == key && args_matches(&e.args, args_str)));
