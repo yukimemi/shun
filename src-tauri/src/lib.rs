@@ -1000,6 +1000,7 @@ fn scoop_debug_log(log_path: Option<&std::path::Path>, msg: &str) {
 /// `scoop update shun`, and relaunches `launch_str`.
 /// Both `launch_str` and `ps_log_str` must already have single-quotes escaped
 /// (replace `'` → `''`) before being passed here.
+#[cfg(target_os = "windows")]
 fn build_ps_wait_and_update_cmd(pid: u32, launch_str: &str, ps_log_str: &str) -> String {
     format!(
         "$log = '{ps_log_str}'; \
@@ -1298,7 +1299,7 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "windows"))]
 mod tests {
     use super::build_ps_wait_and_update_cmd;
 
