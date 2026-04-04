@@ -374,30 +374,29 @@ fn history_items(config: &Config) -> Vec<LaunchItem> {
     let history = crate::history::load();
     history
         .entries
-        .keys()
-        .filter_map(|key| {
-            if let Some(tab_idx) = key.find('\t') {
-                // `path\targs` 形式 → History アイテムとして復元
-                let exe_path = &key[..tab_idx];
-                let args_str = &key[tab_idx + 1..];
+        .iter()
+        .filter_map(|entry| {
+            if let Some(args_str) = &entry.args {
+                // args エントリ → History アイテムとして復元
                 let args: Vec<String> = args_str.split_whitespace().map(String::from).collect();
                 // まず name で逆引き（Config アイテムは name をキーに記録）、
                 // 次に path で検索（旧形式との互換性）
                 let app_entry = config
                     .apps
                     .iter()
-                    .find(|a| a.name == exe_path)
-                    .or_else(|| config.apps.iter().find(|a| a.path == exe_path));
-                let (app_name, launch_path) = if let Some(entry) = app_entry {
-                    (entry.name.clone(), entry.path.clone())
+                    .find(|a| a.name == entry.key)
+                    .or_else(|| config.apps.iter().find(|a| a.path == entry.key));
+                let (app_name, launch_path) = if let Some(app) = app_entry {
+                    (app.name.clone(), app.path.clone())
                 } else {
-                    let name = std::path::Path::new(exe_path)
+                    let name = std::path::Path::new(&entry.key)
                         .file_stem()
                         .and_then(|n| n.to_str())
-                        .unwrap_or(exe_path)
+                        .unwrap_or(&entry.key)
                         .to_string();
-                    (name, exe_path.to_string())
+                    (name, entry.key.clone())
                 };
+                let history_key = format!("{}\t{}", entry.key, args_str);
                 Some(LaunchItem {
                     name: format!("{} › {}", app_name, args_str),
                     path: launch_path,
@@ -408,14 +407,14 @@ fn history_items(config: &Config) -> Vec<LaunchItem> {
                     completion_list: vec![],
                     completion_command: None,
                     completion_search_mode: None,
-                    history_key: Some(key.clone()),
+                    history_key: Some(history_key),
                     source_file: None,
                 })
-            } else if is_url(key) && !key.contains("{{") {
+            } else if is_url(&entry.key) && !entry.key.contains("{{") {
                 // テンプレート URL（{{ }} を含む）は直接開けないのでスキップ
                 Some(LaunchItem {
-                    name: key.clone(),
-                    path: key.clone(),
+                    name: entry.key.clone(),
+                    path: entry.key.clone(),
                     args: vec![],
                     workdir: None,
                     source: ItemSource::Url,
@@ -426,10 +425,10 @@ fn history_items(config: &Config) -> Vec<LaunchItem> {
                     history_key: None,
                     source_file: None,
                 })
-            } else if is_path(key) {
+            } else if is_path(&entry.key) {
                 Some(LaunchItem {
-                    name: key.clone(),
-                    path: key.clone(),
+                    name: entry.key.clone(),
+                    path: entry.key.clone(),
                     args: vec![],
                     workdir: None,
                     source: ItemSource::Path,
