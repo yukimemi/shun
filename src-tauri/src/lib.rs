@@ -995,53 +995,28 @@ pub fn run() {
         #[cfg(not(target_os = "windows"))]
         let log_path: Option<std::path::PathBuf> = None;
 
-        scoop_debug_log(log_path.as_deref(), "starting scoop update shun");
-        match std::process::Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-WindowStyle",
-                "Hidden",
-                "-Command",
-                "scoop update shun",
-            ])
-            .output()
-        {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                scoop_debug_log(
-                    log_path.as_deref(),
-                    &format!("exit_status={}", output.status),
-                );
-                if !stdout.trim().is_empty() {
-                    scoop_debug_log(log_path.as_deref(), &format!("stdout={stdout}"));
-                }
-                if !stderr.trim().is_empty() {
-                    scoop_debug_log(log_path.as_deref(), &format!("stderr={stderr}"));
-                }
-            }
-            Err(e) => {
-                scoop_debug_log(
-                    log_path.as_deref(),
-                    &format!("failed to run powershell: {e}"),
-                );
-            }
-        }
-        // Launch the updated shun via the `current` junction so we always get the
-        // new version. current_exe() may resolve to the old versioned path
-        // (e.g. apps\shun\4.4.1\shun.exe); going up two levels and re-joining
-        // `current\shun.exe` gives us the junction which scoop just updated.
+        // Spawn a deferred PowerShell that waits for this process to exit, then
+        // runs `scoop update shun` and relaunches. We must NOT block here:
+        // if we call `.output()` / `.status()`, this shun.exe process stays
+        // alive and scoop refuses to update ("instances still running").
+        #[cfg(target_os = "windows")]
         if let Ok(exe) = std::env::current_exe() {
-            let new_exe = exe
+            let launch = exe
                 .parent() // .../apps/shun/<version>/
                 .and_then(|p| p.parent()) // .../apps/shun/
-                .map(|p| p.join("current").join("shun.exe"));
-            let launch = new_exe.filter(|p| p.exists()).unwrap_or(exe);
-            scoop_debug_log(
-                log_path.as_deref(),
-                &format!("launching {}", launch.display()),
+                .map(|p| p.join("current").join("shun.exe"))
+                .filter(|p| p.exists())
+                .unwrap_or_else(|| exe.clone());
+            let launch_str = launch.to_string_lossy();
+            // Wait 2 s for this process to fully exit, then update, then relaunch.
+            let ps_cmd = format!(
+                "Start-Sleep -Seconds 2; scoop update shun; if (Test-Path '{launch_str}') {{ Start-Process '{launch_str}' }}"
             );
-            std::process::Command::new(launch).spawn().ok();
+            scoop_debug_log(log_path.as_deref(), "spawning deferred powershell and exiting");
+            std::process::Command::new("powershell")
+                .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps_cmd])
+                .spawn()
+                .ok();
         }
         return;
     }

@@ -111,6 +111,12 @@ Each module has a `#[cfg(test)]` block:
 
 Do not mock these — they are pure functions with no Tauri dependencies.
 
+## Git workflow
+
+- **Never commit directly to `main`** — all changes must go through a pull request
+- Create a feature branch, commit there, then open a PR with `gh pr create`
+- PR titles and bodies must be written in English
+
 ## Coding conventions
 
 - Keep all launcher UI logic in `+page.svelte`; extract **pure** functions to `src/lib/utils.js` only when they need to be tested independently (Tauri imports block Vitest)
