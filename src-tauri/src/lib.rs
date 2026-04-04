@@ -340,8 +340,8 @@ fn get_args_history(path: String) -> Vec<String> {
             if entry.key == path {
                 entry
                     .args
-                    .as_deref()
-                    .map(|args| (args.to_string(), entry.count, entry.last_used))
+                    .as_ref()
+                    .map(|args| (args.join(" "), entry.count, entry.last_used))
             } else {
                 None
             }

@@ -27,8 +27,9 @@ impl Default for History {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {
     pub key: String,
-    #[serde(default)]
-    pub args: Option<String>,
+    /// None = base entry (no args). Some = args entry, stored losslessly as Vec.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<Vec<String>>,
     pub count: u32,
     pub last_used: u64,
 }
@@ -103,9 +104,11 @@ fn migrate_from_old(old: OldHistory) -> History {
                     last_used: entry.last_used,
                 });
             } else {
+                // best-effort split: old format had no lossless encoding
+                let args_vec: Vec<String> = args_str.split_whitespace().map(String::from).collect();
                 entries.push(HistoryEntry {
                     key: item_key,
-                    args: Some(args_str.to_string()),
+                    args: Some(args_vec),
                     count: entry.count,
                     last_used: entry.last_used,
                 });
@@ -151,23 +154,34 @@ fn trim_to(history: &mut History, max: usize) {
     history.entries.truncate(max);
 }
 
-/// combined_key は `"key\targs"` または単純な `"key"` 形式。
+/// `entry.args` と combined key から取り出した args 文字列を比較するヘルパー。
+/// args は Vec で保持するが combined key では join(" ") した文字列として扱う。
+fn args_matches(entry_args: &Option<Vec<String>>, args_str: Option<&str>) -> bool {
+    match (entry_args, args_str) {
+        (None, None) => true,
+        (Some(v), Some(s)) => v.join(" ") == s,
+        _ => false,
+    }
+}
+
+/// combined_key は `"key\targs_joined"` または単純な `"key"` 形式。
 /// History args アイテムの再実行でも combined key がそのまま渡されるため、両方を正しく処理する。
 pub fn record(combined_key: &str, max_items: usize) {
-    let (key, args) = parse_combined_key(combined_key);
+    let (key, args_str) = parse_combined_key(combined_key);
     let mut history = load();
     let now = now_secs();
     if let Some(entry) = history
         .entries
         .iter_mut()
-        .find(|e| e.key == key && e.args.as_deref() == args)
+        .find(|e| e.key == key && args_matches(&e.args, args_str))
     {
         entry.count += 1;
         entry.last_used = now;
     } else {
         history.entries.push(HistoryEntry {
             key: key.to_string(),
-            args: args.map(String::from),
+            // combined key からの復元は best-effort split
+            args: args_str.map(|s| s.split_whitespace().map(String::from).collect()),
             count: 1,
             last_used: now,
         });
@@ -176,26 +190,25 @@ pub fn record(combined_key: &str, max_items: usize) {
     save(&history);
 }
 
-/// extra_args ありで起動したとき: key+args を別エントリとして記録する。
+/// extra_args ありで起動したとき: key+args を別エントリとして lossless に記録する。
 pub fn record_args(path: &str, args: &[String], max_items: usize) {
     if args.is_empty() {
         return;
     }
-    let args_str = args.join(" ");
     let now = now_secs();
     let mut history = load();
 
     if let Some(entry) = history
         .entries
         .iter_mut()
-        .find(|e| e.key == path && e.args.as_deref() == Some(args_str.as_str()))
+        .find(|e| e.key == path && e.args.as_deref() == Some(args))
     {
         entry.count += 1;
         entry.last_used = now;
     } else {
         history.entries.push(HistoryEntry {
             key: path.to_string(),
-            args: Some(args_str),
+            args: Some(args.to_vec()),
             count: 1,
             last_used: now,
         });
@@ -204,7 +217,8 @@ pub fn record_args(path: &str, args: &[String], max_items: usize) {
     save(&history);
 }
 
-/// 指定キーで最後に使った args を返す（last_used が最大のエントリ）
+/// 指定キーで最後に使った args を返す（last_used が最大のエントリ）。
+/// 呼び出し元がゴーストテキストとして表示するため join(" ") した文字列で返す。
 pub fn get_last_args(path: &str) -> Option<String> {
     let history = load();
     history
@@ -212,28 +226,28 @@ pub fn get_last_args(path: &str) -> Option<String> {
         .iter()
         .filter(|e| e.key == path && e.args.is_some())
         .max_by_key(|e| e.last_used)
-        .and_then(|e| e.args.clone())
+        .and_then(|e| e.args.as_ref().map(|v| v.join(" ")))
 }
 
-/// combined_key は `"key\targs"` または単純な `"key"` 形式
+/// combined_key は `"key\targs_joined"` または単純な `"key"` 形式
 pub fn delete(combined_key: &str) -> Result<(), std::io::Error> {
-    let (key, args) = parse_combined_key(combined_key);
+    let (key, args_str) = parse_combined_key(combined_key);
     let mut history = load();
     history
         .entries
-        .retain(|e| !(e.key == key && e.args.as_deref() == args));
+        .retain(|e| !(e.key == key && args_matches(&e.args, args_str)));
     let path = history_path();
     let json = serde_json::to_string_pretty(&history).map_err(std::io::Error::other)?;
     std::fs::write(path, json)
 }
 
-/// combined_key は `"key\targs"` または単純な `"key"` 形式
+/// combined_key は `"key\targs_joined"` または単純な `"key"` 形式
 pub fn sort_key(history: &History, combined_key: &str) -> (u32, u64) {
-    let (key, args) = parse_combined_key(combined_key);
+    let (key, args_str) = parse_combined_key(combined_key);
     history
         .entries
         .iter()
-        .find(|e| e.key == key && e.args.as_deref() == args)
+        .find(|e| e.key == key && args_matches(&e.args, args_str))
         .map(|e| (e.count, e.last_used))
         .unwrap_or((0, 0))
 }
@@ -257,10 +271,10 @@ mod tests {
         }
     }
 
-    fn entry(key: &str, args: Option<&str>, count: u32, last_used: u64) -> HistoryEntry {
+    fn entry(key: &str, args: Option<&[&str]>, count: u32, last_used: u64) -> HistoryEntry {
         HistoryEntry {
             key: key.to_string(),
-            args: args.map(String::from),
+            args: args.map(|a| a.iter().map(|s| s.to_string()).collect()),
             count,
             last_used,
         }
@@ -282,8 +296,36 @@ mod tests {
 
     #[test]
     fn sort_key_args_entry_via_combined_key() {
-        let hist = make_history(vec![entry("myapp", Some("--flag"), 3, 2000)]);
+        let hist = make_history(vec![entry("myapp", Some(&["--flag"]), 3, 2000)]);
         assert_eq!(sort_key(&hist, "myapp\t--flag"), (3, 2000));
+    }
+
+    #[test]
+    fn sort_key_args_with_spaces_in_value() {
+        // args with an internal space stored losslessly as Vec
+        let hist = make_history(vec![entry(
+            "myapp",
+            Some(&["--title", "hello world"]),
+            2,
+            500,
+        )]);
+        assert_eq!(sort_key(&hist, "myapp\t--title hello world"), (2, 500));
+    }
+
+    // --- record_args lossless storage ---
+
+    #[test]
+    fn record_args_stores_vec_losslessly() {
+        let args = vec!["--title".to_string(), "hello world".to_string()];
+        let hist = make_history(vec![HistoryEntry {
+            key: "app".to_string(),
+            args: Some(args.clone()),
+            count: 1,
+            last_used: 100,
+        }]);
+        // LaunchItem should reconstruct from Vec directly
+        let reconstructed = hist.entries[0].args.as_deref().unwrap();
+        assert_eq!(reconstructed, args.as_slice());
     }
 
     // --- serde round-trip ---
@@ -292,7 +334,7 @@ mod tests {
     fn history_serde_roundtrip() {
         let hist = make_history(vec![
             entry("app", None, 3, 999),
-            entry("app", Some("--flag"), 1, 1234),
+            entry("app", Some(&["--flag"]), 1, 1234),
         ]);
         let json = serde_json::to_string(&hist).unwrap();
         let restored: History = serde_json::from_str(&json).unwrap();
@@ -302,7 +344,10 @@ mod tests {
         assert_eq!(base.count, 3);
         assert_eq!(base.last_used, 999);
         let args_e = restored.entries.iter().find(|e| e.args.is_some()).unwrap();
-        assert_eq!(args_e.args.as_deref(), Some("--flag"));
+        assert_eq!(
+            args_e.args.as_deref(),
+            Some(vec!["--flag".to_string()].as_slice())
+        );
         assert_eq!(args_e.count, 1);
     }
 
@@ -310,18 +355,16 @@ mod tests {
 
     #[test]
     fn get_last_args_returns_most_recent() {
-        // We can't easily test without file I/O, so test the logic via sort_key and find
         let hist = make_history(vec![
-            entry("app", Some("old-arg"), 2, 100),
-            entry("app", Some("new-arg"), 1, 200),
+            entry("app", Some(&["old-arg"]), 2, 100),
+            entry("app", Some(&["new-arg"]), 1, 200),
         ]);
-        // Simulate get_last_args logic
         let result = hist
             .entries
             .iter()
             .filter(|e| e.key == "app" && e.args.is_some())
             .max_by_key(|e| e.last_used)
-            .and_then(|e| e.args.clone());
+            .and_then(|e| e.args.as_ref().map(|v| v.join(" ")));
         assert_eq!(result.as_deref(), Some("new-arg"));
     }
 
@@ -371,8 +414,9 @@ mod tests {
         let args_e = new
             .entries
             .iter()
-            .find(|e| e.key == "myapp" && e.args.as_deref() == Some("--flag"))
+            .find(|e| e.key == "myapp" && e.args.is_some())
             .unwrap();
+        assert_eq!(args_e.args.as_deref(), Some(&["--flag".to_string()][..]));
         assert_eq!(args_e.count, 3);
     }
 

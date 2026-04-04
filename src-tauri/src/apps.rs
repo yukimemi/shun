@@ -376,9 +376,10 @@ fn history_items(config: &Config) -> Vec<LaunchItem> {
         .entries
         .iter()
         .filter_map(|entry| {
-            if let Some(args_str) = &entry.args {
+            if let Some(args_vec) = &entry.args {
                 // args エントリ → History アイテムとして復元
-                let args: Vec<String> = args_str.split_whitespace().map(String::from).collect();
+                // Vec<String> をそのまま使うことで引数のスペースを lossless に保持
+                let args_display = args_vec.join(" ");
                 // まず name で逆引き（Config アイテムは name をキーに記録）、
                 // 次に path で検索（旧形式との互換性）
                 let app_entry = config
@@ -396,11 +397,11 @@ fn history_items(config: &Config) -> Vec<LaunchItem> {
                         .to_string();
                     (name, entry.key.clone())
                 };
-                let history_key = format!("{}\t{}", entry.key, args_str);
+                let history_key = format!("{}\t{}", entry.key, args_display);
                 Some(LaunchItem {
-                    name: format!("{} › {}", app_name, args_str),
+                    name: format!("{} › {}", app_name, args_display),
                     path: launch_path,
-                    args,
+                    args: args_vec.clone(),
                     workdir: None,
                     source: ItemSource::History,
                     completion: CompletionType::None,
