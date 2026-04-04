@@ -954,6 +954,7 @@ fn scoop_log_path() -> Option<std::path::PathBuf> {
 }
 
 /// Appends a debug log line to the shun log file (pre-Tauri, no logger initialized).
+#[cfg(target_os = "windows")]
 fn scoop_debug_log(log_path: Option<&std::path::Path>, msg: &str) {
     use std::io::Write;
     let Some(path) = log_path else { return };
@@ -992,9 +993,6 @@ pub fn run() {
                 None
             }
         };
-        #[cfg(not(target_os = "windows"))]
-        let log_path: Option<std::path::PathBuf> = None;
-
         // Spawn a deferred PowerShell that waits for this process to exit, then
         // runs `scoop update shun` and relaunches. We must NOT block here:
         // if we call `.output()` / `.status()`, this shun.exe process stays
