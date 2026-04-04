@@ -731,6 +731,12 @@ sort_order = "recent_first""#;
     }
 
     #[test]
+    fn parse_auto_start() {
+        let c: Config = toml::from_str("auto_start = false").unwrap();
+        assert!(!c.auto_start);
+    }
+
+    #[test]
     fn parse_partial_keybindings_keeps_defaults() {
         let toml = r#"
 [keybindings]
