@@ -343,6 +343,7 @@ jobs:
           token: ${{ secrets.WINGET_TOKEN }}
           installers-regex: '_x64-setup\.exe$'
           override-manifest-fields: |
+            InstallerType: nullsoft
             InstallerSwitches:
               Silent: /S
               SilentWithProgress: /S
