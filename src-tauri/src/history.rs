@@ -65,6 +65,15 @@ pub fn load() -> History {
         if h.version == CURRENT_VERSION {
             return h;
         }
+        if h.version > CURRENT_VERSION {
+            // Written by a newer version of shun — use as-is and warn
+            log::warn!(
+                "history.json version {} is newer than supported ({}); loading as-is",
+                h.version,
+                CURRENT_VERSION
+            );
+            return h;
+        }
     }
 
     // Fall back to old HashMap format and migrate
@@ -78,20 +87,30 @@ pub fn load() -> History {
 fn migrate_from_old(old: OldHistory) -> History {
     let mut entries = Vec::new();
     for (key, entry) in old.entries {
+        // skip ghost entries regardless of type
+        if entry.count == 0 && entry.last_used == 0 {
+            continue;
+        }
         if let Some(tab_idx) = key.find('\t') {
             let item_key = key[..tab_idx].to_string();
-            let args_str = key[tab_idx + 1..].to_string();
-            entries.push(HistoryEntry {
-                key: item_key,
-                args: Some(args_str),
-                count: entry.count,
-                last_used: entry.last_used,
-            });
-        } else {
-            // base entry — skip ghost entries (count=0 and last_used=0)
-            if entry.count == 0 && entry.last_used == 0 {
-                continue;
+            let args_str = &key[tab_idx + 1..];
+            if args_str.is_empty() {
+                // malformed key ("app\t") — treat as base entry
+                entries.push(HistoryEntry {
+                    key: item_key,
+                    args: None,
+                    count: entry.count,
+                    last_used: entry.last_used,
+                });
+            } else {
+                entries.push(HistoryEntry {
+                    key: item_key,
+                    args: Some(args_str.to_string()),
+                    count: entry.count,
+                    last_used: entry.last_used,
+                });
             }
+        } else {
             entries.push(HistoryEntry {
                 key,
                 args: None,
@@ -132,20 +151,23 @@ fn trim_to(history: &mut History, max: usize) {
     history.entries.truncate(max);
 }
 
-pub fn record(key: &str, max_items: usize) {
+/// combined_key は `"key\targs"` または単純な `"key"` 形式。
+/// History args アイテムの再実行でも combined key がそのまま渡されるため、両方を正しく処理する。
+pub fn record(combined_key: &str, max_items: usize) {
+    let (key, args) = parse_combined_key(combined_key);
     let mut history = load();
     let now = now_secs();
     if let Some(entry) = history
         .entries
         .iter_mut()
-        .find(|e| e.key == key && e.args.is_none())
+        .find(|e| e.key == key && e.args.as_deref() == args)
     {
         entry.count += 1;
         entry.last_used = now;
     } else {
         history.entries.push(HistoryEntry {
             key: key.to_string(),
-            args: None,
+            args: args.map(String::from),
             count: 1,
             last_used: now,
         });
@@ -227,7 +249,6 @@ fn parse_combined_key(combined_key: &str) -> (&str, Option<&str>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
     fn make_history(entries: Vec<HistoryEntry>) -> History {
         History {
@@ -280,11 +301,7 @@ mod tests {
         let base = restored.entries.iter().find(|e| e.args.is_none()).unwrap();
         assert_eq!(base.count, 3);
         assert_eq!(base.last_used, 999);
-        let args_e = restored
-            .entries
-            .iter()
-            .find(|e| e.args.is_some())
-            .unwrap();
+        let args_e = restored.entries.iter().find(|e| e.args.is_some()).unwrap();
         assert_eq!(args_e.args.as_deref(), Some("--flag"));
         assert_eq!(args_e.count, 1);
     }
@@ -361,8 +378,7 @@ mod tests {
 
     #[test]
     fn migrate_old_json_string() {
-        let json =
-            r#"{"entries":{"app":{"count":2,"last_used":500},"app\t--v":{"count":1,"last_used":600}}}"#;
+        let json = r#"{"entries":{"app":{"count":2,"last_used":500},"app\t--v":{"count":1,"last_used":600}}}"#;
         let hist: History = {
             // Simulate load() fallback path
             if let Ok(h) = serde_json::from_str::<History>(json) {
@@ -397,12 +413,10 @@ mod tests {
         assert!(hist.entries.iter().all(|e| e.last_used >= 200));
     }
 
-    // --- delete ---
+    // --- parse_combined_key ---
 
     #[test]
-    fn delete_removes_correct_entry() {
-        let tmp = TempDir::new().unwrap();
-        // Override history path is not straightforward, so test parse_combined_key
+    fn parse_combined_key_extracts_key_and_args() {
         let (key, args) = parse_combined_key("myapp\t--flag");
         assert_eq!(key, "myapp");
         assert_eq!(args, Some("--flag"));
@@ -410,7 +424,5 @@ mod tests {
         let (key2, args2) = parse_combined_key("myapp");
         assert_eq!(key2, "myapp");
         assert_eq!(args2, None);
-
-        drop(tmp);
     }
 }
