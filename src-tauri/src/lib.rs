@@ -1012,7 +1012,10 @@ pub fn run() {
             let ps_cmd = format!(
                 "Start-Sleep -Seconds 2; scoop update shun; if (Test-Path '{launch_str}') {{ Start-Process '{launch_str}' }}"
             );
-            scoop_debug_log(log_path.as_deref(), "spawning deferred powershell and exiting");
+            scoop_debug_log(
+                log_path.as_deref(),
+                "spawning deferred powershell and exiting",
+            );
             std::process::Command::new("powershell")
                 .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps_cmd])
                 .spawn()
