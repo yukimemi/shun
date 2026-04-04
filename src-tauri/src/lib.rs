@@ -996,6 +996,30 @@ fn scoop_debug_log(log_path: Option<&std::path::Path>, msg: &str) {
     }
 }
 
+/// Build the PowerShell command that waits for `pid` to exit, runs
+/// `scoop update shun`, and relaunches `launch_str`.
+/// Both `launch_str` and `ps_log_str` must already have single-quotes escaped
+/// (replace `'` → `''`) before being passed here.
+fn build_ps_wait_and_update_cmd(pid: u32, launch_str: &str, ps_log_str: &str) -> String {
+    format!(
+        "$log = '{ps_log_str}'; \
+         $exe = '{launch_str}'; \
+         $logDir = Split-Path -Parent $log; \
+         if ($logDir) {{ New-Item -ItemType Directory -Path $logDir -Force -ErrorAction SilentlyContinue | Out-Null }}; \
+         Add-Content -LiteralPath $log \"[$(Get-Date -Format 'o')] waiting for pid {pid}\"; \
+         while (Get-Process -Id {pid} -ErrorAction SilentlyContinue) \
+         {{ Start-Sleep -Milliseconds 100 }}; \
+         Add-Content -LiteralPath $log \"[$(Get-Date -Format 'o')] running: scoop update shun\"; \
+         $out = (scoop update shun 2>&1 | Out-String); \
+         Add-Content -LiteralPath $log \"[$(Get-Date -Format 'o')] scoop output: $out\"; \
+         if (Test-Path -LiteralPath $exe) \
+         {{ Add-Content -LiteralPath $log \"[$(Get-Date -Format 'o')] launching: $exe\"; \
+            Start-Process -FilePath $exe }} \
+         else \
+         {{ Add-Content -LiteralPath $log \"[$(Get-Date -Format 'o')] ERROR: exe not found: $exe\" }}"
+    )
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 type WarningsState = Arc<Mutex<Vec<(String, String)>>>;
 
@@ -1038,22 +1062,8 @@ pub fn run() {
                 .unwrap_or_else(|| std::path::PathBuf::from("scoop-update.log"));
             let ps_log_str = ps_log.to_string_lossy().replace('\'', "''");
             // Wait for this process (by PID) to fully exit, then update, then relaunch.
-            // Use -LiteralPath to avoid wildcard interpretation of path characters.
             // All output is redirected to a log file for post-mortem diagnosis.
-            let ps_cmd = format!(
-                "$log = '{ps_log_str}'; \
-                 Add-Content $log \"[$(Get-Date -Format 'o')] waiting for pid {pid}\"; \
-                 while (Get-Process -Id {pid} -ErrorAction SilentlyContinue) \
-                 {{ Start-Sleep -Milliseconds 100 }}; \
-                 Add-Content $log \"[$(Get-Date -Format 'o')] running: scoop update shun\"; \
-                 $out = (scoop update shun 2>&1 | Out-String); \
-                 Add-Content $log \"[$(Get-Date -Format 'o')] scoop output: $out\"; \
-                 if (Test-Path -LiteralPath '{launch_str}') \
-                 {{ Add-Content $log \"[$(Get-Date -Format 'o')] launching: {launch_str}\"; \
-                    Start-Process -FilePath '{launch_str}' }} \
-                 else \
-                 {{ Add-Content $log \"[$(Get-Date -Format 'o')] ERROR: exe not found: {launch_str}\" }}"
-            );
+            let ps_cmd = build_ps_wait_and_update_cmd(pid, &launch_str, &ps_log_str);
             scoop_debug_log(
                 log_path.as_deref(),
                 "spawning deferred powershell and exiting",
@@ -1286,4 +1296,38 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_ps_wait_and_update_cmd;
+
+    #[test]
+    fn ps_cmd_contains_literal_path_and_exe_variable() {
+        let cmd =
+            build_ps_wait_and_update_cmd(123, "C:/path/to/shun.exe", "C:/log/scoop-update.log");
+        assert!(cmd.contains("-LiteralPath $log"));
+        assert!(cmd.contains("$exe = 'C:/path/to/shun.exe'"));
+    }
+
+    #[test]
+    fn ps_cmd_escapes_single_quotes_in_launch_str() {
+        let launch_str = "C:/user's/path/shun.exe".replace('\'', "''");
+        let cmd = build_ps_wait_and_update_cmd(1, &launch_str, "C:/log.log");
+        assert!(cmd.contains("C:/user''s/path/shun.exe"));
+    }
+
+    #[test]
+    fn ps_cmd_creates_log_directory() {
+        let cmd = build_ps_wait_and_update_cmd(1, "shun.exe", "C:/some/path/scoop-update.log");
+        assert!(cmd.contains("New-Item -ItemType Directory"));
+        assert!(cmd.contains("Split-Path -Parent $log"));
+    }
+
+    #[test]
+    fn ps_cmd_uses_exe_variable_for_test_path_and_start_process() {
+        let cmd = build_ps_wait_and_update_cmd(99, "C:/shun.exe", "C:/scoop-update.log");
+        assert!(cmd.contains("Start-Process -FilePath $exe"));
+        assert!(cmd.contains("Test-Path -LiteralPath $exe"));
+    }
 }
