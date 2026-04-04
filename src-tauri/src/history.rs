@@ -86,7 +86,19 @@ pub fn load() -> History {
 }
 
 fn migrate_from_old(old: OldHistory) -> History {
-    let mut entries = Vec::new();
+    // 2パスで処理する:
+    // 1) 全エントリを変換 (last_args も保持)
+    // 2) last_args から args エントリが存在しない場合に補完する
+
+    struct TmpEntry {
+        key: String,
+        args: Option<Vec<String>>,
+        count: u32,
+        last_used: u64,
+        last_args: Option<String>, // base エントリ用: 補完判定に使う
+    }
+
+    let mut tmp: Vec<TmpEntry> = Vec::new();
     for (key, entry) in old.entries {
         // skip ghost entries regardless of type
         if entry.count == 0 && entry.last_used == 0 {
@@ -97,31 +109,70 @@ fn migrate_from_old(old: OldHistory) -> History {
             let args_str = &key[tab_idx + 1..];
             if args_str.is_empty() {
                 // malformed key ("app\t") — treat as base entry
-                entries.push(HistoryEntry {
+                tmp.push(TmpEntry {
                     key: item_key,
                     args: None,
                     count: entry.count,
                     last_used: entry.last_used,
+                    last_args: None,
                 });
             } else {
                 // best-effort split: old format had no lossless encoding
                 let args_vec: Vec<String> = args_str.split_whitespace().map(String::from).collect();
-                entries.push(HistoryEntry {
+                tmp.push(TmpEntry {
                     key: item_key,
                     args: Some(args_vec),
                     count: entry.count,
                     last_used: entry.last_used,
+                    last_args: None,
                 });
             }
         } else {
-            entries.push(HistoryEntry {
-                key,
+            tmp.push(TmpEntry {
+                key: key.clone(),
                 args: None,
                 count: entry.count,
                 last_used: entry.last_used,
+                last_args: entry.last_args,
             });
         }
     }
+
+    // base エントリの last_args を参照し、対応する args エントリが存在しなければ補完する
+    let mut synthetic: Vec<HistoryEntry> = Vec::new();
+    for t in &tmp {
+        if t.args.is_none() {
+            if let Some(ref la) = t.last_args {
+                if la.is_empty() {
+                    continue;
+                }
+                let args_vec: Vec<String> = la.split_whitespace().map(String::from).collect();
+                let already_exists = tmp
+                    .iter()
+                    .any(|e| e.key == t.key && e.args.as_deref() == Some(args_vec.as_slice()));
+                if !already_exists {
+                    synthetic.push(HistoryEntry {
+                        key: t.key.clone(),
+                        args: Some(args_vec),
+                        count: 1,
+                        last_used: t.last_used,
+                    });
+                }
+            }
+        }
+    }
+
+    let mut entries: Vec<HistoryEntry> = tmp
+        .into_iter()
+        .map(|t| HistoryEntry {
+            key: t.key,
+            args: t.args,
+            count: t.count,
+            last_used: t.last_used,
+        })
+        .collect();
+    entries.extend(synthetic);
+
     History {
         version: CURRENT_VERSION,
         entries,
@@ -430,6 +481,64 @@ mod tests {
             .unwrap();
         assert_eq!(args_e.args.as_deref(), Some(&["--flag".to_string()][..]));
         assert_eq!(args_e.count, 3);
+    }
+
+    #[test]
+    fn migrate_last_args_only_creates_synthetic_entry() {
+        // base エントリに last_args があるが explicit な "key\targs" エントリが存在しない場合、
+        // マイグレーションで合成 args エントリが作られること
+        let mut old_entries = HashMap::new();
+        old_entries.insert(
+            "myapp".to_string(),
+            OldHistoryEntry {
+                count: 3,
+                last_used: 800,
+                last_args: Some("--verbose".to_string()),
+            },
+        );
+        // explicit args エントリはなし
+        let old = OldHistory {
+            entries: old_entries,
+        };
+        let new = migrate_from_old(old);
+        // base + synthetic args = 2 entries
+        assert_eq!(new.entries.len(), 2);
+        let args_e = new
+            .entries
+            .iter()
+            .find(|e| e.key == "myapp" && e.args.is_some())
+            .expect("synthetic args entry should be created from last_args");
+        assert_eq!(args_e.args.as_deref(), Some(&["--verbose".to_string()][..]));
+    }
+
+    #[test]
+    fn migrate_last_args_no_duplicate_when_explicit_exists() {
+        // explicit args エントリがすでにある場合、last_args から重複エントリを作らないこと
+        let mut old_entries = HashMap::new();
+        old_entries.insert(
+            "myapp".to_string(),
+            OldHistoryEntry {
+                count: 5,
+                last_used: 1000,
+                last_args: Some("--flag".to_string()),
+            },
+        );
+        old_entries.insert(
+            "myapp\t--flag".to_string(),
+            OldHistoryEntry {
+                count: 3,
+                last_used: 900,
+                last_args: None,
+            },
+        );
+        let old = OldHistory {
+            entries: old_entries,
+        };
+        let new = migrate_from_old(old);
+        // base + 1 args (no duplicate)
+        assert_eq!(new.entries.len(), 2);
+        let args_count = new.entries.iter().filter(|e| e.args.is_some()).count();
+        assert_eq!(args_count, 1);
     }
 
     #[test]
