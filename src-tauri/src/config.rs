@@ -985,6 +985,9 @@ sort_order = "count_first"
 # Auto-hide when the launcher loses focus
 hide_on_blur = false
 
+# Start automatically at login (default: true); set to false to disable
+auto_start = true
+
 # Update check interval in seconds (0 to disable)
 update_check_interval = 3600
 
