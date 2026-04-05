@@ -119,6 +119,7 @@
   );
   let filtered = $state([]);
   let selectedIndex = $state(0);
+  let _pendingSelectedPath = null; // accept_word 後に選択を復元するための一時保持（$state にしない）
   let inputEl = $state(null);
   let argsEl = $state(null);
 
@@ -188,6 +189,16 @@
 
   function applyArgItem(newItem) {
     argItem = newItem;
+  }
+
+  function restoreOrResetSelection(newFiltered) {
+    if (_pendingSelectedPath !== null) {
+      const idx = newFiltered.findIndex((i) => i.path === _pendingSelectedPath);
+      selectedIndex = idx !== -1 ? idx : 0;
+      _pendingSelectedPath = null;
+    } else {
+      selectedIndex = 0;
+    }
   }
 
   function resetToSearch({ skipFocus = false, keepQuery = false } = {}) {
@@ -554,6 +565,7 @@
     } else if (matchKey(e, keybindings.accept_word)) {
       e.preventDefault();
       if (searchGhostSuffix()) {
+        _pendingSelectedPath = filtered[selectedIndex]?.path ?? null;
         const suffix = searchGhostSuffix();
         const sep = firstSepIdx(suffix);
         query = sep === -1 ? query + suffix : query + suffix.slice(0, sep + 1);
@@ -780,7 +792,7 @@
     // （/Applications/... などの Unix パスはスルー）
     if (query.startsWith("/") && filteredSlash.length > 0) {
       filtered = [];
-      selectedIndex = 0;
+      restoreOrResetSelection([]);
       resizeForSearch(filteredSlash.length);
       return;
     }
@@ -790,7 +802,7 @@
         const typed = { name: query, path: query, args: [], workdir: null, source: "Url", completion: "none", completion_list: [], completion_command: null };
         const hasExact = results.some((r) => r.path === query);
         filtered = hasExact ? results : [...results, typed];
-        selectedIndex = 0;
+        restoreOrResetSelection(filtered);
         resizeForSearch(filtered.length);
       });
       return;
@@ -806,7 +818,7 @@
         const uniqueCompletions = pathCompletions.filter(i => !historyPathSet.has(i.path));
         const combined = [...historyItems, ...uniqueCompletions];
         filtered = combined.length > 0 ? combined : [makePathItem(query)];
-        selectedIndex = 0;
+        restoreOrResetSelection(filtered);
         resizeForSearch(filtered.length);
       });
       return;
@@ -816,7 +828,7 @@
     invoke("search_items", { query, searchMode: uiSearchMode, sortOrder: uiSortOrder }).then((results) => {
       const warnItems = !query ? currentWarnings.map(([file, error]) => makeWarningItem(file, error)) : [];
       filtered = [...warnItems, ...results];
-      selectedIndex = 0;
+      restoreOrResetSelection(filtered);
       resizeForSearch(filtered.length);
     });
   });
