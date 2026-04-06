@@ -1155,14 +1155,33 @@ pub fn run() {
             let cache = Arc::clone(app.state::<CacheState>().inner());
 
             // hide_on_blur: フォーカスが外れたら自動非表示（設定は毎回 load_config で確認）
+            // ドラッグハンドル操作中の一時的なフォーカス喪失を誤検知しないよう、
+            // 150ms の遅延後に is_focused() で再確認してから非表示にする。
+            // 世代カウンタ (blur_gen) で最後の blur タスクのみ hide+refresh を実行し、
+            // 連続した Focused(false) イベントによる重複処理を防ぐ。
             {
                 let window_blur = window.clone();
                 let cache_blur = Arc::clone(&cache);
+                let blur_gen = Arc::new(AtomicU64::new(0));
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::Focused(false) = event {
                         if config::load_config().0.hide_on_blur {
-                            window_blur.hide().ok();
-                            refresh_cache_bg(Arc::clone(&cache_blur));
+                            let gen = blur_gen.fetch_add(1, Ordering::Relaxed) + 1;
+                            let window_check = window_blur.clone();
+                            let cache_check = Arc::clone(&cache_blur);
+                            let blur_gen_check = Arc::clone(&blur_gen);
+                            tauri::async_runtime::spawn(async move {
+                                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                                // 最新の blur タスクでなければスキップ
+                                if blur_gen_check.load(Ordering::Relaxed) != gen {
+                                    return;
+                                }
+                                if window_check.is_focused().unwrap_or(false) {
+                                    return; // フォーカスが戻った → ドラッグによる一時的な blur
+                                }
+                                window_check.hide().ok();
+                                refresh_cache_bg(cache_check);
+                            });
                         }
                     }
                 });
