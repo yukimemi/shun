@@ -305,7 +305,8 @@ pub fn collect_items(config: &Config) -> Vec<LaunchItem> {
     // 履歴にある URL / Path アイテムを復元
     items.extend(history_items(config));
 
-    // [[overrides]] を name (stem, 大文字小文字無視) または ext (拡張子) でマッチして上書き
+    // [[overrides]] を name (stem, 大文字小文字無視) AND/OR ext (拡張子) でマッチして上書き
+    // 両方指定時は AND（name かつ ext が一致）、片方のみ指定時はその条件のみ評価
     for item in &mut items {
         let item_ext = std::path::Path::new(&item.path)
             .extension()
@@ -313,17 +314,17 @@ pub fn collect_items(config: &Config) -> Vec<LaunchItem> {
             .unwrap_or("")
             .to_lowercase();
         if let Some(ov) = config.overrides.iter().find(|o| {
-            let name_match =
-                !o.name.is_empty() && o.name.to_lowercase() == item.name.to_lowercase();
-            let ext_match = o
-                .ext
-                .as_deref()
-                .is_some_and(|e| e.to_lowercase() == item_ext);
-            name_match || ext_match
+            let name_ok = o.name.is_empty() || o.name.to_lowercase() == item.name.to_lowercase();
+            let ext_ok = o.ext.is_none()
+                || o.ext
+                    .as_deref()
+                    .is_some_and(|e| e.to_lowercase() == item_ext);
+            (name_ok && ext_ok) && (!o.name.is_empty() || o.ext.is_some())
         }) {
-            // path が指定されていれば元ファイルを source_file に保存して差し替え
+            // マッチした元ファイルパスを常に source_file に保存（{{ file_* }} テンプレートで参照可能）
+            item.source_file = Some(item.path.clone());
+            // path が指定されていれば実行ファイルを差し替え
             if let Some(ref v) = ov.path {
-                item.source_file = Some(item.path.clone());
                 item.path = v.clone();
             }
             if let Some(ref v) = ov.completion {
