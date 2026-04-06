@@ -526,29 +526,48 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
         InstallMethod::Scoop => {
             #[cfg(target_os = "windows")]
             {
+                use std::os::windows::process::CommandExt;
+                // CREATE_BREAKAWAY_FROM_JOB: PowerShell を Windows Job Object の外で起動する。
+                // shun が Windows Terminal 等の Job Object 内で動いている場合、通常の spawn では
+                // PowerShell も同じ Job Object に入り、shun 終了と同時に kill される。
+                // このフラグで Job Object から脱出させることで PowerShell が生き残れる。
+                // CREATE_NO_WINDOW: コンソールウィンドウを表示しない。
+                const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
                 log::info!("install_update: Scoop install detected, checking for updates...");
-                // 最新版かどうか確認 — 更新なければ何もしない
                 let updater = app.updater().map_err(|e| e.to_string())?;
                 if updater.check().await.map_err(|e| e.to_string())?.is_none() {
                     log::info!("install_update: no update available (already up to date)");
                     return Ok(());
                 }
-                log::info!("install_update: update available, spawning --scoop-update");
-                // shun 起動中は exe がロックされるため、終了後に update を実行する
+
+                let pid = std::process::id();
+                let current_exe = std::env::current_exe()
+                    .map_err(|e| format!("failed to get current exe: {e}"))?;
+                // scoop update 後の起動先: .../apps/shun/current/shun.exe
+                let launch = current_exe
+                    .parent()
+                    .and_then(|p| p.parent())
+                    .map(|p| p.join("current").join("shun.exe"))
+                    .filter(|p| p.exists())
+                    .unwrap_or_else(|| current_exe.clone());
+                let launch_str = launch.to_string_lossy().replace('\'', "''");
+
+                // PowerShell: このプロセス (pid) の終了を待ってから scoop update shun を実行し、再起動する
+                let ps_cmd = build_scoop_ps_cmd(pid, &launch_str);
+
                 let _ = app.emit(
                     "update-log",
                     serde_json::json!({ "line": "Quitting shun to run: scoop update shun ..." }),
                 );
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                // Spawn a new shun.exe with --scoop-update, same as portable spawns shun.exe.
-                // This escapes the Tauri Job Object (powershell spawned directly gets killed
-                // when the parent exits, but a new shun.exe instance survives).
-                let current_exe = std::env::current_exe()
-                    .map_err(|e| format!("failed to get current exe: {e}"))?;
-                std::process::Command::new(&current_exe)
-                    .arg("--scoop-update")
+
+                std::process::Command::new("powershell")
+                    .args(["-NoProfile", "-Command", &ps_cmd])
+                    .creation_flags(CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW)
                     .spawn()
-                    .map_err(|e| format!("failed to spawn scoop update: {e}"))?;
+                    .map_err(|e| format!("failed to spawn powershell: {e}"))?;
                 app.exit(0);
                 Ok(())
             }
@@ -963,62 +982,18 @@ fn position_window(window: &tauri::WebviewWindow, cfg: &config::Config, win_w: f
     window.set_position(tauri::LogicalPosition::new(x, y)).ok();
 }
 
-/// Returns the log file path for pre-Tauri debug logging (Windows only).
-/// Used by the --scoop-update handler which runs before Tauri logger is initialized.
+/// `pid` の終了を待ち、`scoop update shun` を実行し、`launch_str` を再起動する
+/// PowerShell コマンド文字列を生成する。
+/// `launch_str` はシングルクォートをエスケープ済み（`'` → `''`）であること。
 #[cfg(target_os = "windows")]
-fn scoop_log_path() -> Option<std::path::PathBuf> {
-    std::env::var("LOCALAPPDATA").ok().map(|d| {
-        std::path::PathBuf::from(d)
-            .join("com.yukimemi.shun")
-            .join("logs")
-            .join("shun.log")
-    })
-}
-
-/// Appends a debug log line to the shun log file (pre-Tauri, no logger initialized).
-#[cfg(target_os = "windows")]
-fn scoop_debug_log(log_path: Option<&std::path::Path>, msg: &str) {
-    use std::io::Write;
-    let Some(path) = log_path else { return };
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-    {
-        let _ = writeln!(f, "[{secs}][DEBUG] --scoop-update: {msg}");
-    }
-}
-
-/// Build the PowerShell command that waits for `pid` to exit, runs
-/// `scoop update shun`, and relaunches `launch_str`.
-/// Both `launch_str` and `ps_log_str` must already have single-quotes escaped
-/// (replace `'` → `''`) before being passed here.
-#[cfg(target_os = "windows")]
-fn build_ps_wait_and_update_cmd(pid: u32, launch_str: &str, ps_log_str: &str) -> String {
+fn build_scoop_ps_cmd(pid: u32, launch_str: &str) -> String {
     format!(
-        "$log = '{ps_log_str}'; \
-         $exe = '{launch_str}'; \
-         $logDir = Split-Path -Parent $log; \
-         if ($logDir) {{ New-Item -ItemType Directory -Path $logDir -Force -ErrorAction SilentlyContinue | Out-Null }}; \
-         Add-Content -LiteralPath $log \"[$(Get-Date -Format 'o')] waiting for pid {pid}\"; \
+        "$ProgressPreference = 'SilentlyContinue'; \
          while (Get-Process -Id {pid} -ErrorAction SilentlyContinue) \
          {{ Start-Sleep -Milliseconds 100 }}; \
-         Add-Content -LiteralPath $log \"[$(Get-Date -Format 'o')] running: scoop update shun\"; \
-         $ProgressPreference = 'SilentlyContinue'; \
-         $out = (scoop update shun 2>&1 | Out-String); \
-         Add-Content -LiteralPath $log \"[$(Get-Date -Format 'o')] scoop output: $out\"; \
-         if (Test-Path -LiteralPath $exe) \
-         {{ Add-Content -LiteralPath $log \"[$(Get-Date -Format 'o')] launching: $exe\"; \
-            Start-Process -FilePath $exe }} \
-         else \
-         {{ Add-Content -LiteralPath $log \"[$(Get-Date -Format 'o')] ERROR: exe not found: $exe\" }}"
+         scoop update shun 2>&1 | Out-Null; \
+         if (Test-Path -LiteralPath '{launch_str}') \
+         {{ Start-Process -FilePath '{launch_str}' }}"
     )
 }
 
@@ -1026,63 +1001,6 @@ fn build_ps_wait_and_update_cmd(pid: u32, launch_str: &str, ps_log_str: &str) ->
 type WarningsState = Arc<Mutex<Vec<(String, String)>>>;
 
 pub fn run() {
-    // Spawned by install_update (scoop path) to run scoop update outside the
-    // Tauri Job Object. The parent shun has already exited by the time this runs.
-    if std::env::args().any(|a| a == "--scoop-update") {
-        // Load config to check log level. Write to log file only when level=debug,
-        // because Tauri logger is not yet initialized at this point.
-        #[cfg(target_os = "windows")]
-        let log_path = {
-            let (config, _) = config::load_config();
-            let is_debug = config.log.to_level_filter() >= log::LevelFilter::Debug;
-            if is_debug {
-                scoop_log_path()
-            } else {
-                None
-            }
-        };
-        // Spawn a deferred PowerShell that waits for this process to exit, then
-        // runs `scoop update shun` and relaunches. We must NOT block here:
-        // if we call `.output()` / `.status()`, this shun.exe process stays
-        // alive and scoop refuses to update ("instances still running").
-        #[cfg(target_os = "windows")]
-        if let Ok(exe) = std::env::current_exe() {
-            let launch = exe
-                .parent() // .../apps/shun/<version>/
-                .and_then(|p| p.parent()) // .../apps/shun/
-                .map(|p| p.join("current").join("shun.exe"))
-                .filter(|p| p.exists())
-                .unwrap_or_else(|| exe.clone());
-            // Escape single quotes for PowerShell single-quoted strings.
-            let launch_str = launch.to_string_lossy().replace('\'', "''");
-            let pid = std::process::id();
-            // PowerShell のログファイル（常に書く）
-            let ps_log = launch
-                .parent()
-                .and_then(|p| p.parent())
-                .map(|p| p.join("scoop-update.log"))
-                .unwrap_or_else(|| std::path::PathBuf::from("scoop-update.log"));
-            let ps_log_str = ps_log.to_string_lossy().replace('\'', "''");
-            // Wait for this process (by PID) to fully exit, then update, then relaunch.
-            // All output is redirected to a log file for post-mortem diagnosis.
-            let ps_cmd = build_ps_wait_and_update_cmd(pid, &launch_str, &ps_log_str);
-            scoop_debug_log(
-                log_path.as_deref(),
-                "spawning deferred powershell and exiting",
-            );
-            if let Err(e) = std::process::Command::new("powershell")
-                .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps_cmd])
-                .spawn()
-            {
-                scoop_debug_log(
-                    log_path.as_deref(),
-                    &format!("failed to spawn powershell: {e}"),
-                );
-            }
-        }
-        return;
-    }
-
     let (config, _) = config::load_config();
     // WarningsState はランタイムエラー（keybinding 登録失敗など）のみ保持
     // config parse エラーは get_config_warnings() で毎回新鮮に取得する
@@ -1321,40 +1239,47 @@ pub fn run() {
 
 #[cfg(all(test, target_os = "windows"))]
 mod tests {
-    use super::build_ps_wait_and_update_cmd;
+    use super::build_scoop_ps_cmd;
 
     #[test]
-    fn ps_cmd_contains_literal_path_and_exe_variable() {
-        let cmd =
-            build_ps_wait_and_update_cmd(123, "C:/path/to/shun.exe", "C:/log/scoop-update.log");
-        assert!(cmd.contains("-LiteralPath $log"));
-        assert!(cmd.contains("$exe = 'C:/path/to/shun.exe'"));
+    fn scoop_ps_cmd_waits_for_pid() {
+        let cmd = build_scoop_ps_cmd(42, "C:/scoop/apps/shun/current/shun.exe");
+        assert!(cmd.contains("Get-Process -Id 42"));
+        assert!(cmd.contains("Start-Sleep -Milliseconds 100"));
     }
 
     #[test]
-    fn ps_cmd_escapes_single_quotes_in_launch_str() {
-        let launch_str = "C:/user's/path/shun.exe".replace('\'', "''");
-        let cmd = build_ps_wait_and_update_cmd(1, &launch_str, "C:/log.log");
-        assert!(cmd.contains("C:/user''s/path/shun.exe"));
+    fn scoop_ps_cmd_runs_scoop_update() {
+        let cmd = build_scoop_ps_cmd(1, "shun.exe");
+        assert!(cmd.contains("scoop update shun"));
     }
 
     #[test]
-    fn ps_cmd_creates_log_directory() {
-        let cmd = build_ps_wait_and_update_cmd(1, "shun.exe", "C:/some/path/scoop-update.log");
-        assert!(cmd.contains("New-Item -ItemType Directory"));
-        assert!(cmd.contains("Split-Path -Parent $log"));
+    fn scoop_ps_cmd_launches_exe_after_update() {
+        let cmd = build_scoop_ps_cmd(1, "C:/scoop/apps/shun/current/shun.exe");
+        assert!(cmd.contains("Test-Path -LiteralPath 'C:/scoop/apps/shun/current/shun.exe'"));
+        assert!(cmd.contains("Start-Process -FilePath 'C:/scoop/apps/shun/current/shun.exe'"));
     }
 
     #[test]
-    fn ps_cmd_uses_exe_variable_for_test_path_and_start_process() {
-        let cmd = build_ps_wait_and_update_cmd(99, "C:/shun.exe", "C:/scoop-update.log");
-        assert!(cmd.contains("Start-Process -FilePath $exe"));
-        assert!(cmd.contains("Test-Path -LiteralPath $exe"));
+    fn scoop_ps_cmd_escapes_single_quotes_in_path() {
+        let launch_str = "C:/user's/scoop/shun.exe".replace('\'', "''");
+        let cmd = build_scoop_ps_cmd(1, &launch_str);
+        assert!(cmd.contains("C:/user''s/scoop/shun.exe"));
     }
 
     #[test]
-    fn ps_cmd_suppresses_progress_preference() {
-        let cmd = build_ps_wait_and_update_cmd(1, "shun.exe", "log.log");
+    fn scoop_ps_cmd_suppresses_progress() {
+        let cmd = build_scoop_ps_cmd(1, "shun.exe");
         assert!(cmd.contains("$ProgressPreference = 'SilentlyContinue'"));
+    }
+
+    #[test]
+    fn create_breakaway_from_job_flag_value() {
+        // Windows API 定数値の確認
+        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        assert_eq!(CREATE_BREAKAWAY_FROM_JOB, 0x01000000);
+        assert_eq!(CREATE_NO_WINDOW, 0x08000000);
     }
 }
