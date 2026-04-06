@@ -1033,7 +1033,8 @@ mod tests {
     #[test]
     fn override_name_only_matches_by_name() {
         let mut cfg = base_config();
-        cfg.apps.push(app_entry("scoop", "C:/scoop/shims/scoop.cmd"));
+        cfg.apps
+            .push(app_entry("scoop", "C:/scoop/shims/scoop.cmd"));
         cfg.overrides
             .push(make_override("scoop", None, Some("pwsh.exe"), None, None));
         let items = collect_items(&cfg);
@@ -1045,17 +1046,18 @@ mod tests {
     #[test]
     fn override_ext_only_matches_by_extension() {
         let mut cfg = base_config();
-        cfg.apps
-            .push(app_entry("report", "C:/docs/report.xlsx"));
-        cfg.overrides
-            .push(make_override("", Some("xlsx"), Some("scalc.exe"), None, None));
+        cfg.apps.push(app_entry("report", "C:/docs/report.xlsx"));
+        cfg.overrides.push(make_override(
+            "",
+            Some("xlsx"),
+            Some("scalc.exe"),
+            None,
+            None,
+        ));
         let items = collect_items(&cfg);
         let item = items.iter().find(|i| i.name == "report").unwrap();
         assert_eq!(item.path, "scalc.exe");
-        assert_eq!(
-            item.source_file.as_deref(),
-            Some("C:/docs/report.xlsx")
-        );
+        assert_eq!(item.source_file.as_deref(), Some("C:/docs/report.xlsx"));
     }
 
     #[test]
@@ -1063,8 +1065,13 @@ mod tests {
         let mut cfg = base_config();
         // name は一致するが ext は違う → マッチしないはず
         cfg.apps.push(app_entry("report", "C:/docs/report.pdf"));
-        cfg.overrides
-            .push(make_override("report", Some("xlsx"), Some("scalc.exe"), None, None));
+        cfg.overrides.push(make_override(
+            "report",
+            Some("xlsx"),
+            Some("scalc.exe"),
+            None,
+            None,
+        ));
         let items = collect_items(&cfg);
         let item = items.iter().find(|i| i.name == "report").unwrap();
         // override が適用されていないこと
@@ -1076,15 +1083,17 @@ mod tests {
     fn override_name_and_ext_matches_when_both_satisfy() {
         let mut cfg = base_config();
         cfg.apps.push(app_entry("report", "C:/docs/report.xlsx"));
-        cfg.overrides
-            .push(make_override("report", Some("xlsx"), Some("scalc.exe"), None, None));
+        cfg.overrides.push(make_override(
+            "report",
+            Some("xlsx"),
+            Some("scalc.exe"),
+            None,
+            None,
+        ));
         let items = collect_items(&cfg);
         let item = items.iter().find(|i| i.name == "report").unwrap();
         assert_eq!(item.path, "scalc.exe");
-        assert_eq!(
-            item.source_file.as_deref(),
-            Some("C:/docs/report.xlsx")
-        );
+        assert_eq!(item.source_file.as_deref(), Some("C:/docs/report.xlsx"));
     }
 
     #[test]
