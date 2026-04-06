@@ -308,13 +308,14 @@ pub fn collect_items(config: &Config) -> Vec<LaunchItem> {
     // [[overrides]] を name (stem, 大文字小文字無視) AND/OR ext (拡張子) でマッチして上書き
     // 両方指定時は AND（name かつ ext が一致）、片方のみ指定時はその条件のみ評価
     for item in &mut items {
+        let item_name_lower = item.name.to_lowercase();
         let item_ext = std::path::Path::new(&item.path)
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_lowercase();
         if let Some(ov) = config.overrides.iter().find(|o| {
-            let name_ok = o.name.is_empty() || o.name.to_lowercase() == item.name.to_lowercase();
+            let name_ok = o.name.is_empty() || o.name.to_lowercase() == item_name_lower;
             let ext_ok = o.ext.is_none()
                 || o.ext
                     .as_deref()
