@@ -279,7 +279,7 @@ extensions = ["sh", "py", "ps1", "cmd"]
 | Field | Type | Description |
 |---|---|---|
 | `name` | string | Case-insensitive stem name match (optional) |
-| `ext` | string | Extension match without dot (e.g. `"xlsx"`, `"pdf"`). ANDed with `name` if both set |
+| `ext` | string | Extension match without dot (e.g. `"xlsx"`, `"pdf"`). ORed with `name` — rule applies if either matches |
 | `path` | string | Executable to launch. Supports `{{ file_path }}` and other override variables |
 | `args` | string[] | Default arguments. Supports override template variables |
 | `workdir` | string | Working directory |
@@ -323,7 +323,7 @@ You can use [Tera](https://keats.github.io/tera/) template syntax in the `path` 
 | `{{ env.VAR_NAME }}` | Environment variable |
 | `{{ vars.my_var }}` | User-defined variable from `[vars]` in config |
 
-**Override-only variables** (available in `[[overrides]]` `path` and `args` when a scanned file is matched):
+**Override-only variables** (available in `[[overrides]]` `path` and `args` only when `path` is set in the override — the original file path is stored internally and exposed as these variables):
 
 | Variable | Value |
 |---|---|
