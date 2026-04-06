@@ -550,6 +550,10 @@
   }
 
   async function handleSearchKeydown(e) {
+    // 手動入力（1文字の印字可能キー）で pending をキャンセル（race condition 防止）
+    if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      _pendingSelectedPath = null;
+    }
     if (matchKey(e, keybindings.close)) {
       e.preventDefault();
       resetToSearch({ skipFocus: true });
