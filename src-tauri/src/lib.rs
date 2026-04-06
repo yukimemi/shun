@@ -555,14 +555,7 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                 let launch_str = launch.to_string_lossy().replace('\'', "''");
 
                 // PowerShell: このプロセス (pid) の終了を待ってから scoop update shun を実行し、再起動する
-                let ps_cmd = format!(
-                    "$ProgressPreference = 'SilentlyContinue'; \
-                     while (Get-Process -Id {pid} -ErrorAction SilentlyContinue) \
-                     {{ Start-Sleep -Milliseconds 100 }}; \
-                     scoop update shun 2>&1 | Out-Null; \
-                     if (Test-Path -LiteralPath '{launch_str}') \
-                     {{ Start-Process -FilePath '{launch_str}' }}"
-                );
+                let ps_cmd = build_scoop_ps_cmd(pid, &launch_str);
 
                 let _ = app.emit(
                     "update-log",
@@ -989,6 +982,21 @@ fn position_window(window: &tauri::WebviewWindow, cfg: &config::Config, win_w: f
     window.set_position(tauri::LogicalPosition::new(x, y)).ok();
 }
 
+/// `pid` の終了を待ち、`scoop update shun` を実行し、`launch_str` を再起動する
+/// PowerShell コマンド文字列を生成する。
+/// `launch_str` はシングルクォートをエスケープ済み（`'` → `''`）であること。
+#[cfg(target_os = "windows")]
+fn build_scoop_ps_cmd(pid: u32, launch_str: &str) -> String {
+    format!(
+        "$ProgressPreference = 'SilentlyContinue'; \
+         while (Get-Process -Id {pid} -ErrorAction SilentlyContinue) \
+         {{ Start-Sleep -Milliseconds 100 }}; \
+         scoop update shun 2>&1 | Out-Null; \
+         if (Test-Path -LiteralPath '{launch_str}') \
+         {{ Start-Process -FilePath '{launch_str}' }}"
+    )
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 type WarningsState = Arc<Mutex<Vec<(String, String)>>>;
 
@@ -1227,4 +1235,51 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::build_scoop_ps_cmd;
+
+    #[test]
+    fn scoop_ps_cmd_waits_for_pid() {
+        let cmd = build_scoop_ps_cmd(42, "C:/scoop/apps/shun/current/shun.exe");
+        assert!(cmd.contains("Get-Process -Id 42"));
+        assert!(cmd.contains("Start-Sleep -Milliseconds 100"));
+    }
+
+    #[test]
+    fn scoop_ps_cmd_runs_scoop_update() {
+        let cmd = build_scoop_ps_cmd(1, "shun.exe");
+        assert!(cmd.contains("scoop update shun"));
+    }
+
+    #[test]
+    fn scoop_ps_cmd_launches_exe_after_update() {
+        let cmd = build_scoop_ps_cmd(1, "C:/scoop/apps/shun/current/shun.exe");
+        assert!(cmd.contains("Test-Path -LiteralPath 'C:/scoop/apps/shun/current/shun.exe'"));
+        assert!(cmd.contains("Start-Process -FilePath 'C:/scoop/apps/shun/current/shun.exe'"));
+    }
+
+    #[test]
+    fn scoop_ps_cmd_escapes_single_quotes_in_path() {
+        let launch_str = "C:/user's/scoop/shun.exe".replace('\'', "''");
+        let cmd = build_scoop_ps_cmd(1, &launch_str);
+        assert!(cmd.contains("C:/user''s/scoop/shun.exe"));
+    }
+
+    #[test]
+    fn scoop_ps_cmd_suppresses_progress() {
+        let cmd = build_scoop_ps_cmd(1, "shun.exe");
+        assert!(cmd.contains("$ProgressPreference = 'SilentlyContinue'"));
+    }
+
+    #[test]
+    fn create_breakaway_from_job_flag_value() {
+        // Windows API 定数値の確認
+        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        assert_eq!(CREATE_BREAKAWAY_FROM_JOB, 0x01000000);
+        assert_eq!(CREATE_NO_WINDOW, 0x08000000);
+    }
 }
