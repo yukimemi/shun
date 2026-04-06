@@ -1011,6 +1011,7 @@ fn build_ps_wait_and_update_cmd(pid: u32, launch_str: &str, ps_log_str: &str) ->
          while (Get-Process -Id {pid} -ErrorAction SilentlyContinue) \
          {{ Start-Sleep -Milliseconds 100 }}; \
          Add-Content -LiteralPath $log \"[$(Get-Date -Format 'o')] running: scoop update shun\"; \
+         $ProgressPreference = 'SilentlyContinue'; \
          $out = (scoop update shun 2>&1 | Out-String); \
          Add-Content -LiteralPath $log \"[$(Get-Date -Format 'o')] scoop output: $out\"; \
          if (Test-Path -LiteralPath $exe) \
@@ -1330,5 +1331,11 @@ mod tests {
         let cmd = build_ps_wait_and_update_cmd(99, "C:/shun.exe", "C:/scoop-update.log");
         assert!(cmd.contains("Start-Process -FilePath $exe"));
         assert!(cmd.contains("Test-Path -LiteralPath $exe"));
+    }
+
+    #[test]
+    fn ps_cmd_suppresses_progress_preference() {
+        let cmd = build_ps_wait_and_update_cmd(1, "shun.exe", "log.log");
+        assert!(cmd.contains("$ProgressPreference = 'SilentlyContinue'"));
     }
 }
