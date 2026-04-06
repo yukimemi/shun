@@ -384,6 +384,24 @@ args       = ["{{ vars.src_dir }}/{{ args }}"]
 completion = "path"
 ```
 
+**Example — `args_list` for multi-argument commands:**
+
+```toml
+# git diff: Tab → "main feature-branch" → Enter → runs "git diff main feature-branch"
+[[apps]]
+name               = "git diff"
+path               = "git"
+args               = ["diff", "{{ args_list.0 }}", "{{ args_list.1 | default(value='HEAD') }}"]
+completion         = "command"
+completion_command = "git branch --format='%(refname:short)'"
+
+# ripgrep with comma-separated globs: Tab → "*.rs *.toml" → passes as separate args
+[[apps]]
+name = "rg"
+path = "rg"
+args = ["--glob={{ args_list | join(sep=',') }}"]
+```
+
 </details>
 
 <details>
