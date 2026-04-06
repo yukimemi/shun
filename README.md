@@ -261,12 +261,31 @@ name            = "scoop"
 completion      = "list"
 completion_list = ["install", "uninstall", "update", "search", "info"]
 
+# Open .xlsx files with LibreOffice Calc (ext-based override)
+[[overrides]]
+ext  = "xlsx"                   # match by extension (no dot)
+path = "C:/Program Files/LibreOffice/program/scalc.exe"
+args = ["{{ file_path }}"]      # pass original file path as arg
+
 # Auto-register scripts from a directory
 [[scan_dirs]]
 path       = "~/.local/bin"
 recursive  = false
 extensions = ["sh", "py", "ps1", "cmd"]
 ```
+
+**`[[overrides]]` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Case-insensitive stem name match (optional) |
+| `ext` | string | Extension match without dot (e.g. `"xlsx"`, `"pdf"`). ANDed with `name` when both are set — omit either to match on the other alone |
+| `path` | string | Executable to launch. Supports `{{ file_path }}` and other override variables |
+| `args` | string[] | Default arguments. Supports override template variables |
+| `workdir` | string | Working directory |
+| `completion` | string | `"list"` \| `"command"` \| `"path"` |
+| `completion_list` | string[] | Candidates when `completion = "list"` |
+| `completion_command` | string | Command to run for `completion = "command"` |
 
 ### Override files (`config.*.toml`)
 
@@ -303,6 +322,16 @@ You can use [Tera](https://keats.github.io/tera/) template syntax in the `path` 
 | `{{ args_list }}` | Extra args as an array |
 | `{{ env.VAR_NAME }}` | Environment variable |
 | `{{ vars.my_var }}` | User-defined variable from `[vars]` in config |
+
+**Override-only variables** (available in `[[overrides]]` `path`, `args`, and `completion_list` when a scanned file is matched — expose the original file's path information for use in templates):
+
+| Variable | Value |
+|---|---|
+| `{{ file_path }}` | Full path of the matched file |
+| `{{ file_name }}` | Filename with extension (e.g. `report.xlsx`) |
+| `{{ file_stem }}` | Filename without extension (e.g. `report`) |
+| `{{ file_ext }}` | Extension only (e.g. `xlsx`) |
+| `{{ file_dir }}` | Parent directory path |
 
 **Useful Tera expressions:**
 
@@ -353,6 +382,24 @@ name       = "Open Project"
 path       = "neovide"
 args       = ["{{ vars.src_dir }}/{{ args }}"]
 completion = "path"
+```
+
+**Example — `args_list` for multi-argument commands:**
+
+```toml
+# git diff: Tab → "main feature-branch" → Enter → runs "git diff main feature-branch"
+[[apps]]
+name               = "git diff"
+path               = "git"
+args               = ["diff", "{{ args_list.0 }}", "{{ args_list.1 | default(value='HEAD') }}"]
+completion         = "command"
+completion_command = "git branch --format='%(refname:short)'"
+
+# ripgrep with comma-separated globs: Tab → "*.rs *.toml" → passes as separate args
+[[apps]]
+name = "rg"
+path = "rg"
+args = ["--glob={{ args_list | join(sep=',') }}"]
 ```
 
 </details>
