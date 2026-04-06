@@ -305,25 +305,27 @@ pub fn collect_items(config: &Config) -> Vec<LaunchItem> {
     // 履歴にある URL / Path アイテムを復元
     items.extend(history_items(config));
 
-    // [[overrides]] を name (stem, 大文字小文字無視) または ext (拡張子) でマッチして上書き
+    // [[overrides]] を name (stem, 大文字小文字無視) AND/OR ext (拡張子) でマッチして上書き
+    // 両方指定時は AND（name かつ ext が一致）、片方のみ指定時はその条件のみ評価
     for item in &mut items {
+        let item_name_lower = item.name.to_lowercase();
         let item_ext = std::path::Path::new(&item.path)
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_lowercase();
         if let Some(ov) = config.overrides.iter().find(|o| {
-            let name_match =
-                !o.name.is_empty() && o.name.to_lowercase() == item.name.to_lowercase();
-            let ext_match = o
-                .ext
-                .as_deref()
-                .is_some_and(|e| e.to_lowercase() == item_ext);
-            name_match || ext_match
+            let name_ok = o.name.is_empty() || o.name.to_lowercase() == item_name_lower;
+            let ext_ok = o.ext.is_none()
+                || o.ext
+                    .as_deref()
+                    .is_some_and(|e| e.to_lowercase() == item_ext);
+            (name_ok && ext_ok) && (!o.name.is_empty() || o.ext.is_some())
         }) {
-            // path が指定されていれば元ファイルを source_file に保存して差し替え
+            // マッチした元ファイルパスを常に source_file に保存（{{ file_* }} テンプレートで参照可能）
+            item.source_file = Some(item.path.clone());
+            // path が指定されていれば実行ファイルを差し替え
             if let Some(ref v) = ov.path {
-                item.source_file = Some(item.path.clone());
                 item.path = v.clone();
             }
             if let Some(ref v) = ov.completion {
@@ -983,6 +985,142 @@ mod tests {
         // undefined variables fall back to the raw template (Tera error → original string)
         let result = render_template("{{ file_path | default(value=\"none\") }}", &ctx);
         assert_eq!(result, "none");
+    }
+
+    // --- override matching & source_file ---
+
+    fn base_config() -> Config {
+        Config {
+            apps: vec![],
+            scan_dirs: vec![],
+            overrides: vec![],
+            ..Default::default()
+        }
+    }
+
+    fn app_entry(name: &str, path: &str) -> crate::config::AppEntry {
+        crate::config::AppEntry {
+            name: name.to_string(),
+            path: path.to_string(),
+            args: vec![],
+            workdir: None,
+            completion: Default::default(),
+            completion_list: vec![],
+            completion_command: None,
+            completion_search_mode: None,
+        }
+    }
+
+    fn make_override(
+        name: &str,
+        ext: Option<&str>,
+        path: Option<&str>,
+        args: Option<Vec<&str>>,
+        workdir: Option<&str>,
+    ) -> crate::config::AppOverride {
+        crate::config::AppOverride {
+            name: name.to_string(),
+            ext: ext.map(|s| s.to_string()),
+            path: path.map(|s| s.to_string()),
+            args: args.map(|v| v.iter().map(|s| s.to_string()).collect()),
+            workdir: workdir.map(|s| s.to_string()),
+            completion: None,
+            completion_list: vec![],
+            completion_command: None,
+        }
+    }
+
+    #[test]
+    fn override_name_only_matches_by_name() {
+        let mut cfg = base_config();
+        cfg.apps
+            .push(app_entry("scoop", "C:/scoop/shims/scoop.cmd"));
+        cfg.overrides
+            .push(make_override("scoop", None, Some("pwsh.exe"), None, None));
+        let items = collect_items(&cfg);
+        let item = items.iter().find(|i| i.name == "scoop").unwrap();
+        assert_eq!(item.path, "pwsh.exe");
+        assert!(item.source_file.is_some());
+    }
+
+    #[test]
+    fn override_ext_only_matches_by_extension() {
+        let mut cfg = base_config();
+        cfg.apps.push(app_entry("report", "C:/docs/report.xlsx"));
+        cfg.overrides.push(make_override(
+            "",
+            Some("xlsx"),
+            Some("scalc.exe"),
+            None,
+            None,
+        ));
+        let items = collect_items(&cfg);
+        let item = items.iter().find(|i| i.name == "report").unwrap();
+        assert_eq!(item.path, "scalc.exe");
+        assert_eq!(item.source_file.as_deref(), Some("C:/docs/report.xlsx"));
+    }
+
+    #[test]
+    fn override_name_and_ext_requires_both() {
+        let mut cfg = base_config();
+        // name は一致するが ext は違う → マッチしないはず
+        cfg.apps.push(app_entry("report", "C:/docs/report.pdf"));
+        cfg.overrides.push(make_override(
+            "report",
+            Some("xlsx"),
+            Some("scalc.exe"),
+            None,
+            None,
+        ));
+        let items = collect_items(&cfg);
+        let item = items.iter().find(|i| i.name == "report").unwrap();
+        // override が適用されていないこと
+        assert_eq!(item.path, "C:/docs/report.pdf");
+        assert!(item.source_file.is_none());
+    }
+
+    #[test]
+    fn override_name_and_ext_matches_when_both_satisfy() {
+        let mut cfg = base_config();
+        cfg.apps.push(app_entry("report", "C:/docs/report.xlsx"));
+        cfg.overrides.push(make_override(
+            "report",
+            Some("xlsx"),
+            Some("scalc.exe"),
+            None,
+            None,
+        ));
+        let items = collect_items(&cfg);
+        let item = items.iter().find(|i| i.name == "report").unwrap();
+        assert_eq!(item.path, "scalc.exe");
+        assert_eq!(item.source_file.as_deref(), Some("C:/docs/report.xlsx"));
+    }
+
+    #[test]
+    fn override_without_path_sets_source_file_for_args_workdir() {
+        // path なし override でも source_file が保存されること
+        let mut cfg = base_config();
+        cfg.apps.push(app_entry("note", "C:/docs/note.md"));
+        cfg.overrides.push(make_override(
+            "",
+            Some("md"),
+            None, // path なし
+            Some(vec!["--readonly", "{{ file_path }}"]),
+            Some("{{ file_dir }}"),
+        ));
+        let items = collect_items(&cfg);
+        let item = items.iter().find(|i| i.name == "note").unwrap();
+        // 実行ファイルは変わらない
+        assert_eq!(item.path, "C:/docs/note.md");
+        // source_file は保存されている
+        assert_eq!(item.source_file.as_deref(), Some("C:/docs/note.md"));
+        // args / workdir にテンプレートが設定されている
+        assert_eq!(item.args, vec!["--readonly", "{{ file_path }}"]);
+        assert_eq!(item.workdir.as_deref(), Some("{{ file_dir }}"));
+        // テンプレートが正しく展開されること
+        let ctx = build_template_context(&[], &Default::default(), item.source_file.as_deref());
+        assert_eq!(render_template("{{ file_path }}", &ctx), "C:/docs/note.md");
+        assert_eq!(render_template("{{ file_dir }}", &ctx), "C:/docs");
     }
 
     // --- launch_with_extra merges args ---
