@@ -295,15 +295,29 @@ mod tests {
 
     #[test]
     fn fuzzy_migemo_romaji_japanese_comes_first() {
-        // kadai (romaji) should surface 課題-containing item before fuzzy-only ASCII items
-        let items = vec![item("2026-04-11-課題hoge"), item("Task Manager")];
+        // kadai (romaji) should surface 課題-containing item before fuzzy-only ASCII items.
+        // "k a d a i notes" is a deterministic fuzzy-only candidate: it has k,a,d,a,i as
+        // a subsequence but does not contain the string "kadai", so migemo won't match it.
+        let items = vec![item("2026-04-11-課題hoge"), item("k a d a i notes")];
         let r = fuzzy_migemo_filter(&items, "kadai");
         let names: Vec<&str> = r.iter().map(|i| i.name.as_str()).collect();
-        assert!(names.contains(&"2026-04-11-課題hoge"), "migemo match should be included");
-        let pos = r.iter().position(|i| i.name == "2026-04-11-課題hoge").unwrap();
-        if let Some(fp) = r.iter().position(|i| i.name == "Task Manager") {
-            assert!(pos < fp, "migemo match should precede fuzzy-only match");
-        }
+        assert!(
+            names.contains(&"2026-04-11-課題hoge"),
+            "migemo match should be included"
+        );
+        assert!(
+            names.contains(&"k a d a i notes"),
+            "fuzzy-only match should be included"
+        );
+        let jp_pos = r
+            .iter()
+            .position(|i| i.name == "2026-04-11-課題hoge")
+            .unwrap();
+        let fuzzy_pos = r.iter().position(|i| i.name == "k a d a i notes").unwrap();
+        assert!(
+            jp_pos < fuzzy_pos,
+            "migemo match should precede fuzzy-only match"
+        );
     }
 
     #[test]
