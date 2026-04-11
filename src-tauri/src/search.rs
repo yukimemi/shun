@@ -22,15 +22,16 @@ fn fuzzy_migemo_filter(items: &[LaunchItem], query: &str) -> Vec<LaunchItem> {
     }
     let fuzzy = fuzzy_filter(items, query);
     let migemo = migemo_filter(items, query);
-    // fuzzy 結果を優先し、migemo にしか引っかからなかったものを後ろに追加
-    let fuzzy_names: std::collections::HashSet<&str> =
-        fuzzy.iter().map(|i| i.name.as_str()).collect();
-    let migemo_only: Vec<LaunchItem> = migemo
+    // migemo 結果を優先し、fuzzy にしか引っかからなかったものを後ろに追加
+    // ローマ字で日本語アイテムを検索する際に migemo マッチが fuzzy のみマッチより先に表示される
+    let migemo_names: std::collections::HashSet<&str> =
+        migemo.iter().map(|i| i.name.as_str()).collect();
+    let fuzzy_only: Vec<LaunchItem> = fuzzy
         .into_iter()
-        .filter(|i| !fuzzy_names.contains(i.name.as_str()))
+        .filter(|i| !migemo_names.contains(i.name.as_str()))
         .collect();
-    let mut result = fuzzy;
-    result.extend(migemo_only);
+    let mut result = migemo;
+    result.extend(fuzzy_only);
     result
 }
 
@@ -283,13 +284,26 @@ mod tests {
     }
 
     #[test]
-    fn fuzzy_migemo_fuzzy_results_come_first() {
-        // fuzzy-matched items should precede migemo-only items
+    fn fuzzy_migemo_migemo_results_come_first() {
+        // migemo-matched items should precede fuzzy-only items
+        // "fi" migemo-matches "firefox" (ASCII passthrough) so firefox still leads
         let items = vec![item("はじめに"), item("firefox")];
-        // "fi" fuzzy-matches "firefox"; migemo for "fi" unlikely to match Japanese
         let r = fuzzy_migemo_filter(&items, "fi");
         assert!(!r.is_empty());
         assert_eq!(r[0].name, "firefox");
+    }
+
+    #[test]
+    fn fuzzy_migemo_romaji_japanese_comes_first() {
+        // kadai (romaji) should surface 課題-containing item before fuzzy-only ASCII items
+        let items = vec![item("2026-04-11-課題hoge"), item("Task Manager")];
+        let r = fuzzy_migemo_filter(&items, "kadai");
+        let names: Vec<&str> = r.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"2026-04-11-課題hoge"), "migemo match should be included");
+        let pos = r.iter().position(|i| i.name == "2026-04-11-課題hoge").unwrap();
+        if let Some(fp) = r.iter().position(|i| i.name == "Task Manager") {
+            assert!(pos < fp, "migemo match should precede fuzzy-only match");
+        }
     }
 
     #[test]
