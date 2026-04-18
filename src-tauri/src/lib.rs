@@ -587,7 +587,13 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                 // `scoop update shun` の `Remove-Item current` が「使用中」で失敗する。
                 let ps_cwd = std::env::temp_dir();
                 let child = std::process::Command::new("powershell")
-                    .args(["-NoProfile", "-Command", &ps_cmd])
+                    .args([
+                        "-NoProfile",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-Command",
+                        &ps_cmd,
+                    ])
                     .creation_flags(CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW)
                     .current_dir(&ps_cwd)
                     .spawn()
@@ -1021,7 +1027,7 @@ fn build_scoop_ps_cmd(pid: u32, launch_str: &str, log_path_str: &str) -> String 
         "$ProgressPreference = 'SilentlyContinue'; \
          $ErrorActionPreference = 'Continue'; \
          Set-Location -LiteralPath $env:TEMP; \
-         try {{ Start-Transcript -Path '{log_path_str}' -Force | Out-Null }} catch {{}}; \
+         try {{ Start-Transcript -LiteralPath '{log_path_str}' -Force | Out-Null }} catch {{}}; \
          Write-Output \"[shun-updater] cwd=$((Get-Location).Path)\"; \
          Write-Output \"[shun-updater] waiting for pid {pid} to exit...\"; \
          while (Get-Process -Id {pid} -ErrorAction SilentlyContinue) \
@@ -1039,10 +1045,10 @@ fn build_scoop_ps_cmd(pid: u32, launch_str: &str, log_path_str: &str) -> String 
          & $scoopCmd update shun 2>&1 | ForEach-Object {{ Write-Output \"[scoop] $_\" }}; \
          Write-Output \"[shun-updater] scoop exit code = $LASTEXITCODE\"; \
          if (Test-Path -LiteralPath '{launch_str}') {{ \
-             Write-Output \"[shun-updater] launching {launch_str}\"; \
+             Write-Output ('[shun-updater] launching ' + '{launch_str}'); \
              Start-Process -FilePath '{launch_str}' \
          }} else {{ \
-             Write-Output \"[shun-updater] ERROR: launch path not found: {launch_str}\" \
+             Write-Output ('[shun-updater] ERROR: launch path not found: ' + '{launch_str}') \
          }}; \
          try {{ Stop-Transcript | Out-Null }} catch {{}}"
     )
@@ -1331,7 +1337,8 @@ mod tests {
     #[test]
     fn scoop_ps_cmd_starts_transcript_at_log_path() {
         let cmd = build_scoop_ps_cmd(1, "shun.exe", LOG);
-        assert!(cmd.contains(&format!("Start-Transcript -Path '{LOG}'")));
+        // `-LiteralPath` は `[` / `]` を含むパスでも安全に扱うため `-Path` より推奨
+        assert!(cmd.contains(&format!("Start-Transcript -LiteralPath '{LOG}'")));
         assert!(cmd.contains("Stop-Transcript"));
     }
 
