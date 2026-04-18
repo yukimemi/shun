@@ -554,20 +554,48 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                     .unwrap_or_else(|| current_exe.clone());
                 let launch_str = launch.to_string_lossy().replace('\'', "''");
 
+                // PowerShell の全出力を残すための Transcript パス
+                let log_path = config::config_dir().join("scoop_update.log");
+                let log_path_str = log_path.to_string_lossy().replace('\'', "''");
+                // 古い Transcript は毎回クリアして追記ループを避ける
+                let _ = std::fs::remove_file(&log_path);
+
                 // PowerShell: このプロセス (pid) の終了を待ってから scoop update shun を実行し、再起動する
-                let ps_cmd = build_scoop_ps_cmd(pid, &launch_str);
+                let ps_cmd = build_scoop_ps_cmd(pid, &launch_str, &log_path_str);
+
+                log::info!(
+                    "install_update(scoop): pid={pid} current_exe={} launch={} log={}",
+                    current_exe.display(),
+                    launch.display(),
+                    log_path.display()
+                );
+                log::debug!("install_update(scoop): ps_cmd={ps_cmd}");
 
                 let _ = app.emit(
                     "update-log",
-                    serde_json::json!({ "line": "Quitting shun to run: scoop update shun ..." }),
+                    serde_json::json!({
+                        "line": format!(
+                            "Quitting shun to run: scoop update shun (log: {})",
+                            log_path.display()
+                        )
+                    }),
                 );
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-                std::process::Command::new("powershell")
+                // current_dir(%TEMP%): shun の CWD が `~\scoop\apps\shun\current\` に
+                // なっていた場合、子プロセスの PowerShell がその junction を掴んでしまい
+                // `scoop update shun` の `Remove-Item current` が「使用中」で失敗する。
+                let ps_cwd = std::env::temp_dir();
+                let child = std::process::Command::new("powershell")
                     .args(["-NoProfile", "-Command", &ps_cmd])
                     .creation_flags(CREATE_BREAKAWAY_FROM_JOB | CREATE_NO_WINDOW)
+                    .current_dir(&ps_cwd)
                     .spawn()
                     .map_err(|e| format!("failed to spawn powershell: {e}"))?;
+                log::info!(
+                    "install_update(scoop): spawned powershell pid={}",
+                    child.id()
+                );
                 app.exit(0);
                 Ok(())
             }
@@ -984,16 +1012,39 @@ fn position_window(window: &tauri::WebviewWindow, cfg: &config::Config, win_w: f
 
 /// `pid` の終了を待ち、`scoop update shun` を実行し、`launch_str` を再起動する
 /// PowerShell コマンド文字列を生成する。
-/// `launch_str` はシングルクォートをエスケープ済み（`'` → `''`）であること。
+///
+/// `launch_str` / `log_path_str` はシングルクォートをエスケープ済み（`'` → `''`）であること。
+/// `log_path_str` には PowerShell Transcript（scoop update の全出力）を書き出す。
 #[cfg(target_os = "windows")]
-fn build_scoop_ps_cmd(pid: u32, launch_str: &str) -> String {
+fn build_scoop_ps_cmd(pid: u32, launch_str: &str, log_path_str: &str) -> String {
     format!(
         "$ProgressPreference = 'SilentlyContinue'; \
+         $ErrorActionPreference = 'Continue'; \
+         Set-Location -LiteralPath $env:TEMP; \
+         try {{ Start-Transcript -Path '{log_path_str}' -Force | Out-Null }} catch {{}}; \
+         Write-Output \"[shun-updater] cwd=$((Get-Location).Path)\"; \
+         Write-Output \"[shun-updater] waiting for pid {pid} to exit...\"; \
          while (Get-Process -Id {pid} -ErrorAction SilentlyContinue) \
          {{ Start-Sleep -Milliseconds 100 }}; \
-         scoop update shun 2>&1 | Out-Null; \
-         if (Test-Path -LiteralPath '{launch_str}') \
-         {{ Start-Process -FilePath '{launch_str}' }}"
+         Write-Output '[shun-updater] pid exited, resolving scoop command...'; \
+         $scoopCmd = (Get-Command scoop -ErrorAction SilentlyContinue).Source; \
+         if (-not $scoopCmd) {{ $scoopCmd = Join-Path $env:USERPROFILE 'scoop\\shims\\scoop.cmd' }}; \
+         Write-Output \"[shun-updater] scoopCmd=$scoopCmd\"; \
+         if (-not (Test-Path -LiteralPath $scoopCmd)) {{ \
+             Write-Output '[shun-updater] ERROR: scoop command not found'; \
+             try {{ Stop-Transcript | Out-Null }} catch {{}}; \
+             exit 1 \
+         }}; \
+         Write-Output '[shun-updater] running: scoop update shun'; \
+         & $scoopCmd update shun 2>&1 | ForEach-Object {{ Write-Output \"[scoop] $_\" }}; \
+         Write-Output \"[shun-updater] scoop exit code = $LASTEXITCODE\"; \
+         if (Test-Path -LiteralPath '{launch_str}') {{ \
+             Write-Output \"[shun-updater] launching {launch_str}\"; \
+             Start-Process -FilePath '{launch_str}' \
+         }} else {{ \
+             Write-Output \"[shun-updater] ERROR: launch path not found: {launch_str}\" \
+         }}; \
+         try {{ Stop-Transcript | Out-Null }} catch {{}}"
     )
 }
 
@@ -1241,22 +1292,25 @@ pub fn run() {
 mod tests {
     use super::build_scoop_ps_cmd;
 
+    const LOG: &str = "C:/Users/test/AppData/Roaming/shun/scoop_update.log";
+
     #[test]
     fn scoop_ps_cmd_waits_for_pid() {
-        let cmd = build_scoop_ps_cmd(42, "C:/scoop/apps/shun/current/shun.exe");
+        let cmd = build_scoop_ps_cmd(42, "C:/scoop/apps/shun/current/shun.exe", LOG);
         assert!(cmd.contains("Get-Process -Id 42"));
         assert!(cmd.contains("Start-Sleep -Milliseconds 100"));
     }
 
     #[test]
     fn scoop_ps_cmd_runs_scoop_update() {
-        let cmd = build_scoop_ps_cmd(1, "shun.exe");
+        let cmd = build_scoop_ps_cmd(1, "shun.exe", LOG);
         assert!(cmd.contains("scoop update shun"));
+        assert!(cmd.contains("& $scoopCmd update shun"));
     }
 
     #[test]
     fn scoop_ps_cmd_launches_exe_after_update() {
-        let cmd = build_scoop_ps_cmd(1, "C:/scoop/apps/shun/current/shun.exe");
+        let cmd = build_scoop_ps_cmd(1, "C:/scoop/apps/shun/current/shun.exe", LOG);
         assert!(cmd.contains("Test-Path -LiteralPath 'C:/scoop/apps/shun/current/shun.exe'"));
         assert!(cmd.contains("Start-Process -FilePath 'C:/scoop/apps/shun/current/shun.exe'"));
     }
@@ -1264,14 +1318,43 @@ mod tests {
     #[test]
     fn scoop_ps_cmd_escapes_single_quotes_in_path() {
         let launch_str = "C:/user's/scoop/shun.exe".replace('\'', "''");
-        let cmd = build_scoop_ps_cmd(1, &launch_str);
+        let cmd = build_scoop_ps_cmd(1, &launch_str, LOG);
         assert!(cmd.contains("C:/user''s/scoop/shun.exe"));
     }
 
     #[test]
     fn scoop_ps_cmd_suppresses_progress() {
-        let cmd = build_scoop_ps_cmd(1, "shun.exe");
+        let cmd = build_scoop_ps_cmd(1, "shun.exe", LOG);
         assert!(cmd.contains("$ProgressPreference = 'SilentlyContinue'"));
+    }
+
+    #[test]
+    fn scoop_ps_cmd_starts_transcript_at_log_path() {
+        let cmd = build_scoop_ps_cmd(1, "shun.exe", LOG);
+        assert!(cmd.contains(&format!("Start-Transcript -Path '{LOG}'")));
+        assert!(cmd.contains("Stop-Transcript"));
+    }
+
+    #[test]
+    fn scoop_ps_cmd_falls_back_to_shims_scoop_cmd() {
+        let cmd = build_scoop_ps_cmd(1, "shun.exe", LOG);
+        assert!(cmd.contains("Get-Command scoop"));
+        assert!(cmd.contains("scoop\\shims\\scoop.cmd"));
+    }
+
+    #[test]
+    fn scoop_ps_cmd_logs_scoop_exit_code() {
+        let cmd = build_scoop_ps_cmd(1, "shun.exe", LOG);
+        assert!(cmd.contains("$LASTEXITCODE"));
+    }
+
+    /// shun の CWD が scoop の `current` junction の中にあると、子プロセスの
+    /// PowerShell がそれを継承して掴んでしまい、`scoop update shun` が
+    /// `Remove-Item current` で「使用中」エラーになる。Set-Location で安全地帯へ移動。
+    #[test]
+    fn scoop_ps_cmd_escapes_junction_before_update() {
+        let cmd = build_scoop_ps_cmd(1, "shun.exe", LOG);
+        assert!(cmd.contains("Set-Location -LiteralPath $env:TEMP"));
     }
 
     #[test]
