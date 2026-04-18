@@ -97,7 +97,7 @@ fn fuzzy_filter(items: &[LaunchItem], query: &str) -> Vec<LaunchItem> {
         .collect();
 
     // スコア降順（高いほど良いマッチ）
-    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_by_key(|e| std::cmp::Reverse(e.0));
     scored.into_iter().map(|(_, item)| item.clone()).collect()
 }
 

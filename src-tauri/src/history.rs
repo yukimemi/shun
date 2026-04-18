@@ -201,7 +201,7 @@ fn trim_to(history: &mut History, max: usize) {
     // 新しい順にソートして max 件に切り詰める
     history
         .entries
-        .sort_unstable_by(|a, b| b.last_used.cmp(&a.last_used));
+        .sort_unstable_by_key(|e| std::cmp::Reverse(e.last_used));
     history.entries.truncate(max);
 }
 
