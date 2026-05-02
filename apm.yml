@@ -1,0 +1,15 @@
+name: shun
+version: 5.0.8
+description: |
+  Dev-consumer APM config for the shun repo. shun itself is a Tauri app
+  and ships no agent primitives; this apm.yml only exists to install
+  agent skills that contributors want available while working on shun
+  — currently just the `renri` skill so AI sessions can manage
+  worktrees / jj workspaces while developing.
+author: yukimemi
+dependencies:
+  apm:
+    - yukimemi/renri#v0.1.5
+  mcp: []
+includes: auto
+scripts: {}

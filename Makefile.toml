@@ -1,0 +1,78 @@
+[tasks.default]
+alias = "check"
+
+[tasks.check]
+description = "Run fmt + clippy + Rust tests + frontend tests + lock-check"
+dependencies = [
+    "fmt-check",
+    "clippy",
+    "test",
+    "test-frontend",
+    "lock-check",
+]
+
+[tasks.fmt-check]
+description = "Check Rust formatting (src-tauri/)"
+cwd = "src-tauri"
+command = "cargo"
+args = ["fmt", "--all", "--", "--check"]
+
+[tasks.fmt]
+description = "Apply Rust formatting (src-tauri/)"
+cwd = "src-tauri"
+command = "cargo"
+args = ["fmt", "--all"]
+
+[tasks.clippy]
+description = "Run clippy with warnings as errors (src-tauri/)"
+cwd = "src-tauri"
+command = "cargo"
+args = ["clippy", "--locked", "--all-targets", "--", "-D", "warnings"]
+
+[tasks.test]
+description = "Rust unit tests (src-tauri/)"
+cwd = "src-tauri"
+command = "cargo"
+args = ["test", "--locked"]
+
+[tasks.test-frontend]
+description = "Frontend tests (Vitest)"
+command = "npm"
+args = ["test"]
+
+[tasks.lock-check]
+description = "Verify src-tauri/Cargo.lock is in sync with Cargo.toml"
+cwd = "src-tauri"
+command = "cargo"
+args = ["check", "--locked", "--all-targets"]
+
+[tasks.tauri-dev]
+description = "Launch the Tauri app in dev mode"
+command = "npm"
+args = ["run", "tauri", "dev"]
+
+[tasks.tauri-build]
+description = "Production Tauri build"
+command = "npm"
+args = ["run", "tauri", "build"]
+
+[tasks.hook-install]
+description = "Install git pre-push hook that runs 'cargo make check'"
+script_runner = "@duckscript"
+script = '''
+hook_dir = set ".git/hooks"
+hook_file = set "${hook_dir}/pre-push"
+mkdir ${hook_dir}
+hook_content = set "#!/bin/sh\n# Installed by: cargo make hook-install\ncargo make check"
+writefile ${hook_file} ${hook_content}
+echo "Installed pre-push hook -> ${hook_file}"
+'''
+
+[tasks.apm-install]
+description = "Install agent skills declared in apm.yml (currently: renri for worktree management)"
+command = "apm"
+args = ["install"]
+
+[tasks.setup]
+description = "One-time setup for new contributors: pre-push hook + APM install"
+dependencies = ["hook-install", "apm-install"]

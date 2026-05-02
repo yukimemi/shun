@@ -35,6 +35,12 @@ src-tauri/
 ## Commands
 
 ```bash
+cargo make setup     # one-time on clone: pre-push hook + APM install
+cargo make check     # fmt + clippy + Rust tests + frontend tests
+cargo make fmt       # apply rustfmt
+cargo make tauri-dev # npm run tauri dev (shortcut)
+
+# Direct (without cargo-make):
 npm run dev          # Start dev server (Tauri hot-reload)
 npm run tauri dev    # Launch full Tauri app in dev mode
 npm run build        # Build frontend
@@ -42,6 +48,17 @@ npm run tauri build  # Production build
 npm test             # Vitest (frontend unit tests)
 cd src-tauri && cargo test   # Rust unit tests
 ```
+
+`cargo make setup` is `hook-install` + `apm-install`:
+
+- `hook-install` wires `.git/hooks/pre-push` to `cargo make check`.
+- `apm-install` runs `apm install`, compiling the
+  [renri](https://github.com/yukimemi/renri) skill (declared in
+  `apm.yml`, pinned to `#v0.1.5`) into `.claude/skills/` +
+  `.github/skills/` so AI sessions know how to manage worktrees /
+  jj workspaces while developing shun. Lockfile is `apm.lock.yaml`.
+  Bump the pinned version explicitly when wanting newer renri
+  features.
 
 ## Key architecture
 
