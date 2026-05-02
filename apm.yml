@@ -1,5 +1,9 @@
+# Required-by-APM but intentionally static. Per the project's "Version
+# lives only in Cargo.toml" policy, this apm.yml is consumer-side and
+# not a publishable APM package, so the version below is a placeholder
+# that should never bump.
 name: shun
-version: 5.0.8
+version: 0.0.0
 description: |
   Dev-consumer APM config for the shun repo. shun itself is a Tauri app
   and ships no agent primitives; this apm.yml only exists to install

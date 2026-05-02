@@ -52,13 +52,18 @@ cd src-tauri && cargo test   # Rust unit tests
 `cargo make setup` is `hook-install` + `apm-install`:
 
 - `hook-install` wires `.git/hooks/pre-push` to `cargo make check`.
-- `apm-install` runs `apm install`, compiling the
+- `apm-install` requires the
+  [APM](https://github.com/microsoft/apm) CLI on `PATH`
+  (`scoop install apm` on Windows, `brew install microsoft/apm/apm`
+  on macOS, `pip install apm-cli`, or
+  `curl -sSL https://aka.ms/apm-unix | sh`). It runs
+  `apm install`, compiling the
   [renri](https://github.com/yukimemi/renri) skill (declared in
   `apm.yml`, pinned to `#v0.1.5`) into `.claude/skills/` +
-  `.github/skills/` so AI sessions know how to manage worktrees /
-  jj workspaces while developing shun. Lockfile is `apm.lock.yaml`.
-  Bump the pinned version explicitly when wanting newer renri
-  features.
+  `.gemini/skills/` + `.github/skills/` so AI sessions know how to
+  manage worktrees / jj workspaces while developing shun. Lockfile
+  is `apm.lock.yaml`. Bump the pinned version explicitly when
+  wanting newer renri features.
 
 ## Key architecture
 
