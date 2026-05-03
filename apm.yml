@@ -13,7 +13,7 @@ description: |
 author: yukimemi
 dependencies:
   apm:
-    - yukimemi/renri#v0.1.5
+    - yukimemi/renri#main
   mcp: []
 includes: auto
 scripts: {}
