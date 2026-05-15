@@ -11,6 +11,8 @@
 [![Release](https://img.shields.io/github/v/release/yukimemi/shun?style=flat-square)](https://github.com/yukimemi/shun/releases)
 [![License](https://img.shields.io/github/license/yukimemi/shun?style=flat-square)](LICENSE)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri-blue?style=flat-square)](https://tauri.app)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/yukimemi/shun)
+[![View Code Wiki](https://img.shields.io/badge/View-Code_Wiki-4285F4?logo=google&style=flat-square)](https://codewiki.google/github.com/yukimemi/shun)
 
 </div>
 
