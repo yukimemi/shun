@@ -654,6 +654,10 @@
       e.preventDefault();
       if (filteredSlash.length > 0) {
         runSlashCommand(filteredSlash[selectedIndex] ?? filteredSlash[0]);
+      } else if (isPathQuery(query)) {
+        // Path: run the typed path itself so e.g. "~/Documents/" opens the
+        // folder even when the list is showing its children
+        launchItem(makePathItem(query), null);
       } else if (query && filtered.length > 0) {
         // Run the typed query as the base (non-history) item
         const baseItem = filtered.find((item) => item.source !== "History");
@@ -666,10 +670,9 @@
       } else if (filtered[selectedIndex]?.source === "Warning") {
         invoke("open_config", { name: filtered[selectedIndex].path });
       } else if (filtered[selectedIndex]) {
-        const item = isPathQuery(query)
-          ? makePathItem(query)
-          : filtered[selectedIndex];
-        launchItem(item, null);
+        // Run the highlighted candidate, unified across all sources
+        // (path's typed-query launch now lives in run_query / Shift+Enter)
+        launchItem(filtered[selectedIndex], null);
       }
     } else if (matchKey(e, keybindings.delete_word)) {
       e.preventDefault();
