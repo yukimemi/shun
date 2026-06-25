@@ -35,6 +35,23 @@ pub enum ItemSource {
     History,
 }
 
+impl LaunchItem {
+    /// history への記録・参照に使うキーを返す。
+    /// - History アイテム（再実行）: `history_key`（`key\targs` 形式）をそのまま使う。
+    /// - Config アイテム: `name` を使う。複数の Config が同じ exe（例: `powershell`）を
+    ///   共有しても name で区別でき、recent_first / count_first が正しく効く。
+    /// - それ以外（ScanDir, Path, Url など）: `path` を使う。
+    pub fn history_lookup_key(&self) -> &str {
+        if let Some(hk) = &self.history_key {
+            hk
+        } else if matches!(self.source, ItemSource::Config) {
+            &self.name
+        } else {
+            &self.path
+        }
+    }
+}
+
 pub fn render_template(template: &str, ctx: &tera::Context) -> String {
     tera::Tera::one_off(template, ctx, false).unwrap_or_else(|_| template.to_string())
 }
@@ -1146,5 +1163,50 @@ mod tests {
         let result = launch_with_extra(&item, vec!["extra".to_string()], &Default::default());
         // On CI echo may or may not be available, so just assert no arg-construction panic
         let _ = result;
+    }
+
+    // --- history_lookup_key ---
+
+    fn lookup_item(
+        name: &str,
+        path: &str,
+        source: ItemSource,
+        history_key: Option<&str>,
+    ) -> LaunchItem {
+        LaunchItem {
+            name: name.to_string(),
+            path: path.to_string(),
+            args: vec![],
+            workdir: None,
+            source,
+            completion: CompletionType::None,
+            completion_list: vec![],
+            completion_command: None,
+            completion_search_mode: None,
+            history_key: history_key.map(String::from),
+            source_file: None,
+        }
+    }
+
+    #[test]
+    fn history_lookup_key_config_uses_name() {
+        // 同じ exe (powershell) を共有する Config アイテムでも name で区別される
+        let a = lookup_item("Install kanade", "powershell", ItemSource::Config, None);
+        let b = lookup_item("Get-DriveInfoView", "powershell", ItemSource::Config, None);
+        assert_eq!(a.history_lookup_key(), "Install kanade");
+        assert_eq!(b.history_lookup_key(), "Get-DriveInfoView");
+        assert_ne!(a.history_lookup_key(), b.history_lookup_key());
+    }
+
+    #[test]
+    fn history_lookup_key_non_config_uses_path() {
+        let item = lookup_item("script", "C:/scripts/foo.ps1", ItemSource::ScanDir, None);
+        assert_eq!(item.history_lookup_key(), "C:/scripts/foo.ps1");
+    }
+
+    #[test]
+    fn history_lookup_key_history_uses_history_key() {
+        let item = lookup_item("app › arg", "exe", ItemSource::History, Some("MyApp\targ"));
+        assert_eq!(item.history_lookup_key(), "MyApp\targ");
     }
 }

@@ -143,8 +143,8 @@ fn sort_items_with_order(
     sort_order: &config::SortOrder,
 ) {
     items.sort_by(|a, b| {
-        let a_key = a.history_key.as_deref().unwrap_or(&a.path);
-        let b_key = b.history_key.as_deref().unwrap_or(&b.path);
+        let a_key = a.history_lookup_key();
+        let b_key = b.history_lookup_key();
         let (ac, at) = history::sort_key(hist, a_key);
         let (bc, bt) = history::sort_key(hist, b_key);
         if ac == 0 && bc == 0 {
@@ -268,15 +268,12 @@ fn launch_item(
             item.args.iter().chain(extra.iter()).cloned().collect()
         };
         // Config アイテムは name をキーに記録する（同じ exe を使う別エントリと区別するため）
-        let record_key = if matches!(item.source, apps::ItemSource::Config) {
-            &item.name
-        } else {
-            &item.path
-        };
+        let record_key = item.history_lookup_key();
         history::record_args(record_key, &history_args, history_max_items);
     } else {
         // args なし or History アイテムの再実行: そのままのキーで記録
-        let record_key = item.history_key.as_deref().unwrap_or(&item.path);
+        // Config アイテムは name をキーにする（同じ exe を共有する別アプリを区別するため）
+        let record_key = item.history_lookup_key();
         history::record(record_key, history_max_items);
     }
 
