@@ -606,6 +606,123 @@ pub fn load_config() -> (Config, Vec<(String, String)>) {
     (config, warnings)
 }
 
+fn default_config_toml() -> String {
+    r##"# Search mode: "fuzzy" (default) | "exact" | "migemo" (romaji → Japanese)
+search_mode = "fuzzy"
+
+# Sort order: "count_first" (default) | "recent_first"
+sort_order = "count_first"
+
+# Auto-hide when the launcher loses focus
+hide_on_blur = false
+
+# Start automatically at login (default: true); set to false to disable
+auto_start = true
+
+# Update check interval in seconds (0 to disable)
+update_check_interval = 3600
+
+# Launcher window width in pixels
+window_width = 620
+
+# Max items shown in the results list
+max_items = 8
+
+# Max items shown in the completion dropdown
+max_completions = 6
+
+# Font size in pixels (default: 14)
+# font_size = 14
+
+# Window opacity 0.0–1.0 (default: 1.0)
+# opacity = 1.0
+
+# Maximum number of history entries to keep (default: 1000)
+# history_max_items = 1000
+
+# Status badge icon style: "unicode" (default) | "svg"
+# icon_style = "unicode"
+
+# Monitor to show the launcher on: "cursor" (default) | "primary" | 0 | 1 | ...
+# monitor = "cursor"
+
+# Preview panel: show when browsing files in args mode (default: true)
+# preview_args = true
+
+# Preview panel: show when navigating search results (default: false)
+# preview_search = true
+
+# Preview panel width in pixels (default: 400)
+# preview_width = 400
+
+# Max lines to load for file preview (default: 500)
+# max_preview_lines = 500
+
+[keybindings]
+launch            = "Ctrl+Space"   # Global hotkey to show/hide
+next              = "Ctrl+n"
+prev              = "Ctrl+p"
+confirm           = "Enter"
+arg_mode          = "Tab"
+accept_word       = "Ctrl+f"      # Accept next word of ghost text
+accept_line       = "Ctrl+e"      # Accept full ghost text
+delete_word       = "Ctrl+w"      # Delete word before cursor
+delete_line       = "Ctrl+u"      # Delete to beginning of line
+run_query         = "Shift+Enter" # Run typed query directly (skip history results)
+close             = "Escape"
+delete_item       = "Ctrl+d"      # Delete selected history item
+cycle_search_mode   = "Ctrl+Shift+m" # Cycle search mode (fuzzy → exact → migemo)
+cycle_sort_order    = "Ctrl+Shift+o" # Cycle sort order (count_first ↔ recent_first)
+toggle_preview      = "Ctrl+Shift+p" # Toggle file preview panel
+preview_scroll_down = "Ctrl+j"       # Scroll preview panel down
+preview_scroll_up   = "Ctrl+k"       # Scroll preview panel up
+
+# Theme — preset + optional per-color overrides
+# preset: "catppuccin-mocha" (default) | "catppuccin-latte" | "nord" | "dracula" | "tokyo-night" | "one-half-dark" | "solarized-dark" | "solarized-light"
+# [theme]
+# preset  = "nord"
+# bg      = "#1a1a2e"
+# surface = "#16213e"
+# overlay = "#0f3460"
+# muted   = "#533483"
+# text    = "#e0e0e0"
+# blue    = "#88c0d0"
+# purple  = "#b48ead"
+# green   = "#a3be8c"
+# red     = "#bf616a"
+
+# User-defined variables — reference with {{ vars.my_var }} in path/args
+# [vars]
+# src_dir  = "~/src/github.com/yourname"
+# work_dir = "C:/work"
+
+# Register apps individually
+# [[apps]]
+# name                   = "My Editor"
+# path                   = "nvim"
+# args                   = ["--flag"]
+# workdir                = "~/src"
+# completion             = "path"     # "path" | "none" | "list" | "command"
+# completion_list        = ["start", "stop", "restart"]
+# completion_command     = "git branch --format='%(refname:short)'"
+# completion_search_mode = "fuzzy"    # "fuzzy" | "exact" | "migemo"
+
+# Auto-register scripts from directories (non-existent paths are silently ignored)
+# Windows
+# [[scan_dirs]]
+# path       = "~/bin"
+# recursive  = false
+# extensions = ["exe", "bat", "ps1", "cmd"]
+
+# macOS / Linux
+# [[scan_dirs]]
+# path       = "~/.local/bin"
+# recursive  = false
+# extensions = ["sh", "py"]
+"##
+    .to_string()
+}
+
 /// config.local.toml の内容をベースの Config にマージする（テスト用 helper）。
 /// 内部では merge_toml を使用しているため本番の load_config と同じロジックが走る。
 #[cfg(test)]
@@ -841,8 +958,10 @@ path = "/local/app"
 
     #[test]
     fn merge_local_scalar_overrides_only_when_present() {
-        let mut base = Config::default();
-        base.search_mode = SearchMode::Exact;
+        let mut base = Config {
+            search_mode: SearchMode::Exact,
+            ..Default::default()
+        };
         // hide_on_blur だけ上書き、search_mode はそのまま
         let local = "hide_on_blur = true";
         merge_local_config(&mut base, local).unwrap();
@@ -866,8 +985,10 @@ prev = "Ctrl+k"
 
     #[test]
     fn merge_local_invalid_toml_is_ignored() {
-        let mut base = Config::default();
-        base.search_mode = SearchMode::Exact;
+        let mut base = Config {
+            search_mode: SearchMode::Exact,
+            ..Default::default()
+        };
         assert!(merge_local_config(&mut base, "NOT VALID !!!@#$").is_err());
         assert_eq!(base.search_mode, SearchMode::Exact); // 変わらない
     }
@@ -980,121 +1101,4 @@ workdir = "{{ vars.src }}/myproject"
         );
         assert_eq!(c.apps[0].workdir.as_deref(), Some("~/src/myproject"));
     }
-}
-
-fn default_config_toml() -> String {
-    r##"# Search mode: "fuzzy" (default) | "exact" | "migemo" (romaji → Japanese)
-search_mode = "fuzzy"
-
-# Sort order: "count_first" (default) | "recent_first"
-sort_order = "count_first"
-
-# Auto-hide when the launcher loses focus
-hide_on_blur = false
-
-# Start automatically at login (default: true); set to false to disable
-auto_start = true
-
-# Update check interval in seconds (0 to disable)
-update_check_interval = 3600
-
-# Launcher window width in pixels
-window_width = 620
-
-# Max items shown in the results list
-max_items = 8
-
-# Max items shown in the completion dropdown
-max_completions = 6
-
-# Font size in pixels (default: 14)
-# font_size = 14
-
-# Window opacity 0.0–1.0 (default: 1.0)
-# opacity = 1.0
-
-# Maximum number of history entries to keep (default: 1000)
-# history_max_items = 1000
-
-# Status badge icon style: "unicode" (default) | "svg"
-# icon_style = "unicode"
-
-# Monitor to show the launcher on: "cursor" (default) | "primary" | 0 | 1 | ...
-# monitor = "cursor"
-
-# Preview panel: show when browsing files in args mode (default: true)
-# preview_args = true
-
-# Preview panel: show when navigating search results (default: false)
-# preview_search = true
-
-# Preview panel width in pixels (default: 400)
-# preview_width = 400
-
-# Max lines to load for file preview (default: 500)
-# max_preview_lines = 500
-
-[keybindings]
-launch            = "Ctrl+Space"   # Global hotkey to show/hide
-next              = "Ctrl+n"
-prev              = "Ctrl+p"
-confirm           = "Enter"
-arg_mode          = "Tab"
-accept_word       = "Ctrl+f"      # Accept next word of ghost text
-accept_line       = "Ctrl+e"      # Accept full ghost text
-delete_word       = "Ctrl+w"      # Delete word before cursor
-delete_line       = "Ctrl+u"      # Delete to beginning of line
-run_query         = "Shift+Enter" # Run typed query directly (skip history results)
-close             = "Escape"
-delete_item       = "Ctrl+d"      # Delete selected history item
-cycle_search_mode   = "Ctrl+Shift+m" # Cycle search mode (fuzzy → exact → migemo)
-cycle_sort_order    = "Ctrl+Shift+o" # Cycle sort order (count_first ↔ recent_first)
-toggle_preview      = "Ctrl+Shift+p" # Toggle file preview panel
-preview_scroll_down = "Ctrl+j"       # Scroll preview panel down
-preview_scroll_up   = "Ctrl+k"       # Scroll preview panel up
-
-# Theme — preset + optional per-color overrides
-# preset: "catppuccin-mocha" (default) | "catppuccin-latte" | "nord" | "dracula" | "tokyo-night" | "one-half-dark" | "solarized-dark" | "solarized-light"
-# [theme]
-# preset  = "nord"
-# bg      = "#1a1a2e"
-# surface = "#16213e"
-# overlay = "#0f3460"
-# muted   = "#533483"
-# text    = "#e0e0e0"
-# blue    = "#88c0d0"
-# purple  = "#b48ead"
-# green   = "#a3be8c"
-# red     = "#bf616a"
-
-# User-defined variables — reference with {{ vars.my_var }} in path/args
-# [vars]
-# src_dir  = "~/src/github.com/yourname"
-# work_dir = "C:/work"
-
-# Register apps individually
-# [[apps]]
-# name                   = "My Editor"
-# path                   = "nvim"
-# args                   = ["--flag"]
-# workdir                = "~/src"
-# completion             = "path"     # "path" | "none" | "list" | "command"
-# completion_list        = ["start", "stop", "restart"]
-# completion_command     = "git branch --format='%(refname:short)'"
-# completion_search_mode = "fuzzy"    # "fuzzy" | "exact" | "migemo"
-
-# Auto-register scripts from directories (non-existent paths are silently ignored)
-# Windows
-# [[scan_dirs]]
-# path       = "~/bin"
-# recursive  = false
-# extensions = ["exe", "bat", "ps1", "cmd"]
-
-# macOS / Linux
-# [[scan_dirs]]
-# path       = "~/.local/bin"
-# recursive  = false
-# extensions = ["sh", "py"]
-"##
-    .to_string()
 }
