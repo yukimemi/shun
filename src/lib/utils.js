@@ -96,6 +96,21 @@ export function makePathItem(p) {
 }
 
 /**
+ * Returns true if the query looks like an http(s) URL.
+ */
+export function isUrlQuery(q) {
+  return q.startsWith("http://") || q.startsWith("https://");
+}
+
+/**
+ * Returns a synthetic Url item for http(s) URL queries.
+ */
+export function makeUrlItem(u) {
+  return { name: u, path: u, args: [], workdir: null,
+           source: "Url", completion: "none", completion_list: [], completion_command: null };
+}
+
+/**
  * Returns a synthetic Warning item shown when a config file has parse errors.
  */
 export function makeWarningItem(file, error) {

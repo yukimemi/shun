@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { firstSepIdx, isPathQuery, matchKey, fuzzyMatch, shouldBypassTemplate, getEffectiveSearchMode, nextSearchMode, makePathItem, makeWarningItem, canHaveArgs, validateKeybindings, normalizeConfigFileName, completionMatches } from "./utils.js";
+import { firstSepIdx, isPathQuery, isUrlQuery, matchKey, fuzzyMatch, shouldBypassTemplate, getEffectiveSearchMode, nextSearchMode, makePathItem, makeUrlItem, makeWarningItem, canHaveArgs, validateKeybindings, normalizeConfigFileName, completionMatches } from "./utils.js";
 
 // --- firstSepIdx ---
 
@@ -394,6 +394,42 @@ describe("makePathItem", () => {
 
   it("creates a Path item with empty args and workdir", () => {
     const item = makePathItem("C:/Users");
+    expect(item.workdir).toBeNull();
+    expect(item.completion_list).toEqual([]);
+    expect(item.completion_command).toBeNull();
+  });
+});
+
+// --- isUrlQuery ---
+
+describe("isUrlQuery", () => {
+  it("returns true for http:// and https:// URLs", () => {
+    expect(isUrlQuery("http://example.com")).toBe(true);
+    expect(isUrlQuery("https://example.com")).toBe(true);
+  });
+
+  it("returns false for non-URL queries", () => {
+    expect(isUrlQuery("example.com")).toBe(false);
+    expect(isUrlQuery("~/Documents")).toBe(false);
+    expect(isUrlQuery("ftp://example.com")).toBe(false);
+    expect(isUrlQuery("")).toBe(false);
+  });
+});
+
+// --- makeUrlItem ---
+
+describe("makeUrlItem", () => {
+  it("creates a Url item with the given URL as both name and path", () => {
+    const item = makeUrlItem("https://example.com");
+    expect(item.name).toBe("https://example.com");
+    expect(item.path).toBe("https://example.com");
+    expect(item.source).toBe("Url");
+    expect(item.args).toEqual([]);
+    expect(item.completion).toBe("none");
+  });
+
+  it("creates a Url item with empty args and workdir", () => {
+    const item = makeUrlItem("http://localhost:3000");
     expect(item.workdir).toBeNull();
     expect(item.completion_list).toEqual([]);
     expect(item.completion_command).toBeNull();

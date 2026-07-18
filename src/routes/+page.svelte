@@ -6,7 +6,7 @@
   import { getVersion } from "@tauri-apps/api/app";
   import { debug, info } from "@tauri-apps/plugin-log";
   import { onMount, onDestroy, tick } from "svelte";
-  import { firstSepIdx, isPathQuery, matchKey, fuzzyMatch, shouldBypassTemplate, getEffectiveSearchMode, nextSearchMode, makePathItem, makeWarningItem, canHaveArgs, validateKeybindings, normalizeConfigFileName, completionMatches } from "$lib/utils.js";
+  import { firstSepIdx, isPathQuery, isUrlQuery, matchKey, fuzzyMatch, shouldBypassTemplate, getEffectiveSearchMode, nextSearchMode, makePathItem, makeUrlItem, makeWarningItem, canHaveArgs, validateKeybindings, normalizeConfigFileName, completionMatches } from "$lib/utils.js";
   import { highlight, shikiTheme } from "$lib/highlight.js";
   import SearchModeIcon from "$lib/SearchModeIcon.svelte";
   import SortOrderIcon from "$lib/SortOrderIcon.svelte";
@@ -658,6 +658,11 @@
         // Path: run the typed path itself so e.g. "~/Documents/" opens the
         // folder even when the list is showing its children
         launchItem(makePathItem(query), null);
+      } else if (isUrlQuery(query)) {
+        // Url: run the typed URL itself, bypassing history candidates
+        // (history URLs share source "Url", so the generic base-item lookup
+        //  below would pick a history entry instead of what was typed)
+        launchItem(makeUrlItem(query), null);
       } else if (query && filtered.length > 0) {
         // Run the typed query as the base (non-history) item
         const baseItem = filtered.find((item) => item.source !== "History");
@@ -803,10 +808,10 @@
       resizeForSearch(filteredSlash.length);
       return;
     }
-    if (query.startsWith("http://") || query.startsWith("https://")) {
+    if (isUrlQuery(query)) {
       invoke("search_items", { query, searchMode: uiSearchMode, sortOrder: uiSortOrder }).then((results) => {
         // history 候補を先頭に、入力中の URL が候補にない場合は末尾に追加
-        const typed = { name: query, path: query, args: [], workdir: null, source: "Url", completion: "none", completion_list: [], completion_command: null };
+        const typed = makeUrlItem(query);
         const hasExact = results.some((r) => r.path === query);
         filtered = hasExact ? results : [...results, typed];
         restoreOrResetSelection(filtered);
