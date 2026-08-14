@@ -386,7 +386,15 @@ fn is_path(s: &str) -> bool {
         || (s.starts_with('$')
             && s.len() > 1
             && (s.as_bytes()[1].is_ascii_alphabetic() || s.as_bytes()[1] == b'_'))
-        || s.len() > 6 && s[..6].eq_ignore_ascii_case("shell:")
+        || is_shell_prefix(s)
+}
+
+/// Windows の `shell:` 特殊フォルダ指定かどうか。
+///
+/// バイト単位で比較する。`s[..6]` だと 6 バイト目がマルチバイト文字の途中
+/// (例: "ab日本語") のときに panic するため。
+pub fn is_shell_prefix(s: &str) -> bool {
+    s.len() > 6 && s.as_bytes()[..6].eq_ignore_ascii_case(b"shell:")
 }
 
 fn history_items(config: &Config) -> Vec<LaunchItem> {
@@ -840,6 +848,30 @@ mod tests {
         assert!(is_path("shell:RecycleBinFolder"));
         assert!(is_path("SHELL:startup"));
         assert!(!is_path("shell")); // コロンなし
+    }
+
+    #[test]
+    fn path_multibyte_name_does_not_panic() {
+        // 6 バイト目がマルチバイト文字の途中で終わる名前 (config の [[apps]] name が
+        // history キーとして渡ってくる) でも panic しないこと
+        assert!(!is_path("ab日本語"));
+        assert!(!is_path("AB検索 (2026)"));
+        assert!(!is_path("shellあいうえお"));
+        assert!(!is_path("あいうえお"));
+        // 境界ちょうどのケース
+        assert!(!is_path("日本"));
+        assert!(!is_path("日本語"));
+    }
+
+    #[test]
+    fn shell_prefix_helper() {
+        assert!(is_shell_prefix("shell:startup"));
+        assert!(is_shell_prefix("SHELL:startup"));
+        assert!(!is_shell_prefix("shell:")); // プレフィックスのみ
+        assert!(!is_shell_prefix("shell"));
+        // マルチバイト文字で panic しないこと
+        assert!(!is_shell_prefix("ab日本語"));
+        assert!(!is_shell_prefix("shellあいうえお"));
     }
 
     // --- render_template ---

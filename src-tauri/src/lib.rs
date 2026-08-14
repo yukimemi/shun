@@ -301,7 +301,7 @@ fn launch_item(
         let expanded = utils::expand_path(path.trim_end_matches('/'));
         // Windows: shell: 特殊フォルダは explorer.exe 経由で起動
         #[cfg(target_os = "windows")]
-        if expanded.len() > 6 && expanded[..6].eq_ignore_ascii_case("shell:") {
+        if apps::is_shell_prefix(&expanded) {
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             return std::process::Command::new("explorer.exe")
