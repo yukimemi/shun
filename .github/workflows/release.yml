@@ -12,7 +12,7 @@ jobs:
   test-frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -33,7 +33,7 @@ jobs:
         os: [ubuntu-22.04, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -91,7 +91,7 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -197,7 +197,7 @@ jobs:
       SCOOP_BUCKET_PAT: ${{ secrets.SCOOP_BUCKET_PAT }}
     steps:
       - name: Checkout shun repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download Windows portable zip and compute SHA256
         env:
@@ -211,7 +211,7 @@ jobs:
 
       - name: Checkout scoop-bucket repo
         if: env.SCOOP_BUCKET_PAT != ''
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: yukimemi/scoop-bucket
           token: ${{ secrets.SCOOP_BUCKET_PAT }}
@@ -253,7 +253,7 @@ jobs:
       HOMEBREW_TAP_PAT: ${{ secrets.HOMEBREW_TAP_PAT }}
     steps:
       - name: Checkout shun repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download macOS DMG and compute SHA256
         env:
@@ -268,7 +268,7 @@ jobs:
 
       - name: Checkout homebrew-tap repo
         if: env.HOMEBREW_TAP_PAT != ''
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: yukimemi/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_PAT }}
