@@ -474,7 +474,7 @@ fn history_items(config: &Config) -> Vec<LaunchItem> {
         .collect()
 }
 
-fn launch_item_from_entry(app: &AppEntry) -> LaunchItem {
+pub(crate) fn launch_item_from_entry(app: &AppEntry) -> LaunchItem {
     LaunchItem {
         name: app.name.clone(),
         path: app.path.clone(),
@@ -1057,6 +1057,8 @@ mod tests {
             completion_list: vec![],
             completion_command: None,
             completion_search_mode: None,
+            hotkey: None,
+            hotkey_mode: Default::default(),
         }
     }
 

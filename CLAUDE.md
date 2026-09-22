@@ -21,6 +21,7 @@ src-tauri/
     lib.rs               # Tauri app entrypoint, all #[tauri::command]s, plugin setup
     config.rs            # Config struct, TOML parsing, defaults
     apps.rs              # App discovery, LaunchItem, launch_with_extra
+    app_window.rs        # OS window activate/toggle for per-app hotkeys (activate_or_launch)
     search.rs            # fuzzy/exact filter via nucleo-matcher
     complete.rs          # Path/list/command completion
     history.rs           # Frecency history (count + last_used)
@@ -165,6 +166,22 @@ Add per-repo extras (e.g. `cargo fetch`, `npm install`) by extending
 - Matched in frontend using `matchKey(e, binding)` from `$lib/utils.js`
 - Format: `"Ctrl+n"`, `"Alt+Space"`, `"Shift+Enter"`, `"Escape"`
 
+### Per-app hotkeys
+- `[[apps]]` entries can carry an optional `hotkey` (`Shortcut` string) + `hotkey_mode`
+  (`"launch"` default | `"activate"` | `"toggle"`) — see `config::AppHotkeyMode`
+- `lib.rs::plan_hotkey_registrations()` is a pure function (`Config` → `HotkeyPlan`) that
+  resolves the launch key + all app hotkeys into one `Shortcut` set, skipping invalid strings
+  and later-defined conflicts (launch always wins; app hotkeys are first-registered-wins in
+  config order). Fully unit-testable without a running Tauri app — see `hotkey_plan_tests`
+- `lib.rs::register_shortcuts()` calls `plan_hotkey_registrations()` once and registers
+  everything; called from both `setup()` and the `/reload` command right after
+  `unregister_all()`, so the two paths can't drift
+- `app_window::activate_or_launch(item, toggle)` implements `activate`/`toggle`: Windows uses
+  `EnumWindows` + exe-name matching (via the `windows` crate); macOS shells out to
+  `osascript`; Linux shells out to `wmctrl`. Any failure/unsupported-platform/window-not-found
+  case falls back to `apps::launch()` — see the README's "Per-app global hotkeys" section for
+  per-OS constraints
+
 ### Ghost text
 - Search mode: `searchGhostSuffix` — triggers when `candidate.path.startsWith(query)`
 - Args mode: `ghostSuffix` — from `allCompletions[completionIndex]`
@@ -199,14 +216,19 @@ Auto-created at first launch:
 
 ## Testing
 
-### Rust tests (88 total)
+### Rust tests (158 total)
 Each module has a `#[cfg(test)]` block:
-- `config.rs` — defaults, TOML parsing, keybinding overrides
+- `config.rs` — defaults, TOML parsing, keybinding overrides, `hotkey`/`hotkey_mode` parsing
 - `search.rs` — fuzzy/exact/migemo filter
 - `complete.rs` — split_last_token, sort_completions, complete_path (uses `tempfile`)
 - `history.rs` — sort_key, serde roundtrip, combined key format
 - `utils.rs` — expand_path variants
 - `apps.rs` — is_url, is_path, launch_with_extra
+- `lib.rs::hotkey_plan_tests` — `plan_hotkey_registrations()`: defaults, per-app hotkey
+  planning, invalid-shortcut warnings, launch/app and app/app conflict resolution
+- `app_window.rs` has no automated tests — OS window operations (`EnumWindows` /
+  `osascript` / `wmctrl`) aren't practically unit-testable; verify `activate`/`toggle`
+  manually per-OS
 
 ### Frontend tests (53 total)
 `src/lib/utils.test.js` covers `firstSepIdx`, `isPathQuery`, `matchKey`, `shouldBypassTemplate`.
@@ -257,4 +279,7 @@ Real example: making `currentWidth` a `$state` caused `resizeForSearch` to track
 - Pre-push hook in `.claude/settings.json`: cargo fmt --check, cargo clippy -D warnings, npm test
 - Migemo search mode: `rustmigemo` (Rust) + `jsmigemo` (JS); dict bundled as `public/migemo-compact-dict.bin` via `include_bytes!`
 - `shouldBypassTemplate` in utils.js: history+template bypass detection
-- Rust tests: 88 total / Frontend tests: 53 total
+- Per-app global hotkeys: `[[apps]].hotkey` + `hotkey_mode` (`launch`/`activate`/`toggle`);
+  Windows fully supported via `app_window.rs`, macOS/Linux are best-effort (osascript/wmctrl)
+  and fall back to `launch` when unsupported — see README "Per-app global hotkeys"
+- Rust tests: 158 total / Frontend tests: 53 total

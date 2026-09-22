@@ -10,6 +10,7 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_updater::UpdaterExt;
 
+mod app_window;
 mod apps;
 mod complete;
 mod config;
@@ -78,9 +79,22 @@ fn get_config_and_warnings(state: tauri::State<WarningsState>) -> ConfigAndWarni
         Ok(_) => vec![],
     };
 
+    // apps[].hotkey のパースエラー・衝突も毎回動的チェック
+    let app_hotkey_warnings: Vec<(String, String)> = plan_hotkey_registrations(&config)
+        .warnings
+        .into_iter()
+        .map(|w| ("config.toml".to_string(), w))
+        .collect();
+
     ConfigAndWarnings {
         config,
-        warnings: [config_warnings, runtime_warnings, launch_warnings].concat(),
+        warnings: [
+            config_warnings,
+            runtime_warnings,
+            launch_warnings,
+            app_hotkey_warnings,
+        ]
+        .concat(),
     }
 }
 
@@ -367,25 +381,79 @@ fn apply_autostart(app: &tauri::AppHandle, want_enabled: bool) {
     }
 }
 
-/// Registers the launch shortcut. Falls back to the default key if the configured key is invalid.
-/// Returns `Err` only when even the fallback fails to register (should never happen).
-fn register_launch_shortcut(app: &tauri::AppHandle) -> Result<(), String> {
-    let launch_key = config::load_config().0.keybindings.launch;
-    let shortcut: Shortcut = match launch_key.parse::<Shortcut>() {
-        Ok(s) => s,
-        Err(e) => {
-            // 無効なキー文字列 → デフォルト (Ctrl+Space) にフォールバックして登録を続行
-            // 警告は get_config_and_warnings() で動的に生成するので WarningsState には積まない
-            let fallback_key = config::default_launch();
-            log::warn!(
-                "Invalid launch shortcut '{}': {e}. Falling back to '{fallback_key}'",
-                launch_key
-            );
-            fallback_key.parse().map_err(|fe| {
-                format!("Invalid launch shortcut '{launch_key}': {e}. Fallback '{fallback_key}' also invalid: {fe}")
-            })?
+/// ホットキー登録計画: launch キー + 各 `[[apps]].hotkey` を1つの `Shortcut` 集合に解決する。
+struct HotkeyPlan {
+    launch: Shortcut,
+    apps: Vec<AppHotkeyPlan>,
+    /// 無効な hotkey 文字列・衝突などの警告（人間可読メッセージ）
+    warnings: Vec<String>,
+}
+
+struct AppHotkeyPlan {
+    shortcut: Shortcut,
+    entry_index: usize,
+    mode: config::AppHotkeyMode,
+}
+
+/// `config` から実際に登録すべきショートカットの集合を組み立てる純関数。
+/// Tauri アプリを起動せずにテストできるよう、OS 登録処理からは切り離してある。
+///
+/// 優先順位: launch キーが最優先（無効なら `config::default_launch()` にフォールバック）。
+/// `[[apps]]` は config 上の登場順で処理し、launch または既出の app hotkey と
+/// `Shortcut`（パース後の mods+key、文字列表記の揺れを吸収）が衝突する場合は
+/// 後発をスキップして警告する。
+fn plan_hotkey_registrations(config: &config::Config) -> HotkeyPlan {
+    let mut warnings = Vec::new();
+    let mut seen: std::collections::HashSet<Shortcut> = std::collections::HashSet::new();
+
+    let launch_key = &config.keybindings.launch;
+    let launch = launch_key.parse::<Shortcut>().unwrap_or_else(|_| {
+        // 無効なキー文字列 → デフォルト (Ctrl+Space) にフォールバック。
+        // 警告は get_config_and_warnings() が動的に生成するのでここでは積まない。
+        config::default_launch()
+            .parse::<Shortcut>()
+            .expect("default launch shortcut must be a valid Shortcut")
+    });
+    seen.insert(launch);
+
+    let mut apps = Vec::new();
+    for (entry_index, app) in config.apps.iter().enumerate() {
+        let Some(raw) = app.hotkey.as_deref().filter(|h| !h.trim().is_empty()) else {
+            continue;
+        };
+        let shortcut = match raw.parse::<Shortcut>() {
+            Ok(s) => s,
+            Err(e) => {
+                warnings.push(format!(
+                    "apps[{entry_index}] \"{}\" hotkey \"{raw}\": invalid shortcut ({e}), skipping",
+                    app.name
+                ));
+                continue;
+            }
+        };
+        if !seen.insert(shortcut) {
+            warnings.push(format!(
+                "apps[{entry_index}] \"{}\" hotkey \"{raw}\": conflicts with an already-registered shortcut, skipping",
+                app.name
+            ));
+            continue;
         }
-    };
+        apps.push(AppHotkeyPlan {
+            shortcut,
+            entry_index,
+            mode: app.hotkey_mode.clone(),
+        });
+    }
+
+    HotkeyPlan {
+        launch,
+        apps,
+        warnings,
+    }
+}
+
+/// launch キーのハンドラを登録する（ランチャーウィンドウの表示/非表示トグル）。
+fn register_launch_handler(app: &tauri::AppHandle, shortcut: Shortcut) -> Result<(), String> {
     app.global_shortcut()
         .on_shortcut(shortcut, |app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
@@ -407,9 +475,69 @@ fn register_launch_shortcut(app: &tauri::AppHandle) -> Result<(), String> {
             }
         })
         .map_err(|e| {
-            log::warn!("Failed to register shortcut '{}': {e}", launch_key);
+            log::warn!("Failed to register launch shortcut: {e}");
             e.to_string()
         })
+}
+
+/// `[[apps]].hotkey` のハンドラを登録する（launch / activate / toggle）。
+fn register_app_hotkey_handler(
+    app: &tauri::AppHandle,
+    shortcut: Shortcut,
+    entry: config::AppEntry,
+    mode: config::AppHotkeyMode,
+) -> Result<(), String> {
+    app.global_shortcut()
+        .on_shortcut(shortcut, move |_app, _shortcut, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
+            let item = apps::launch_item_from_entry(&entry);
+            let vars = config::load_config().0.vars;
+            let result = match mode {
+                config::AppHotkeyMode::Launch => apps::launch_with_extra(&item, Vec::new(), &vars),
+                config::AppHotkeyMode::Activate => app_window::activate_or_launch(&item, false),
+                config::AppHotkeyMode::Toggle => app_window::activate_or_launch(&item, true),
+            };
+            if let Err(e) = result {
+                log::warn!(
+                    "app hotkey: failed to launch/activate \"{}\": {e}",
+                    item.name
+                );
+            }
+        })
+        .map_err(|e| e.to_string())
+}
+
+/// launch キー + 全 `[[apps]].hotkey` を登録する。呼び出し元 (`setup` / `reload`) は
+/// `unregister_all()` 直後にこの関数を呼べば、常に config と一致した状態になる。
+///
+/// launch キーの登録が OS レベルで失敗した場合のみ `Err` を返す（既存の挙動を維持）。
+/// app hotkey の登録失敗はログ警告のみに留め、他のホットキー登録をブロックしない。
+fn register_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
+    let config = config::load_config().0;
+    let plan = plan_hotkey_registrations(&config);
+    for w in &plan.warnings {
+        log::warn!("register_shortcuts: {w}");
+    }
+
+    register_launch_handler(app, plan.launch)?;
+
+    for app_plan in plan.apps {
+        let Some(entry) = config.apps.get(app_plan.entry_index) else {
+            continue;
+        };
+        if let Err(e) =
+            register_app_hotkey_handler(app, app_plan.shortcut, entry.clone(), app_plan.mode)
+        {
+            log::warn!(
+                "register_shortcuts: failed to register hotkey for app \"{}\": {e}",
+                entry.name
+            );
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -424,8 +552,8 @@ fn reload(
         .map_err(|e| e.to_string())?;
 
     // launch key 警告は get_config_and_warnings() で動的生成するので WarningsState は空にリセット
-    // ショートカット登録が完全に失敗した場合のみ Err を返す（呼び出し元がエラー表示する）
-    register_launch_shortcut(&app)?;
+    // launch キー登録が完全に失敗した場合のみ Err を返す（呼び出し元がエラー表示する）
+    register_shortcuts(&app)?;
     *warnings_state.lock().unwrap() = Vec::new();
 
     apply_autostart(&app, cfg.auto_start);
@@ -1186,7 +1314,10 @@ pub fn run() {
                                     record_update_check();
                                 }
                                 Ok(Some(update)) => {
-                                    log::info!("update check: new version found: {}", update.version);
+                                    log::info!(
+                                        "update check: new version found: {}",
+                                        update.version
+                                    );
                                     record_update_check();
                                     let _ = app_for_update
                                         .emit("update-available", update.version.clone());
@@ -1234,8 +1365,10 @@ pub fn run() {
 
             // launch key 警告は get_config_and_warnings() で動的生成するので WarningsState は不要
             // 登録が完全失敗した場合は setup error として伝播する
-            if let Err(e) = register_launch_shortcut(app.handle()) {
-                log::warn!("Launch shortcut registration failed: {e}. App will start without a global shortcut.");
+            if let Err(e) = register_shortcuts(app.handle()) {
+                log::warn!(
+                    "Shortcut registration failed: {e}. App will start without a global shortcut."
+                );
             }
 
             // auto_start 設定に応じてログイン時自動起動を登録/解除
@@ -1368,5 +1501,124 @@ mod tests {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         assert_eq!(CREATE_BREAKAWAY_FROM_JOB, 0x01000000);
         assert_eq!(CREATE_NO_WINDOW, 0x08000000);
+    }
+}
+
+#[cfg(test)]
+mod hotkey_plan_tests {
+    use super::plan_hotkey_registrations;
+    use crate::config::{AppEntry, AppHotkeyMode, CompletionType, Config};
+
+    fn app_with_hotkey(name: &str, hotkey: Option<&str>, mode: AppHotkeyMode) -> AppEntry {
+        AppEntry {
+            name: name.to_string(),
+            path: "some.exe".to_string(),
+            args: vec![],
+            workdir: None,
+            completion: CompletionType::default(),
+            completion_list: vec![],
+            completion_command: None,
+            completion_search_mode: None,
+            hotkey: hotkey.map(|s| s.to_string()),
+            hotkey_mode: mode,
+        }
+    }
+
+    #[test]
+    fn no_apps_registers_only_launch() {
+        let config = Config::default();
+        let plan = plan_hotkey_registrations(&config);
+        assert!(plan.apps.is_empty());
+        assert!(plan.warnings.is_empty());
+    }
+
+    #[test]
+    fn app_without_hotkey_is_skipped() {
+        let mut config = Config::default();
+        config
+            .apps
+            .push(app_with_hotkey("NoHotkey", None, AppHotkeyMode::Launch));
+        let plan = plan_hotkey_registrations(&config);
+        assert!(plan.apps.is_empty());
+        assert!(plan.warnings.is_empty());
+    }
+
+    #[test]
+    fn valid_app_hotkey_is_planned_with_its_mode() {
+        let mut config = Config::default();
+        config.apps.push(app_with_hotkey(
+            "Neovide",
+            Some("Ctrl+Alt+N"),
+            AppHotkeyMode::Toggle,
+        ));
+        let plan = plan_hotkey_registrations(&config);
+        assert_eq!(plan.apps.len(), 1);
+        assert_eq!(plan.apps[0].entry_index, 0);
+        assert_eq!(plan.apps[0].mode, AppHotkeyMode::Toggle);
+        assert!(plan.warnings.is_empty());
+    }
+
+    #[test]
+    fn invalid_app_hotkey_string_warns_and_is_skipped() {
+        let mut config = Config::default();
+        config.apps.push(app_with_hotkey(
+            "Broken",
+            Some("not a shortcut !!!"),
+            AppHotkeyMode::Launch,
+        ));
+        let plan = plan_hotkey_registrations(&config);
+        assert!(plan.apps.is_empty());
+        assert_eq!(plan.warnings.len(), 1);
+        assert!(plan.warnings[0].contains("Broken"));
+    }
+
+    #[test]
+    fn app_hotkey_conflicting_with_launch_key_is_skipped() {
+        let mut config = Config::default();
+        // launch のデフォルトは "Ctrl+Space"。大文字小文字・空白表記が違っても衝突検出できること。
+        config.apps.push(app_with_hotkey(
+            "ClashesWithLaunch",
+            Some("ctrl+space"),
+            AppHotkeyMode::Activate,
+        ));
+        let plan = plan_hotkey_registrations(&config);
+        assert!(plan.apps.is_empty());
+        assert_eq!(plan.warnings.len(), 1);
+        assert!(plan.warnings[0].contains("conflicts"));
+    }
+
+    #[test]
+    fn later_app_hotkey_conflicting_with_earlier_app_is_skipped() {
+        let mut config = Config::default();
+        config.apps.push(app_with_hotkey(
+            "First",
+            Some("Ctrl+Alt+N"),
+            AppHotkeyMode::Launch,
+        ));
+        config.apps.push(app_with_hotkey(
+            "Second",
+            Some("Ctrl+Alt+N"),
+            AppHotkeyMode::Toggle,
+        ));
+        let plan = plan_hotkey_registrations(&config);
+        // 先勝ち: config 順で最初の "First" だけが登録される
+        assert_eq!(plan.apps.len(), 1);
+        assert_eq!(plan.apps[0].entry_index, 0);
+        assert_eq!(plan.warnings.len(), 1);
+        assert!(plan.warnings[0].contains("Second"));
+    }
+
+    #[test]
+    fn invalid_launch_key_falls_back_to_default_without_warning() {
+        let mut config = Config::default();
+        config.keybindings.launch = "not a shortcut !!!".to_string();
+        let plan = plan_hotkey_registrations(&config);
+        // フォールバック後の launch は default_launch ("Ctrl+Space") と等価であること
+        assert_eq!(
+            plan.launch,
+            crate::config::default_launch().parse().unwrap()
+        );
+        // launch 自体の警告は get_config_and_warnings() 側が動的に出すのでここには積まない
+        assert!(plan.warnings.is_empty());
     }
 }
