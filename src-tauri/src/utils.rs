@@ -1,10 +1,32 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// チルダと環境変数を展開する
 /// 対応形式: ~ / %VAR% (Windows) / $VAR / ${VAR} (Unix)
 pub fn expand_path(path: &str) -> String {
     let s = expand_tilde(path);
     expand_env_vars(&s)
+}
+
+/// 実行中バイナリのパス (`.../<name>.app/Contents/MacOS/<binary>`) から
+/// `.app` バンドルのルート (`.../<name>.app`) を求める。
+/// 期待する 3 階層構造 (親が `MacOS`、その親が `Contents`、その親の拡張子が `app`)
+/// に合致しない場合は `None` を返す。ファイルシステムへのアクセスは行わない。
+/// 呼び出し元 (`lib.rs`) は macOS 専用のため、他 OS では未使用 (テストからのみ参照) になる。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn macos_app_bundle_root(exe: &Path) -> Option<PathBuf> {
+    let macos_dir = exe.parent()?;
+    if macos_dir.file_name()?.to_str()? != "MacOS" {
+        return None;
+    }
+    let contents_dir = macos_dir.parent()?;
+    if contents_dir.file_name()?.to_str()? != "Contents" {
+        return None;
+    }
+    let app_dir = contents_dir.parent()?;
+    if app_dir.extension()?.to_str()? != "app" {
+        return None;
+    }
+    Some(app_dir.to_path_buf())
 }
 
 fn expand_tilde(path: &str) -> String {
@@ -131,6 +153,45 @@ mod tests {
         let result = expand_path("$SHUN_TEST_MB/日本語.md");
         std::env::remove_var("SHUN_TEST_MB");
         assert_eq!(result, "/memo/日本語.md");
+    }
+
+    #[test]
+    fn bundle_root_valid_structure() {
+        let exe = PathBuf::from("/Applications/shun.app/Contents/MacOS/shun");
+        assert_eq!(
+            macos_app_bundle_root(&exe),
+            Some(PathBuf::from("/Applications/shun.app"))
+        );
+    }
+
+    #[test]
+    fn bundle_root_rejects_wrong_macos_dir_name() {
+        let exe = PathBuf::from("/Applications/shun.app/Contents/Resources/shun");
+        assert_eq!(macos_app_bundle_root(&exe), None);
+    }
+
+    #[test]
+    fn bundle_root_rejects_wrong_contents_dir_name() {
+        let exe = PathBuf::from("/Applications/shun.app/Resources/MacOS/shun");
+        assert_eq!(macos_app_bundle_root(&exe), None);
+    }
+
+    #[test]
+    fn bundle_root_rejects_non_app_extension() {
+        let exe = PathBuf::from("/Applications/shun.bundle/Contents/MacOS/shun");
+        assert_eq!(macos_app_bundle_root(&exe), None);
+    }
+
+    #[test]
+    fn bundle_root_rejects_insufficient_depth() {
+        let exe = PathBuf::from("/shun");
+        assert_eq!(macos_app_bundle_root(&exe), None);
+    }
+
+    #[test]
+    fn bundle_root_rejects_bare_binary() {
+        let exe = PathBuf::from("MacOS/shun");
+        assert_eq!(macos_app_bundle_root(&exe), None);
     }
 }
 
