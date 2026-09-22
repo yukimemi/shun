@@ -38,6 +38,12 @@ regex = "1"
 # Must stay in sync with Tauri's transitive webview2-com/windows-core versions
 webview2-com = "0.38"
 windows-core = "0.61"
+# Used by app_window.rs to activate/toggle app windows (EnumWindows, SetForegroundWindow, ...)
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Threading",
+] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"

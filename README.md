@@ -234,6 +234,13 @@ name       = "Neovide"
 path       = "neovide"
 completion = "path"       # "path" | "none" | "list" | "command"
 
+# Dedicated global hotkey: toggle Neovide's window without opening shun
+[[apps]]
+name        = "Neovide (toggle)"
+path        = "neovide"
+hotkey      = "Ctrl+Alt+N"
+hotkey_mode = "toggle"    # "launch" (default) | "activate" | "toggle"
+
 # Search Google (Tab → type query → Enter)
 [[apps]]
 name = "Google"
@@ -288,6 +295,37 @@ extensions = ["sh", "py", "ps1", "cmd"]
 | `completion` | string | `"list"` \| `"command"` \| `"path"` |
 | `completion_list` | string[] | Candidates when `completion = "list"` |
 | `completion_command` | string | Command to run for `completion = "command"` |
+
+### Per-app global hotkeys
+
+Each `[[apps]]` entry can register its own global hotkey, independent of `keybindings.launch`:
+
+| Field | Type | Description |
+|---|---|---|
+| `hotkey` | string | Optional. A shortcut string parseable the same way as `keybindings.launch` (e.g. `"Ctrl+Alt+N"`). Omit to skip hotkey registration for this app |
+| `hotkey_mode` | string | `"launch"` (default) \| `"activate"` \| `"toggle"` |
+
+- **`launch`** — starts a new process every time, same as pressing Enter on the item.
+- **`activate`** — brings the app's window to the foreground if it's already running; launches it otherwise.
+- **`toggle`** — minimizes the app's window if it's currently focused; otherwise same as `activate`.
+
+**Conflict resolution:** `keybindings.launch` always wins. Among `[[apps]]` entries, the first one
+(in config file order) to claim a given key combination wins; later entries with the same
+`hotkey` are skipped and logged as a warning (shown as a warning item in the launcher list, same
+as other config warnings). Shortcut strings are compared after parsing, so `"Ctrl+Alt+N"` and
+`"ctrl+alt+n"` are treated as the same key. Run `/reload` after editing `hotkey` / `hotkey_mode`
+to re-register.
+
+**Platform support for `activate` / `toggle`:**
+
+| Platform | Behavior |
+|---|---|
+| Windows | Full support. Matches the app's own top-level window by executable file name (case-insensitive). If the app has multiple windows, only the first one found is operated on. Foreground-lock restrictions imposed by Windows may occasionally prevent focus-stealing (the taskbar icon flashes instead); this is logged as a warning, not an error |
+| macOS | Uses `osascript`/AppleScript with the app's `name` from config, so `name` must match the actual macOS application name. Requires Accessibility permission for System Events; if not granted, the app hotkey silently falls back to launching a new instance |
+| Linux | Requires `wmctrl` to be installed; falls back to `launch` if it's missing. Only works under X11 — has no effect on Wayland. `toggle` behaves the same as `activate` (no reliable way to detect focus without extra tooling), i.e. it never minimizes |
+
+If a window can't be found, the platform is unsupported, or the window operation otherwise fails,
+shun falls back to launching a new instance rather than doing nothing.
 
 ### Override files (`config.*.toml`)
 

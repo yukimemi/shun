@@ -271,6 +271,16 @@ impl Default for Keybindings {
     }
 }
 
+/// `[[apps]]` の `hotkey` が押された時の動作。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AppHotkeyMode {
+    #[default]
+    Launch, // 押すたびに新規プロセスとして起動する (デフォルト)
+    Activate, // 起動済みならフォアグラウンドへ、未起動なら新規起動する
+    Toggle,   // フォアグラウンドならそのウィンドウを最小化、そうでなければ Activate と同じ
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CompletionType {
@@ -295,6 +305,12 @@ pub struct AppEntry {
     pub completion_command: Option<String>,
     /// アプリ単位の補完検索モード上書き (省略時はグローバルの search_mode を使用)
     pub completion_search_mode: Option<SearchMode>,
+    /// このアプリ専用のグローバルホットキー (省略可)。`Shortcut` としてパース可能な文字列
+    /// (例: `"Ctrl+Alt+N"`)。省略時はホットキー登録なし。
+    pub hotkey: Option<String>,
+    /// `hotkey` が押された時の動作。省略時は `"launch"`。
+    #[serde(default)]
+    pub hotkey_mode: AppHotkeyMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -706,6 +722,8 @@ preview_scroll_up   = "Ctrl+k"       # Scroll preview panel up
 # completion_list        = ["start", "stop", "restart"]
 # completion_command     = "git branch --format='%(refname:short)'"
 # completion_search_mode = "fuzzy"    # "fuzzy" | "exact" | "migemo"
+# hotkey                 = "Ctrl+Alt+N" # optional per-app global hotkey
+# hotkey_mode            = "launch"     # "launch" (default) | "activate" | "toggle"
 
 # Auto-register scripts from directories (non-existent paths are silently ignored)
 # Windows
@@ -899,6 +917,44 @@ completion_command = "echo foo"
         assert_eq!(c.apps[0].completion, CompletionType::None);
         assert_eq!(c.apps[1].completion, CompletionType::Command);
         assert_eq!(c.apps[1].completion_command.as_deref(), Some("echo foo"));
+    }
+
+    #[test]
+    fn app_entry_hotkey_defaults_to_none_and_launch_mode() {
+        let toml = r#"
+[[apps]]
+name = "Neovide"
+path = "neovide"
+"#;
+        let c: Config = toml::from_str(toml).unwrap();
+        assert_eq!(c.apps[0].hotkey, None);
+        assert_eq!(c.apps[0].hotkey_mode, AppHotkeyMode::Launch);
+    }
+
+    #[test]
+    fn parse_app_hotkey_and_mode() {
+        let toml = r#"
+[[apps]]
+name        = "Neovide"
+path        = "neovide"
+hotkey      = "Ctrl+Alt+N"
+hotkey_mode = "toggle"
+"#;
+        let c: Config = toml::from_str(toml).unwrap();
+        assert_eq!(c.apps[0].hotkey.as_deref(), Some("Ctrl+Alt+N"));
+        assert_eq!(c.apps[0].hotkey_mode, AppHotkeyMode::Toggle);
+    }
+
+    #[test]
+    fn parse_app_hotkey_mode_activate() {
+        let toml = r#"
+[[apps]]
+name        = "A"
+path        = "/a"
+hotkey_mode = "activate"
+"#;
+        let c: Config = toml::from_str(toml).unwrap();
+        assert_eq!(c.apps[0].hotkey_mode, AppHotkeyMode::Activate);
     }
 
     #[test]
