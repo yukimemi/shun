@@ -797,6 +797,11 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
 /// ブロックされ、自動再起動に失敗する (Finder から手動でダブルクリックした場合は Gatekeeper の
 /// 確認を経て起動できる)。応急対応として `xattr -dr` で quarantine 属性を再帰的に除去する。
 /// 失敗しても update 自体は継続させる (致命的エラーにしない)。
+/// `xattr` の完了は `MACOS_QUARANTINE_STRIP_TIMEOUT` で打ち切る — ネットワークホームディレクトリ
+/// 等での I/O 詰まりで無期限にブロックし、直後の `app.restart()` を永久に妨げないようにするため。
+#[cfg(target_os = "macos")]
+const MACOS_QUARANTINE_STRIP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
 #[cfg(target_os = "macos")]
 fn strip_macos_quarantine_before_restart() {
     let exe = match std::env::current_exe() {
@@ -821,26 +826,55 @@ fn strip_macos_quarantine_before_restart() {
         return;
     }
 
-    match std::process::Command::new("xattr")
+    let mut child = match std::process::Command::new("xattr")
         .args(["-dr", "com.apple.quarantine"])
         .arg(&bundle_root)
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
     {
-        Ok(output) if output.status.success() => {
-            log::info!(
-                "strip_macos_quarantine: removed com.apple.quarantine from {}",
-                bundle_root.display()
-            );
-        }
-        Ok(output) => {
-            log::warn!(
-                "strip_macos_quarantine: xattr exited with {}: {}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
+        Ok(c) => c,
         Err(e) => {
             log::warn!("strip_macos_quarantine: failed to spawn xattr: {e}");
+            return;
+        }
+    };
+
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if status.success() {
+                    log::info!(
+                        "strip_macos_quarantine: removed com.apple.quarantine from {}",
+                        bundle_root.display()
+                    );
+                } else {
+                    let mut stderr_buf = String::new();
+                    if let Some(mut stderr) = child.stderr.take() {
+                        use std::io::Read;
+                        let _ = stderr.read_to_string(&mut stderr_buf);
+                    }
+                    log::warn!("strip_macos_quarantine: xattr exited with {status}: {stderr_buf}");
+                }
+                return;
+            }
+            Ok(None) => {
+                if start.elapsed() >= MACOS_QUARANTINE_STRIP_TIMEOUT {
+                    log::warn!(
+                        "strip_macos_quarantine: xattr timed out after {:?}, killing and continuing restart",
+                        MACOS_QUARANTINE_STRIP_TIMEOUT
+                    );
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(e) => {
+                log::warn!("strip_macos_quarantine: failed to wait on xattr: {e}");
+                return;
+            }
         }
     }
 }

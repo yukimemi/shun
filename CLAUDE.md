@@ -303,7 +303,10 @@ Real example: making `currentWidth` a `$state` caused `resizeForSearch` to track
   persists into the update-replaced bundle and silently blocks the post-update `app.restart()`
   under Gatekeeper. `install_update()` strips it via `xattr -dr com.apple.quarantine` right
   after `download_and_install()` and right before `app.restart()` (best-effort — logs a warn
-  and continues on failure, never blocks the update). See README's macOS install note.
+  and continues on failure, never blocks the update). `xattr` runs under a 15s bounded wait
+  (`MACOS_QUARANTINE_STRIP_TIMEOUT`) and is killed if it exceeds that, so a stuck/hung `xattr`
+  (e.g. I/O stall on the bundle's filesystem) can't block `app.restart()` forever. See README's
+  macOS install note.
 
 ## Current status (2026-03-22)
 
