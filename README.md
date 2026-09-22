@@ -358,7 +358,7 @@ Merge rules:
 <details>
 <summary>Template placeholders in <code>path</code> and <code>args</code></summary>
 
-You can use [Tera](https://keats.github.io/tera/) template syntax in `path`, `args`, and most other string fields. `{{ vars.* }}`, `{{ env.* }}`, and `{{ os }}` are resolved once when the config loads (so they work in `hotkey`, `name`, `workdir`, enum fields, etc. too); `{{ args }}` / `{{ args_list }}` / `{{ file_* }}` are only resolved at launch time for `path`, `args`, and `workdir` (when args are provided via Args mode (`Tab`) or an override matches). Plain `{% if %}...{% endif %}` control blocks with no `{{ }}` inside are expanded the same way as `{{ }}` placeholders.
+You can use [Tera](https://keats.github.io/tera/) template syntax in `path`, `args`, and most other string fields. `{{ vars.* }}`, `{{ env.* }}`, and `{{ os }}` are resolved once when the config loads (so they work in `hotkey`, `name`, `workdir`, enum fields, etc. too); `{{ args }}` / `{{ args_list }}` / `{{ file_* }}` are only resolved at launch time for `path`, `args`, and `workdir` (when args are provided via Args mode (`Tab`) or an override matches) — any string referencing them, including inside `{% if %}`, is left untouched by the load-time pass. Plain `{% if %}...{% endif %}` control blocks with no `{{ }}` inside are expanded the same way as `{{ }}` placeholders.
 
 **Context variables:**
 
@@ -434,9 +434,11 @@ completion = "path"
 **Example — OS-conditional app (one shared config.toml across machines):**
 
 ```toml
-# path picked per OS; only the matching OS gets a valid hotkey
-# ({% if %} with no {{ }} inside still expands — an empty/invalid
-# hotkey string is skipped with a warning, same as any bad shortcut)
+# path picked per OS; only the matching OS gets a hotkey.
+# ({% if %} with no {{ }} inside still expands. On a non-matching OS
+# the hotkey renders to an empty string and is simply not registered —
+# silently, with no warning. Only a non-empty but unparseable shortcut
+# warns, so a typo'd OS name here just means "no hotkey anywhere".)
 [[apps]]
 name        = "Terminal"
 path        = "wt"

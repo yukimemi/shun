@@ -101,7 +101,10 @@ pub fn launch_with_extra(
 ) -> Result<(), String> {
     // path / args / workdir にテンプレートマーカーがあれば展開
     let has_template = crate::utils::has_template_syntax(&item.path)
-        || item.args.iter().any(|a| crate::utils::has_template_syntax(a))
+        || item
+            .args
+            .iter()
+            .any(|a| crate::utils::has_template_syntax(a))
         || item
             .workdir
             .as_deref()

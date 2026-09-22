@@ -438,9 +438,16 @@ fn build_vars_ctx(vars: &HashMap<String, String>) -> tera::Context {
 }
 
 /// toml::Value ツリーの全 String を Tera で展開する（再帰）。
+///
+/// `args` / `file_*` など launch 時にしか決まらない変数を参照する文字列は
+/// ここでは展開せず、そのまま launch 時に回す。`{% if args %}` のような制御構文は
+/// 未定義 ident が黙って false 扱いになり、ここで展開するとブロックごと消えてしまうため。
 fn expand_value(val: &mut toml::Value, ctx: &tera::Context) {
     match val {
-        toml::Value::String(s) if crate::utils::has_template_syntax(s) => {
+        toml::Value::String(s)
+            if crate::utils::has_template_syntax(s)
+                && !crate::utils::references_launch_time_var(s) =>
+        {
             if let Ok(rendered) = tera::Tera::one_off(s, ctx, false) {
                 *s = rendered;
             }
@@ -1108,6 +1115,49 @@ hotkey = '{% if os == "windows" %}F12{% else %}F13{% endif %}'
             "F13"
         };
         assert_eq!(c.apps[0].hotkey.as_deref(), Some(expected));
+    }
+
+    #[test]
+    fn launch_time_control_blocks_survive_config_load() {
+        // {% if args %} は config ロード時のコンテキストに args が無いため、
+        // 展開してしまうと「引数なし」で確定して消える。launch 時まで温存されること。
+        let c = apply_vars(
+            r#"
+[vars]
+dir = "/tmp"
+
+[[apps]]
+name = "grep"
+path = "rg"
+args = ["{% if args %}--fixed-strings{% endif %}", "{% if args %}{{ args }}{% else %}.{% endif %}"]
+"#,
+        );
+        assert_eq!(
+            c.apps[0].args,
+            vec![
+                "{% if args %}--fixed-strings{% endif %}".to_string(),
+                "{% if args %}{{ args }}{% else %}.{% endif %}".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn launch_time_vars_skipped_but_os_still_expanded_elsewhere() {
+        // launch 時変数を参照しない文字列は従来どおりロード時に展開される
+        let c = apply_vars(
+            r#"
+[[apps]]
+name = '{% if os == "linux" %}L{% else %}X{% endif %}'
+path = "{{ args }}"
+"#,
+        );
+        let expected = if std::env::consts::OS == "linux" {
+            "L"
+        } else {
+            "X"
+        };
+        assert_eq!(c.apps[0].name, expected);
+        assert_eq!(c.apps[0].path, "{{ args }}");
     }
 
     #[test]
