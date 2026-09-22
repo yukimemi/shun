@@ -423,20 +423,31 @@ impl Default for Config {
 // toml::Value レベルの vars 展開・マージ helpers
 // ---------------------------------------------------------------------------
 
-/// `{{ vars.* }}` と `{{ env.* }}` を解決する Tera コンテキストを作る。
-/// `{{ args }}` は対象外（launch 時に別途処理される）。
+/// `{{ vars.* }}` / `{{ env.* }}` / `{{ os }}` (および `{% if os == "..." %}` 等の
+/// 制御構文) を解決する Tera コンテキストを作る。`{{ args }}` は対象外（launch 時に
+/// 別途処理される）。
 fn build_vars_ctx(vars: &HashMap<String, String>) -> tera::Context {
     let mut ctx = tera::Context::new();
     ctx.insert("vars", vars);
     let env_map: HashMap<String, String> = std::env::vars().collect();
     ctx.insert("env", &env_map);
+    // "windows" | "macos" | "linux" など (`std::env::consts::OS`)。
+    // `[[apps]].path` / `hotkey` などを OS ごとに出し分けるのに使う。
+    ctx.insert("os", std::env::consts::OS);
     ctx
 }
 
 /// toml::Value ツリーの全 String を Tera で展開する（再帰）。
+///
+/// `args` / `file_*` など launch 時にしか決まらない変数を参照する文字列は
+/// ここでは展開せず、そのまま launch 時に回す。`{% if args %}` のような制御構文は
+/// 未定義 ident が黙って false 扱いになり、ここで展開するとブロックごと消えてしまうため。
 fn expand_value(val: &mut toml::Value, ctx: &tera::Context) {
     match val {
-        toml::Value::String(s) if s.contains("{{") => {
+        toml::Value::String(s)
+            if crate::utils::has_template_syntax(s)
+                && !crate::utils::references_launch_time_var(s) =>
+        {
             if let Ok(rendered) = tera::Tera::one_off(s, ctx, false) {
                 *s = rendered;
             }
@@ -447,11 +458,10 @@ fn expand_value(val: &mut toml::Value, ctx: &tera::Context) {
     }
 }
 
-/// マージ済み toml::Value 全体を vars で展開する。[vars] セクション自体は展開しない。
+/// マージ済み toml::Value 全体を vars/env/os で展開する。[vars] セクション自体は
+/// 展開しない。`vars` が空でも `{{ env.* }}` / `{{ os }}` は常に使えるようにするため、
+/// 空チェックでの早期リターンはしない。
 fn expand_config_vars(root: &mut toml::Value, vars: &HashMap<String, String>) {
-    if vars.is_empty() {
-        return;
-    }
     let ctx = build_vars_ctx(vars);
     if let toml::Value::Table(table) = root {
         for (key, v) in table.iter_mut() {
@@ -1072,6 +1082,82 @@ prev = "Ctrl+k"
             .ok()
             .and_then(|s| toml::from_str(&s).ok())
             .unwrap()
+    }
+
+    #[test]
+    fn os_variable_available_without_vars_section() {
+        // [vars] セクションが無くても {{ os }} / {% if os %} が使えることを確認する
+        // （expand_config_vars の空チェック早期リターンを廃止したことの回帰テスト）
+        let c = apply_vars(
+            r#"
+[[apps]]
+name = "{{ os }}"
+path = "dummy"
+"#,
+        );
+        assert_eq!(c.apps[0].name, std::env::consts::OS);
+    }
+
+    #[test]
+    fn os_conditional_control_only_block_expands() {
+        // "{{" を一切含まない制御構文のみの文字列も展開されることを確認する
+        let c = apply_vars(
+            r#"
+[[apps]]
+name = "Terminal"
+path = "dummy"
+hotkey = '{% if os == "windows" %}F12{% else %}F13{% endif %}'
+"#,
+        );
+        let expected = if std::env::consts::OS == "windows" {
+            "F12"
+        } else {
+            "F13"
+        };
+        assert_eq!(c.apps[0].hotkey.as_deref(), Some(expected));
+    }
+
+    #[test]
+    fn launch_time_control_blocks_survive_config_load() {
+        // {% if args %} は config ロード時のコンテキストに args が無いため、
+        // 展開してしまうと「引数なし」で確定して消える。launch 時まで温存されること。
+        let c = apply_vars(
+            r#"
+[vars]
+dir = "/tmp"
+
+[[apps]]
+name = "grep"
+path = "rg"
+args = ["{% if args %}--fixed-strings{% endif %}", "{% if args %}{{ args }}{% else %}.{% endif %}"]
+"#,
+        );
+        assert_eq!(
+            c.apps[0].args,
+            vec![
+                "{% if args %}--fixed-strings{% endif %}".to_string(),
+                "{% if args %}{{ args }}{% else %}.{% endif %}".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn launch_time_vars_skipped_but_os_still_expanded_elsewhere() {
+        // launch 時変数を参照しない文字列は従来どおりロード時に展開される
+        let c = apply_vars(
+            r#"
+[[apps]]
+name = '{% if os == "linux" %}L{% else %}X{% endif %}'
+path = "{{ args }}"
+"#,
+        );
+        let expected = if std::env::consts::OS == "linux" {
+            "L"
+        } else {
+            "X"
+        };
+        assert_eq!(c.apps[0].name, expected);
+        assert_eq!(c.apps[0].path, "{{ args }}");
     }
 
     #[test]

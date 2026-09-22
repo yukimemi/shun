@@ -272,7 +272,7 @@ fn launch_item(
         // args ありで新規実行: combined key のみ記録（base は last_args だけ更新）
         // base も同時に record すると同じ秒になり recent_first の tiebreaker で base が勝ってしまうため
         // item.args にテンプレートが含まれる場合は展開した結果を記録する
-        let history_args: Vec<String> = if item.args.iter().any(|a| a.contains("{{")) {
+        let history_args: Vec<String> = if item.args.iter().any(|a| utils::has_template_syntax(a)) {
             let ctx = apps::build_template_context(&extra, &vars, item.source_file.as_deref());
             item.args
                 .iter()
@@ -301,7 +301,7 @@ fn launch_item(
     } else {
         item.args.clone()
     };
-    let path = if item.path.contains("{{") {
+    let path = if utils::has_template_syntax(&item.path) {
         let ctx = apps::build_template_context(&template_args, &vars, item.source_file.as_deref());
         apps::render_template(&item.path, &ctx)
     } else {

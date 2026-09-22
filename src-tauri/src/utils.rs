@@ -29,6 +29,67 @@ pub fn macos_app_bundle_root(exe: &Path) -> Option<PathBuf> {
     Some(app_dir.to_path_buf())
 }
 
+/// 文字列に Tera テンプレート構文（値展開 `{{ }}` または制御構文 `{% %}`）が
+/// 含まれるかを判定する。両フォームとも一律で「テンプレートとして展開すべき
+/// 文字列」の判定に使う（`os` 変数だけを使う `{% if os == "windows" %}...{% endif %}`
+/// のような制御構文のみの文字列も対象に含めるため、`{{` の有無だけでは判定しない）。
+pub fn has_template_syntax(s: &str) -> bool {
+    s.contains("{{") || s.contains("{%")
+}
+
+/// launch 時にしか値が決まらない変数（`apps::build_template_context` だけが
+/// 差し込むもの）。config ロード時のコンテキストには存在しない。
+const LAUNCH_TIME_VARS: &[&str] = &[
+    "args",
+    "args_list",
+    "file_path",
+    "file_name",
+    "file_stem",
+    "file_ext",
+    "file_dir",
+];
+
+/// テンプレート文字列が launch 時専用変数を参照しているかを判定する。
+///
+/// config ロード時の展開は `args` / `file_*` を知らないため、`{{ args }}` は
+/// Tera がエラーにしてくれる（＝文字列が保持され launch 時に解決される）が、
+/// `{% if args %}` のような制御構文は未定義 ident が黙って false 扱いになり、
+/// ブロックごと消えてしまう。そうなる前にロード時展開自体を見送るための判定。
+///
+/// 識別子境界を見るので `{{ vars.args }}` や `{{ env.file_path }}` のような
+/// ドット付きメンバー参照には反応しない。
+pub fn references_launch_time_var(s: &str) -> bool {
+    LAUNCH_TIME_VARS
+        .iter()
+        .any(|name| contains_bare_ident(s, name))
+}
+
+/// `s` に `ident` が「単体の識別子として」出現するか。直前が識別子文字か `.`
+/// （メンバーアクセス）の場合、直後が識別子文字の場合はヒットとみなさない。
+fn contains_bare_ident(s: &str, ident: &str) -> bool {
+    let is_ident_char = |c: char| c.is_alphanumeric() || c == '_';
+    let bytes = s.as_bytes();
+    let mut from = 0usize;
+    while let Some(rel) = s[from..].find(ident) {
+        let start = from + rel;
+        let end = start + ident.len();
+        let before_ok = s[..start]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !is_ident_char(c) && c != '.');
+        let after_ok = s[end..].chars().next().is_none_or(|c| !is_ident_char(c));
+        if before_ok && after_ok {
+            return true;
+        }
+        // 次の候補へ。ident が非空なので必ず前進する。
+        from = start + 1;
+        while from < bytes.len() && !s.is_char_boundary(from) {
+            from += 1;
+        }
+    }
+    false
+}
+
 fn expand_tilde(path: &str) -> String {
     if path.starts_with("~/") || path.starts_with("~\\") || path == "~" {
         let home = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -192,6 +253,47 @@ mod tests {
     fn bundle_root_rejects_bare_binary() {
         let exe = PathBuf::from("MacOS/shun");
         assert_eq!(macos_app_bundle_root(&exe), None);
+    }
+
+    #[test]
+    fn has_template_syntax_detects_value_placeholder() {
+        assert!(has_template_syntax("{{ vars.foo }}"));
+    }
+
+    #[test]
+    fn has_template_syntax_detects_control_only_block() {
+        assert!(has_template_syntax(
+            r#"{% if os == "windows" %}wt{% endif %}"#
+        ));
+    }
+
+    #[test]
+    fn has_template_syntax_false_for_plain_string() {
+        assert!(!has_template_syntax("neovide"));
+    }
+
+    #[test]
+    fn references_launch_time_var_detects_value_and_control_forms() {
+        assert!(references_launch_time_var("{{ args }}"));
+        assert!(references_launch_time_var("{% if args %}--file{% endif %}"));
+        assert!(references_launch_time_var(
+            "{% for a in args_list %}{{ a }}{% endfor %}"
+        ));
+        assert!(references_launch_time_var("{{ file_stem }}.log"));
+        assert!(references_launch_time_var("{% if file_ext %}x{% endif %}"));
+    }
+
+    #[test]
+    fn references_launch_time_var_ignores_member_access_and_substrings() {
+        // vars/env のメンバーはロード時に解決できるので巻き込まない
+        assert!(!references_launch_time_var("{{ vars.args }}"));
+        assert!(!references_launch_time_var("{{ env.file_path }}"));
+        // 別名の一部として現れるだけのケース
+        assert!(!references_launch_time_var("{{ vars.my_args_dir }}"));
+        assert!(!references_launch_time_var("{{ argsx }}"));
+        assert!(!references_launch_time_var(
+            "{% if os == \"windows\" %}wt{% endif %}"
+        ));
     }
 }
 
