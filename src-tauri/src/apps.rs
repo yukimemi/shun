@@ -220,6 +220,13 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
                     add_common(&mut c);
                     c
                 }
+                ResolvedCmd::Exe(resolved) => {
+                    // PATH 上の実行ファイル (wtp → ...\wtp.exe)。open_path に渡すと
+                    // 素のコマンド名が相対ファイルパス扱いになり os error 2 になる。
+                    let mut c = std::process::Command::new(resolved);
+                    add_common(&mut c);
+                    c
+                }
                 ResolvedCmd::Other => {
                     // .exe 以外の非スクリプトファイル (.xlsx, .pdf, .py 等) かつ
                     // args/workdir 指定なし → OS 関連付けで開く
@@ -275,6 +282,8 @@ enum ResolvedCmd {
     Cmd(String),
     Bat(String),
     Ps1(String),
+    /// PATH 上で見つかった .exe / .com など（スクリプト以外）
+    Exe(String),
     Other,
 }
 
@@ -302,7 +311,7 @@ fn resolve_windows_cmd(name: &str) -> ResolvedCmd {
                 } else if ext_lower == ".ps1" {
                     ResolvedCmd::Ps1(resolved)
                 } else {
-                    ResolvedCmd::Other
+                    ResolvedCmd::Exe(resolved)
                 };
             }
         }
@@ -1066,6 +1075,9 @@ mod tests {
             completion_search_mode: None,
             hotkey: None,
             hotkey_mode: Default::default(),
+            window_exe: None,
+            window_title: None,
+            window_title_exclude: None,
         }
     }
 

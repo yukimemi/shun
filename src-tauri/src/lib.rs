@@ -15,6 +15,8 @@ mod apps;
 mod complete;
 mod config;
 mod history;
+#[cfg(target_os = "windows")]
+mod kbhook;
 mod migemo;
 mod search;
 mod utils;
@@ -452,63 +454,104 @@ fn plan_hotkey_registrations(config: &config::Config) -> HotkeyPlan {
     }
 }
 
-/// launch キーのハンドラを登録する（ランチャーウィンドウの表示/非表示トグル）。
-fn register_launch_handler(app: &tauri::AppHandle, shortcut: Shortcut) -> Result<(), String> {
-    app.global_shortcut()
-        .on_shortcut(shortcut, |app, _shortcut, event| {
+/// ホットキー押下時に呼ばれるハンドラ。
+type HotkeyHandler = Arc<dyn Fn() + Send + Sync>;
+
+/// `shortcut` を登録する。`RegisterHotKey` 系の登録が失敗した場合（修飾なし F12 は
+/// OS 予約、他アプリが使用中など）、Windows では低レベルキーボードフックで代替する。
+fn register_hotkey(
+    app: &tauri::AppHandle,
+    shortcut: Shortcut,
+    handler: HotkeyHandler,
+) -> Result<(), String> {
+    let h = Arc::clone(&handler);
+    let result = app
+        .global_shortcut()
+        .on_shortcut(shortcut, move |_app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
-                let cache = Arc::clone(app.state::<CacheState>().inner());
-                if let Some(window) = app.get_webview_window("main") {
-                    if window.is_visible().unwrap_or(false) {
-                        debug!("shortcut: window visible → hide");
-                        window.hide().ok();
-                        refresh_cache_bg(cache);
-                    } else {
-                        debug!("shortcut: window hidden → show");
-                        let cfg = config::load_config().0;
-                        position_window(&window, &cfg, cfg.window_width as f64);
-                        window.show().ok();
-                        window.set_focus().ok();
-                        window.emit("show-launcher", ()).ok();
-                    }
-                }
+                h();
             }
-        })
-        .map_err(|e| {
-            log::warn!("Failed to register launch shortcut: {e}");
-            e.to_string()
-        })
+        });
+    match result {
+        Ok(()) => Ok(()),
+        #[cfg(target_os = "windows")]
+        Err(e) => {
+            log::info!("register_hotkey: {shortcut:?} rejected ({e}), using keyboard hook");
+            kbhook::register(shortcut, handler)
+                .map_err(|hook_err| format!("{e}; keyboard hook fallback failed: {hook_err}"))
+        }
+        #[cfg(not(target_os = "windows"))]
+        Err(e) => {
+            drop(handler);
+            Err(e.to_string())
+        }
+    }
 }
 
-/// `[[apps]].hotkey` のハンドラを登録する（launch / activate / toggle）。
+/// launch キーの処理（ランチャーウィンドウの表示/非表示トグル）。
+fn on_launch_hotkey(app: &tauri::AppHandle) {
+    let cache = Arc::clone(app.state::<CacheState>().inner());
+    if let Some(window) = app.get_webview_window("main") {
+        if window.is_visible().unwrap_or(false) {
+            debug!("shortcut: window visible → hide");
+            window.hide().ok();
+            refresh_cache_bg(cache);
+        } else {
+            debug!("shortcut: window hidden → show");
+            let cfg = config::load_config().0;
+            position_window(&window, &cfg, cfg.window_width as f64);
+            window.show().ok();
+            window.set_focus().ok();
+            window.emit("show-launcher", ()).ok();
+        }
+    }
+}
+
+/// `[[apps]].hotkey` の処理（launch / activate / toggle）。
+fn on_app_hotkey(entry: &config::AppEntry, mode: &config::AppHotkeyMode) {
+    let item = apps::launch_item_from_entry(entry);
+    let vars = config::load_config().0.vars;
+    let window = app_window::WindowMatch {
+        exe: entry.window_exe.as_deref(),
+        title: entry.window_title.as_deref(),
+        title_exclude: entry.window_title_exclude.as_deref(),
+    };
+    let result = match mode {
+        config::AppHotkeyMode::Launch => apps::launch_with_extra(&item, Vec::new(), &vars),
+        config::AppHotkeyMode::Activate => {
+            app_window::activate_or_launch(&item, window, false, &vars)
+        }
+        config::AppHotkeyMode::Toggle => app_window::activate_or_launch(&item, window, true, &vars),
+    };
+    if let Err(e) = result {
+        log::warn!(
+            "app hotkey: failed to launch/activate \"{}\": {e}",
+            item.name
+        );
+    }
+}
+
+/// launch キーを登録する。
+fn register_launch_handler(app: &tauri::AppHandle, shortcut: Shortcut) -> Result<(), String> {
+    let handle = app.clone();
+    register_hotkey(app, shortcut, Arc::new(move || on_launch_hotkey(&handle))).map_err(|e| {
+        log::warn!("Failed to register launch shortcut: {e}");
+        e
+    })
+}
+
+/// `[[apps]].hotkey` を登録する。
 fn register_app_hotkey_handler(
     app: &tauri::AppHandle,
     shortcut: Shortcut,
     entry: config::AppEntry,
     mode: config::AppHotkeyMode,
 ) -> Result<(), String> {
-    app.global_shortcut()
-        .on_shortcut(shortcut, move |_app, _shortcut, event| {
-            if event.state != ShortcutState::Pressed {
-                return;
-            }
-            let item = apps::launch_item_from_entry(&entry);
-            let vars = config::load_config().0.vars;
-            let result = match mode {
-                config::AppHotkeyMode::Launch => apps::launch_with_extra(&item, Vec::new(), &vars),
-                config::AppHotkeyMode::Activate => {
-                    app_window::activate_or_launch(&item, false, &vars)
-                }
-                config::AppHotkeyMode::Toggle => app_window::activate_or_launch(&item, true, &vars),
-            };
-            if let Err(e) = result {
-                log::warn!(
-                    "app hotkey: failed to launch/activate \"{}\": {e}",
-                    item.name
-                );
-            }
-        })
-        .map_err(|e| e.to_string())
+    register_hotkey(
+        app,
+        shortcut,
+        Arc::new(move || on_app_hotkey(&entry, &mode)),
+    )
 }
 
 /// launch キー + 全 `[[apps]].hotkey` を登録する。呼び出し元 (`setup` / `reload`) は
@@ -517,6 +560,8 @@ fn register_app_hotkey_handler(
 /// launch キーの登録が OS レベルで失敗した場合のみ `Err` を返す（既存の挙動を維持）。
 /// app hotkey の登録失敗はログ警告のみに留め、他のホットキー登録をブロックしない。
 fn register_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    kbhook::clear();
     let config = config::load_config().0;
     let plan = plan_hotkey_registrations(&config);
     for w in &plan.warnings {
@@ -1613,6 +1658,9 @@ mod hotkey_plan_tests {
             completion_search_mode: None,
             hotkey: hotkey.map(|s| s.to_string()),
             hotkey_mode: mode,
+            window_exe: None,
+            window_title: None,
+            window_title_exclude: None,
         }
     }
 

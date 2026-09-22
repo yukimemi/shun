@@ -308,6 +308,9 @@ Each `[[apps]]` entry can register its own global hotkey, independent of `keybin
 |---|---|---|
 | `hotkey` | string | Optional. A shortcut string parseable the same way as `keybindings.launch` (e.g. `"Ctrl+Alt+N"`). Omit to skip hotkey registration for this app |
 | `hotkey_mode` | string | `"launch"` (default) \| `"activate"` \| `"toggle"` |
+| `window_exe` | string | Optional, Windows only. Executable name (without extension, case-insensitive) used to find the window for `activate` / `toggle`. Defaults to the file name of `path`. Needed when `path` is a launcher stub, e.g. `path = "wt"` → `window_exe = "WindowsTerminal"` |
+| `window_title` | string | Optional, Windows only. Additionally require the window title to contain this string (case-insensitive) for `activate` / `toggle`. Distinguishes windows of the same executable, e.g. a dedicated yazi window in Windows Terminal |
+| `window_title_exclude` | string | Optional, Windows only. Skip windows whose title contains this string (case-insensitive) for `activate` / `toggle`. E.g. keep the F12 Windows Terminal hotkey from grabbing a dedicated yazi window |
 
 - **`launch`** — starts a new process every time, same as pressing Enter on the item.
 - **`activate`** — brings the app's window to the foreground if it's already running; launches it otherwise.
@@ -319,6 +322,11 @@ Each `[[apps]]` entry can register its own global hotkey, independent of `keybin
 as other config warnings). Shortcut strings are compared after parsing, so `"Ctrl+Alt+N"` and
 `"ctrl+alt+n"` are treated as the same key. Run `/reload` after editing `hotkey` / `hotkey_mode`
 to re-register.
+
+**Reserved keys (Windows):** some keys can't be registered via `RegisterHotKey` — notably a bare
+`F12`, which Windows reserves for debuggers — or are already taken by another app. In that case
+shun falls back to a low-level keyboard hook (the same technique AutoHotkey uses), so the hotkey
+still works and the key press is not passed on to the focused app.
 
 **Platform support for `activate` / `toggle`:**
 
@@ -442,6 +450,7 @@ completion = "path"
 [[apps]]
 name        = "Terminal"
 path        = "wt"
+window_exe  = "WindowsTerminal"   # wt.exe is a stub; the window belongs to WindowsTerminal.exe
 hotkey      = "{% if os == \"windows\" %}F12{% endif %}"
 hotkey_mode = "toggle"
 
