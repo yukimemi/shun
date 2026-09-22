@@ -50,8 +50,7 @@ struct OldHistoryEntry {
 }
 
 pub fn history_path() -> PathBuf {
-    let base = dirs_next::config_dir().unwrap_or_else(|| PathBuf::from("."));
-    base.join("shun").join("history.json")
+    crate::config::config_dir().join("history.json")
 }
 
 pub fn load() -> History {
