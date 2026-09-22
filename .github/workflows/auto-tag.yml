@@ -25,11 +25,11 @@
 # needs a RELEASE_TAG_TOKEN secret set (PAT with `Contents: Read and
 # write` on this repo) — see docs/SETUP.md.
 #
-# Known limitation: version detection diffs against HEAD~1 only, so
-# if multiple commits are pushed to main in one go (bypassing the
-# normal PR-merge, single-commit flow), a bump in a non-last commit
-# can be missed. Not addressed here — shun's workflow is PR-merge
-# based, where each merge is its own push.
+# Version detection diffs the pushed HEAD against `github.event.before`
+# (the ref tip before this push), not HEAD~1 -- so a push that carries
+# several commits (e.g. a squash merge plus a trailing commit that
+# doesn't touch Cargo.toml) still sees the version change, instead of
+# only comparing HEAD's immediate parent.
 
 name: Auto-tag on version bump
 
@@ -44,8 +44,9 @@ jobs:
   auto-tag:
     runs-on: ubuntu-latest
     steps:
-      # fetch-depth: 2 so HEAD~1 (the parent commit) is in scope for
-      # the Cargo.toml diff.
+      # fetch-depth: 0 (full history) so `github.event.before` -- which
+      # can be arbitrarily far back when a push carries multiple
+      # commits -- is guaranteed to be present for the Cargo.toml diff.
       #
       # token: RELEASE_TAG_TOKEN makes actions/checkout persist the
       # PAT as the credential the later `git push` call uses.
@@ -54,7 +55,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          fetch-depth: 2
+          fetch-depth: 0
           token: ${{ secrets.RELEASE_TAG_TOKEN }}
 
       - name: Detect version bump
@@ -66,10 +67,17 @@ jobs:
             grep -E '^version[[:space:]]*=[[:space:]]*"' "$1" | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true
           }
           NEW=$(extract src-tauri/Cargo.toml)
-          # HEAD~1 might not have src-tauri/Cargo.toml (very first
-          # commit on a new repo) -- fall back to empty string so the
-          # diff below still classifies it as a bump.
-          OLD=$(git show HEAD~1:src-tauri/Cargo.toml 2>/dev/null | grep -E '^version[[:space:]]*=[[:space:]]*"' | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
+          # `before` is the ref tip prior to this push. It is all-zeros
+          # on the first push of a new branch, and may point at a commit
+          # without src-tauri/Cargo.toml on a very first repo commit --
+          # both fall back to an empty OLD so the diff below still
+          # classifies the current version as a bump.
+          BEFORE="${{ github.event.before }}"
+          if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            OLD=$(git show "$BEFORE:src-tauri/Cargo.toml" 2>/dev/null | grep -E '^version[[:space:]]*=[[:space:]]*"' | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
+          else
+            OLD=""
+          fi
           OLD="${OLD:-}"
           echo "new=$NEW" >> "$GITHUB_OUTPUT"
           echo "old=$OLD" >> "$GITHUB_OUTPUT"

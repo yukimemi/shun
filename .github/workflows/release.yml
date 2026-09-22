@@ -179,6 +179,17 @@ jobs:
           git fetch origin main
           git checkout -- .
           git checkout main
+          # Guard against downgrading main: if a later version-bump PR
+          # already merged to main while this release was still
+          # building (auto-tag.yml can fire again before this job
+          # finishes), main's version may already be ahead of this
+          # tag's. Only bump forward, never backward.
+          CURRENT=$(grep -m1 '"version"' package.json | sed -E 's/.*"version":[[:space:]]*"([^"]+)".*/\1/')
+          if [ "$CURRENT" != "$VERSION" ] \
+            && [ "$(printf '%s\n%s\n' "$CURRENT" "$VERSION" | sort -V | tail -n1)" = "$CURRENT" ]; then
+            echo "::notice::main's version ($CURRENT) is already ahead of this release's tag ($VERSION); skipping version-file commit to avoid downgrading main."
+            exit 0
+          fi
           perl -i -pe "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" package.json src-tauri/tauri.conf.json
           perl -i -pe "s/^version = \".*\"/version = \"${VERSION}\"/" src-tauri/Cargo.toml
           git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
