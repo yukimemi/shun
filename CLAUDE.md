@@ -30,7 +30,8 @@ src-tauri/
   tauri.conf.json        # Tauri config including updater pubkey
 .github/workflows/
   ci.yml                 # PR/push to main: frontend + Rust tests
-  release.yml            # Tag v*.*.*: tests → build → sign → publish
+  auto-tag.yml            # Push to main: tag vX.Y.Z if src-tauri/Cargo.toml version changed
+  release.yml             # Tag v*.*.*: tests → build → sign → publish
 ```
 
 ## Commands
@@ -196,13 +197,40 @@ Add per-repo extras (e.g. `cargo fetch`, `npm install`) by extending
 ## CI/CD
 
 - **CI** (`ci.yml`): runs on push/PR to `main` — frontend tests (`npm test`) + Rust tests (`cargo test`) on ubuntu + windows
-- **Release** (`release.yml`): triggered by `v*.*.*` tags — tests must pass before build; `tauri-action` builds, signs, and publishes; generates `latest.json` for auto-update
+- **Auto-tag** (`auto-tag.yml`): runs on push to `main` — if the commit changed `version` in
+  `src-tauri/Cargo.toml`, creates and pushes a `vX.Y.Z` tag using the `RELEASE_TAG_TOKEN` PAT
+  secret (not the default `GITHUB_TOKEN`, which GitHub blocks from triggering downstream
+  workflows). Idempotent (skips if the tag already exists); fails loudly if
+  `RELEASE_TAG_TOKEN` is unset — see `docs/SETUP.md`
+- **Release** (`release.yml`): triggered by the `v*.*.*` tag that `auto-tag.yml` pushes (or a
+  manually pushed tag); tests must pass before build; `tauri-action` builds, signs, and
+  publishes; generates `latest.json` for auto-update
 
 ### Tagging a release
+
+Releases are tag-triggered and the tag is now created automatically — you should rarely need to
+tag by hand. The flow is:
+
+1. In your feature/fix PR (or a dedicated release PR), bump the version in all three files
+   together: `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` (and let
+   `cargo check`/`cargo build` in `src-tauri` update `Cargo.lock`'s `shun` entry to match).
+   Patch bump (`x.x.N`) for bug fixes, minor bump (`x.N.0`) for new features.
+2. Merge the PR to `main`.
+3. `auto-tag.yml` detects the `src-tauri/Cargo.toml` version change and pushes `vX.Y.Z`
+   automatically, which triggers `release.yml`.
+4. Watch the Actions tab — if `RELEASE_TAG_TOKEN` isn't configured, `auto-tag.yml` fails
+   loudly instead of silently skipping the tag.
+
+`src-tauri/Cargo.toml` is the source of truth for the tag version; if the three files drift,
+`auto-tag.yml` still tags (logging a `::warning::`) and `release.yml`'s `Update version from
+tag` step forces all three back in sync from the tag name.
+
+Manual tagging still works as a fallback (e.g. if `auto-tag.yml` can't run):
 ```bash
 git tag v1.2.3 && git push origin main && git push origin v1.2.3
 ```
-The release is fully automatic once tests pass.
+`release.yml`'s own version-bump commit step also still runs as a fallback for main being behind
+the tag, but under normal operation (version bumped in the PR) it's a no-op.
 
 ### Version update in release
 Uses `perl -i -pe` (not `sed -i`) — macOS BSD sed doesn't support `-i ''` in the same way.
