@@ -529,19 +529,32 @@ fn extract_vars(root: &toml::Value) -> HashMap<String, String> {
 }
 
 pub fn config_path() -> PathBuf {
-    let base = dirs_next::config_dir().unwrap_or_else(|| PathBuf::from("."));
-    base.join("shun").join("config.toml")
+    config_dir().join("config.toml")
 }
 
 pub fn local_config_path() -> PathBuf {
     config_dir().join("config.local.toml")
 }
 
+/// `~/.config/shun/config.toml` が存在すればそのディレクトリを優先し、
+/// なければ OS 標準の設定ディレクトリ (Windows: %APPDATA%, macOS: Application Support) に
+/// フォールバックする。Linux は元々 dirs_next::config_dir() が `~/.config` を返すため
+/// 両者が一致し、この分岐は実質 no-op になる（Windows/macOS 向けの分岐）。
+fn resolve_config_dir(home: Option<PathBuf>, fallback: PathBuf) -> PathBuf {
+    if let Some(home) = home {
+        let xdg_dir = home.join(".config").join("shun");
+        if xdg_dir.join("config.toml").exists() {
+            return xdg_dir;
+        }
+    }
+    fallback
+}
+
 pub fn config_dir() -> PathBuf {
-    config_path()
-        .parent()
-        .unwrap_or(&PathBuf::from("."))
-        .to_path_buf()
+    let fallback = dirs_next::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("shun");
+    resolve_config_dir(dirs_next::home_dir(), fallback)
 }
 
 /// config.*.toml ファイルをアルファベット順に返す（config.toml 自身は除く）
@@ -1156,5 +1169,42 @@ workdir = "{{ vars.src }}/myproject"
 "#,
         );
         assert_eq!(c.apps[0].workdir.as_deref(), Some("~/src/myproject"));
+    }
+
+    // --- resolve_config_dir ---
+
+    #[test]
+    fn resolve_config_dir_prefers_xdg_when_config_toml_exists() {
+        let home = tempfile::tempdir().unwrap();
+        let fallback = tempfile::tempdir().unwrap();
+        let xdg_dir = home.path().join(".config").join("shun");
+        std::fs::create_dir_all(&xdg_dir).unwrap();
+        std::fs::write(xdg_dir.join("config.toml"), "").unwrap();
+
+        let resolved = resolve_config_dir(
+            Some(home.path().to_path_buf()),
+            fallback.path().to_path_buf(),
+        );
+        assert_eq!(resolved, xdg_dir);
+    }
+
+    #[test]
+    fn resolve_config_dir_falls_back_when_xdg_config_toml_missing() {
+        let home = tempfile::tempdir().unwrap();
+        let fallback = tempfile::tempdir().unwrap();
+
+        let resolved = resolve_config_dir(
+            Some(home.path().to_path_buf()),
+            fallback.path().to_path_buf(),
+        );
+        assert_eq!(resolved, fallback.path());
+    }
+
+    #[test]
+    fn resolve_config_dir_falls_back_when_home_is_none() {
+        let fallback = tempfile::tempdir().unwrap();
+
+        let resolved = resolve_config_dir(None, fallback.path().to_path_buf());
+        assert_eq!(resolved, fallback.path());
     }
 }

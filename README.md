@@ -86,6 +86,8 @@ Works out of the box with zero config. Config file is created automatically on f
 | macOS | `~/Library/Application Support/shun/config.toml` |
 | Linux | `~/.config/shun/config.toml` |
 
+On Windows and macOS, if `~/.config/shun/config.toml` already exists, it takes priority over the path above and is used instead (Linux already resolves to `~/.config/shun`, so this has no effect there).
+
 A minimal config to get started (non-existent paths are silently ignored):
 
 ```toml
@@ -338,6 +340,8 @@ Examples: `config.local.toml`, `config.work.toml`, `config.home.toml`
 | Windows | `%APPDATA%\shun\` |
 | macOS | `~/Library/Application Support/shun/` |
 | Linux | `~/.config/shun/` |
+
+On Windows and macOS, this directory follows `config.toml`'s own resolution: if `~/.config/shun/config.toml` exists, override files (`config.local.toml`, `config.*.toml`) are also read from `~/.config/shun/` instead of the path above, not both.
 
 Merge rules:
 
