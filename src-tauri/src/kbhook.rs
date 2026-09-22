@@ -229,6 +229,49 @@ fn code_to_vk(code: Code) -> Option<u16> {
         Pause => 0x13,
         PrintScreen => 0x2C,
         ScrollLock => 0x91,
+        CapsLock => 0x14,
+        NumLock => 0x90,
+        Numpad0 => 0x60,
+        Numpad1 => 0x61,
+        Numpad2 => 0x62,
+        Numpad3 => 0x63,
+        Numpad4 => 0x64,
+        Numpad5 => 0x65,
+        Numpad6 => 0x66,
+        Numpad7 => 0x67,
+        Numpad8 => 0x68,
+        Numpad9 => 0x69,
+        NumpadMultiply => 0x6A,
+        NumpadAdd => 0x6B,
+        NumpadSubtract => 0x6D,
+        NumpadDecimal => 0x6E,
+        NumpadDivide => 0x6F,
+        // 数字キーパッドの Enter は Windows 上でも通常の Enter と同じ VK_RETURN
+        // (0x0D) を報告する (拡張スキャンコードでのみ区別可能。フックは vkCode
+        // しか見ないため区別できない) ので、意図せず通常の Enter にも反応して
+        // しまう。誤爆より「フックで捕まえられない」方が安全なので未対応のまま
+        // にする。
+        // OEM 記号キー。US 配列基準の固定 VK (レイアウト非依存)
+        Semicolon => 0xBA,
+        Equal => 0xBB,
+        Comma => 0xBC,
+        Minus => 0xBD,
+        Period => 0xBE,
+        Slash => 0xBF,
+        Backquote => 0xC0,
+        BracketLeft => 0xDB,
+        Backslash => 0xDC,
+        BracketRight => 0xDD,
+        Quote => 0xDE,
+        // メディア/音量キー。MediaPlay / MediaPause は Windows 側に対応する
+        // 専用 VK が無い (VK_MEDIA_PLAY_PAUSE のみ)ため非対応のまま
+        AudioVolumeMute => 0xAD,
+        AudioVolumeDown => 0xAE,
+        AudioVolumeUp => 0xAF,
+        MediaTrackNext => 0xB0,
+        MediaTrackPrevious => 0xB1,
+        MediaStop => 0xB2,
+        MediaPlayPause => 0xB3,
         _ => return None,
     };
     Some(vk)
@@ -246,7 +289,19 @@ mod tests {
     }
 
     #[test]
+    fn numpad_and_oem_keys_are_mapped() {
+        assert_eq!(code_to_vk(Code::Numpad5), Some(0x65));
+        assert_eq!(code_to_vk(Code::NumpadAdd), Some(0x6B));
+        assert_eq!(code_to_vk(Code::Semicolon), Some(0xBA));
+        assert_eq!(code_to_vk(Code::Backquote), Some(0xC0));
+        assert_eq!(code_to_vk(Code::AudioVolumeMute), Some(0xAD));
+        assert_eq!(code_to_vk(Code::MediaPlayPause), Some(0xB3));
+    }
+
+    #[test]
     fn unmapped_key_is_rejected() {
-        assert!(register("Ctrl+Numpad5".parse().unwrap(), Arc::new(|| {})).is_err());
+        // Windows has no VK distinct from VK_MEDIA_PLAY_PAUSE for play-only /
+        // pause-only, so these stay unsupported by the hook fallback.
+        assert!(register("Ctrl+MediaPlay".parse().unwrap(), Arc::new(|| {})).is_err());
     }
 }
