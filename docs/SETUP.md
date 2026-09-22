@@ -94,17 +94,50 @@ winget install yukimemi.shun
 
 ---
 
+## 4. Auto-tag on version bump (`RELEASE_TAG_TOKEN`)
+
+`.github/workflows/auto-tag.yml` watches pushes to `main` and, whenever a commit changes the
+`version` field in `src-tauri/Cargo.toml`, creates and pushes a matching `vX.Y.Z` tag. That tag
+push is what triggers `.github/workflows/release.yml` (the build/sign/publish workflow), so this
+is what turns "a version-bump PR merged to main" into "a release goes out" without anyone running
+`git tag` by hand.
+
+The tag must be pushed with a personal access token (PAT), not the default `GITHUB_TOKEN`: GitHub
+deliberately does not fire downstream workflows (`release.yml`) for refs pushed by the default
+token, to prevent recursive workflow runs.
+
+### Setup steps
+
+1. Create a GitHub Personal Access Token (PAT) with `Contents: Read and write` permission scoped
+   to the `yukimemi/shun` repository.
+2. Add the PAT as a secret named `RELEASE_TAG_TOKEN` in the `yukimemi/shun` repository settings.
+
+### Unlike the other secrets on this page, this one is not optional
+
+If `RELEASE_TAG_TOKEN` is missing, `auto-tag.yml` does **not** skip quietly — it fails the job
+with an `::error::` annotation as soon as it detects a version bump that it can't tag. This is
+intentional: a silent skip here reproduces the exact "PR merged, no release ever showed up"
+problem the workflow exists to prevent. Watch the Actions tab (or set up notifications) after
+merging a version-bump PR until this secret is confirmed working.
+
+See `CLAUDE.md`'s "Tagging a release" section for the day-to-day release flow that depends on
+this secret.
+
+---
+
 ## GitHub Secrets Summary
 
 Add the following secrets in `yukimemi/shun` → Settings → Secrets and variables → Actions:
 
-| Secret name         | Description                                                         | Required for    |
-|---------------------|---------------------------------------------------------------------|-----------------|
+| Secret name          | Description                                                         | Required for    |
+|-----------------------|---------------------------------------------------------------------|-----------------|
+| `RELEASE_TAG_TOKEN`  | PAT with write access to `yukimemi/shun`, used to push release tags | Auto-tag → release trigger (**required** — job fails loudly if unset) |
 | `SCOOP_BUCKET_PAT`  | PAT with write access to `yukimemi/scoop-bucket`                    | Scoop auto-update |
 | `HOMEBREW_TAP_PAT`  | PAT with write access to `yukimemi/homebrew-tap`                    | Homebrew auto-update |
 | `WINGET_TOKEN`      | Token for `vedantmgoyal9/winget-releaser` to submit WinGet PRs      | WinGet submission |
 
-If a secret is not set, the corresponding job step is skipped gracefully — no build failure occurs.
+`RELEASE_TAG_TOKEN` is required — see section 4 above. For the other three, if a secret is not
+set, the corresponding job step is skipped gracefully — no build failure occurs.
 
 ---
 

@@ -1,0 +1,142 @@
+# Auto-tag on version bump.
+#
+# Watches `main` and, whenever a commit lands that changes the
+# top-level `version = "..."` in src-tauri/Cargo.toml, creates a
+# matching `vX.Y.Z` tag and pushes it. The tag push then triggers
+# release.yml (the `v*.*.*` tag-push workflow that builds, signs,
+# and publishes).
+#
+# shun keeps its version in three files (package.json,
+# src-tauri/tauri.conf.json, src-tauri/Cargo.toml). src-tauri/Cargo.toml
+# is treated as the single source of truth for tagging purposes; the
+# other two are expected to be updated in the same commit/PR (see
+# CLAUDE.md's "Tagging a release" section). If they drift, this
+# workflow still tags off Cargo.toml and logs a warning — see the
+# "Check version file consistency" step below. release.yml's
+# "Update version from tag" step reconciles all three files from the
+# tag name as a safety net regardless.
+#
+# Token: this workflow pushes the tag with RELEASE_TAG_TOKEN (a PAT)
+# rather than the default GITHUB_TOKEN. The default token would
+# create the tag fine, but GitHub deliberately refuses to fire
+# downstream workflows (release.yml) from refs pushed by
+# GITHUB_TOKEN, to prevent recursive workflow runs. Using a PAT
+# restores the tag -> release.yml chain. The `yukimemi/shun` repo
+# needs a RELEASE_TAG_TOKEN secret set (PAT with `Contents: Read and
+# write` on this repo) — see docs/SETUP.md.
+#
+# Known limitation: version detection diffs against HEAD~1 only, so
+# if multiple commits are pushed to main in one go (bypassing the
+# normal PR-merge, single-commit flow), a bump in a non-last commit
+# can be missed. Not addressed here — shun's workflow is PR-merge
+# based, where each merge is its own push.
+
+name: Auto-tag on version bump
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  auto-tag:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 2 so HEAD~1 (the parent commit) is in scope for
+      # the Cargo.toml diff.
+      #
+      # token: RELEASE_TAG_TOKEN makes actions/checkout persist the
+      # PAT as the credential the later `git push` call uses.
+      # Without this the tag push goes out under the default
+      # GITHUB_TOKEN and release.yml never fires.
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+          token: ${{ secrets.RELEASE_TAG_TOKEN }}
+
+      - name: Detect version bump
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          extract() {
+            grep -E '^version[[:space:]]*=[[:space:]]*"' "$1" | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true
+          }
+          NEW=$(extract src-tauri/Cargo.toml)
+          # HEAD~1 might not have src-tauri/Cargo.toml (very first
+          # commit on a new repo) -- fall back to empty string so the
+          # diff below still classifies it as a bump.
+          OLD=$(git show HEAD~1:src-tauri/Cargo.toml 2>/dev/null | grep -E '^version[[:space:]]*=[[:space:]]*"' | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
+          OLD="${OLD:-}"
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
+          echo "old=$OLD" >> "$GITHUB_OUTPUT"
+          if [ -n "$NEW" ] && [ "$NEW" != "$OLD" ]; then
+            echo "bumped=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Detected version bump: ${OLD:-<none>} -> $NEW"
+          else
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No version change ($NEW); nothing to tag."
+          fi
+
+      # package.json / tauri.conf.json are expected to carry the same
+      # version as src-tauri/Cargo.toml (see CLAUDE.md). A mismatch
+      # isn't fatal -- tagging off Cargo.toml still makes the release
+      # happen, and release.yml's "Update version from tag" step
+      # forces all three files to match the tag afterwards -- but it
+      # usually means the release PR forgot to update one of the
+      # other files, so surface it loudly.
+      - name: Check version file consistency
+        if: steps.ver.outputs.bumped == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          NEW="${{ steps.ver.outputs.new }}"
+          PKG=$(grep -m1 '"version"' package.json | sed -E 's/.*"version":[[:space:]]*"([^"]+)".*/\1/')
+          CONF=$(grep -m1 '"version"' src-tauri/tauri.conf.json | sed -E 's/.*"version":[[:space:]]*"([^"]+)".*/\1/')
+          if [ "$PKG" != "$NEW" ] || [ "$CONF" != "$NEW" ]; then
+            echo "::warning::Version mismatch across version files: src-tauri/Cargo.toml=$NEW package.json=$PKG src-tauri/tauri.conf.json=$CONF -- tagging off Cargo.toml anyway; release.yml will reconcile the rest."
+          fi
+
+      # Fail loudly if the secret is missing, instead of silently
+      # skipping the tag push -- a silent skip here reproduces the
+      # exact "merged but no release" symptom this workflow exists to
+      # fix.
+      - name: Verify RELEASE_TAG_TOKEN is configured
+        if: steps.ver.outputs.bumped == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${{ secrets.RELEASE_TAG_TOKEN }}" ]; then
+            echo "::error::RELEASE_TAG_TOKEN secret is not set. Add a PAT with 'Contents: Read and write' on yukimemi/shun as the RELEASE_TAG_TOKEN repo secret -- see docs/SETUP.md. Without it, tags pushed by this workflow will not trigger release.yml."
+            exit 1
+          fi
+
+      - name: Create and push tag
+        if: steps.ver.outputs.bumped == 'true'
+        shell: bash
+        env:
+          # gh reads this; the matching git push uses the PAT that
+          # actions/checkout persisted above. Using RELEASE_TAG_TOKEN
+          # for both keeps "the tag was pushed by a user, not a
+          # workflow" true, which is what GitHub checks before firing
+          # downstream workflows like release.yml.
+          GH_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="v${{ steps.ver.outputs.new }}"
+          # Be idempotent: if the tag already exists (e.g. someone
+          # ran `git tag` by hand before this workflow caught up),
+          # don't overwrite it -- just exit successfully.
+          if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null \
+            || gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/$TAG" --silent 2>/dev/null; then
+            echo "::notice::Tag $TAG already exists; skipping."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "$TAG"
+          echo "::notice::Pushed tag $TAG"

@@ -158,6 +158,16 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
+      # Fallback safety net only. The primary path is now: a PR bumps
+      # package.json / src-tauri/tauri.conf.json / src-tauri/Cargo.toml
+      # together, merges to main, and auto-tag.yml (.github/workflows/auto-tag.yml)
+      # tags off src-tauri/Cargo.toml automatically -- so by the time this
+      # step runs, main should already match the tag and `git diff --cached
+      # --quiet` below makes this a no-op. It stays in place for tags created
+      # by other means (e.g. a manual `git tag && git push`) where main may
+      # still be behind. This step pushes with the default GITHUB_TOKEN, so
+      # it does not re-trigger auto-tag.yml's `push: branches: [main]`
+      # trigger (GITHUB_TOKEN pushes don't fire downstream workflow runs).
       - name: Commit version bump to main
         if: matrix.platform == 'ubuntu-22.04'
         shell: bash
