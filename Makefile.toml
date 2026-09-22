@@ -2,6 +2,14 @@
 alias = "check"
 
 [tasks.check]
+# `check` collides with cargo-make's built-in core task of the same name
+# (`command = "cargo"`, `args = ["check"]`, no `cwd`). Without `clear = true`
+# here, cargo-make merges this definition with that built-in on top of our
+# `dependencies`, so after the dependency chain finishes it *also* runs a
+# bare `cargo check` from the repo root — which has no root Cargo.toml (only
+# `src-tauri/Cargo.toml`) and fails every time. `clear = true` drops the
+# inherited command/args so this task is purely the dependency chain below.
+clear = true
 description = "Run fmt + clippy + Rust tests + frontend tests + lock-check"
 dependencies = [
     "fmt-check",
