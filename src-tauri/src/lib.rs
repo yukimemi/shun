@@ -782,9 +782,65 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                     )
                     .await
                     .map_err(|e| e.to_string())?;
+                #[cfg(target_os = "macos")]
+                strip_macos_quarantine_before_restart();
                 app.restart();
             }
             Ok(())
+        }
+    }
+}
+
+/// macOS 向け配布物は Apple の code signing / notarization を行っていない未署名ビルドのため、
+/// curl でダウンロードした .app に付与される `com.apple.quarantine` 拡張属性が update 後の
+/// バンドルにも残ったままだと、update 完了直後の `app.restart()` が Gatekeeper にサイレントに
+/// ブロックされ、自動再起動に失敗する (Finder から手動でダブルクリックした場合は Gatekeeper の
+/// 確認を経て起動できる)。応急対応として `xattr -dr` で quarantine 属性を再帰的に除去する。
+/// 失敗しても update 自体は継続させる (致命的エラーにしない)。
+#[cfg(target_os = "macos")]
+fn strip_macos_quarantine_before_restart() {
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            log::warn!("strip_macos_quarantine: failed to get current exe: {e}");
+            return;
+        }
+    };
+    let Some(bundle_root) = utils::macos_app_bundle_root(&exe) else {
+        log::warn!(
+            "strip_macos_quarantine: could not resolve .app bundle root from {}",
+            exe.display()
+        );
+        return;
+    };
+    if !bundle_root.exists() {
+        log::warn!(
+            "strip_macos_quarantine: resolved bundle root does not exist: {}",
+            bundle_root.display()
+        );
+        return;
+    }
+
+    match std::process::Command::new("xattr")
+        .args(["-dr", "com.apple.quarantine"])
+        .arg(&bundle_root)
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            log::info!(
+                "strip_macos_quarantine: removed com.apple.quarantine from {}",
+                bundle_root.display()
+            );
+        }
+        Ok(output) => {
+            log::warn!(
+                "strip_macos_quarantine: xattr exited with {}: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        Err(e) => {
+            log::warn!("strip_macos_quarantine: failed to spawn xattr: {e}");
         }
     }
 }

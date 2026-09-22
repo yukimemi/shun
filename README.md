@@ -76,6 +76,8 @@ brew install --cask yukimemi/tap/shun
 
 </details>
 
+> **macOS note:** shun's macOS builds are not Apple code-signed or notarized. After `/update` replaces `~/Applications/shun.app`, shun strips the `com.apple.quarantine` attribute from the new bundle before restarting itself so Gatekeeper doesn't silently block the automatic relaunch; if you ever need to do this by hand, run `xattr -dr com.apple.quarantine ~/Applications/shun.app`.
+
 ## Quick start
 
 Works out of the box with zero config. Config file is created automatically on first launch:

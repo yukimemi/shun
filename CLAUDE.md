@@ -244,13 +244,15 @@ Auto-created at first launch:
 
 ## Testing
 
-### Rust tests (158 total)
+### Rust tests (167 total)
 Each module has a `#[cfg(test)]` block:
 - `config.rs` — defaults, TOML parsing, keybinding overrides, `hotkey`/`hotkey_mode` parsing
 - `search.rs` — fuzzy/exact/migemo filter
 - `complete.rs` — split_last_token, sort_completions, complete_path (uses `tempfile`)
 - `history.rs` — sort_key, serde roundtrip, combined key format
-- `utils.rs` — expand_path variants
+- `utils.rs` — expand_path variants; `macos_app_bundle_root` path-resolution (OS-independent
+  `PathBuf` logic, runs on any CI platform — the `xattr`-spawning call site in `lib.rs` itself
+  is `#[cfg(target_os = "macos")]` and untested outside macOS)
 - `apps.rs` — is_url, is_path, launch_with_extra
 - `lib.rs::hotkey_plan_tests` — `plan_hotkey_registrations()`: defaults, per-app hotkey
   planning, invalid-shortcut warnings, launch/app and app/app conflict resolution
@@ -292,6 +294,16 @@ Real example: making `currentWidth` a `$state` caused `resizeForSearch` to track
 - Use `tauri-apps/tauri-action@v0.6` (not `@v0`) — v0.6 properly supports Tauri v2 updater
 - Signing key: `~/.tauri/shun.key` (pubkey in `tauri.conf.json`; private key in `TAURI_SIGNING_PRIVATE_KEY` GitHub secret, no password)
 - `latest.json` is auto-generated and uploaded by tauri-action to each release
+- The Tauri updater's signing key (`tauri.conf.json` pubkey / `TAURI_SIGNING_PRIVATE_KEY`)
+  verifies the update payload itself and is unrelated to Apple code signing / notarization —
+  shun's macOS builds have neither, so the `.app` bundle is unsigned from Gatekeeper's
+  perspective even though updater payloads are cryptographically verified
+- macOS `InstallMethod::Standard` (the curl/dmg install path): since the distributed `.app` is
+  unsigned, the quarantine attribute (`com.apple.quarantine`) that macOS attaches on download
+  persists into the update-replaced bundle and silently blocks the post-update `app.restart()`
+  under Gatekeeper. `install_update()` strips it via `xattr -dr com.apple.quarantine` right
+  after `download_and_install()` and right before `app.restart()` (best-effort — logs a warn
+  and continues on failure, never blocks the update). See README's macOS install note.
 
 ## Current status (2026-03-22)
 
@@ -310,4 +322,4 @@ Real example: making `currentWidth` a `$state` caused `resizeForSearch` to track
 - Per-app global hotkeys: `[[apps]].hotkey` + `hotkey_mode` (`launch`/`activate`/`toggle`);
   Windows fully supported via `app_window.rs`, macOS/Linux are best-effort (osascript/wmctrl)
   and fall back to `launch` when unsupported — see README "Per-app global hotkeys"
-- Rust tests: 158 total / Frontend tests: 53 total
+- Rust tests: 167 total / Frontend tests: 53 total
