@@ -496,8 +496,10 @@ fn register_app_hotkey_handler(
             let vars = config::load_config().0.vars;
             let result = match mode {
                 config::AppHotkeyMode::Launch => apps::launch_with_extra(&item, Vec::new(), &vars),
-                config::AppHotkeyMode::Activate => app_window::activate_or_launch(&item, false),
-                config::AppHotkeyMode::Toggle => app_window::activate_or_launch(&item, true),
+                config::AppHotkeyMode::Activate => {
+                    app_window::activate_or_launch(&item, false, &vars)
+                }
+                config::AppHotkeyMode::Toggle => app_window::activate_or_launch(&item, true, &vars),
             };
             if let Err(e) = result {
                 log::warn!(

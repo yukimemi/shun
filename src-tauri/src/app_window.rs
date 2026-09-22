@@ -29,15 +29,22 @@ enum ActivateOutcome {
 /// - `toggle = true` (`hotkey_mode = "toggle"`): 対象ウィンドウが現在フォアグラウンドなら
 ///   最小化する。そうでなければ `toggle = false` と同じ（アクティブ化 or 起動）。
 ///
-/// ウィンドウが見つからない・OS 未対応・操作が失敗したいずれの場合も `apps::launch()` に
-/// フォールバックする。
-pub fn activate_or_launch(item: &LaunchItem, toggle: bool) -> Result<(), String> {
+/// ウィンドウが見つからない・OS 未対応・操作が失敗したいずれの場合も `apps::launch_with_extra()`
+/// にフォールバックする（`launch_with_extra` を使うのは `Launch` モードと同じく `path` / `args` /
+/// `workdir` の `{{ vars.* }}` テンプレートを展開するため）。
+pub fn activate_or_launch(
+    item: &LaunchItem,
+    toggle: bool,
+    vars: &std::collections::HashMap<String, String>,
+) -> Result<(), String> {
     match try_activate(item, toggle) {
         Ok(ActivateOutcome::Activated) | Ok(ActivateOutcome::Minimized) => Ok(()),
-        Ok(ActivateOutcome::NotFound) | Ok(ActivateOutcome::Unsupported) => apps::launch(item),
+        Ok(ActivateOutcome::NotFound) | Ok(ActivateOutcome::Unsupported) => {
+            apps::launch_with_extra(item, Vec::new(), vars)
+        }
         Err(e) => {
             log::warn!("activate_or_launch: window operation failed ({e}), launching instead");
-            apps::launch(item)
+            apps::launch_with_extra(item, Vec::new(), vars)
         }
     }
 }
@@ -71,7 +78,10 @@ fn try_activate(_item: &LaunchItem, _toggle: bool) -> Result<ActivateOutcome, St
 ///
 /// 対象を絞るフィルタ: 可視ウィンドウのみ、オーナーウィンドウを持たない、
 /// `WS_EX_TOOLWINDOW` を除外（通常のアプリウィンドウのみを対象にする）。
-/// 同一実行ファイルが複数ウィンドウを持つ場合は最初に見つかったウィンドウのみを操作する。
+/// 同一実行ファイルが複数ウィンドウを持つ場合、`activate`（新規に前面化する）は
+/// `EnumWindows` が最初に見つけたウィンドウを操作する。`toggle` はまずフォアグラウンド
+/// ウィンドウ自体が対象プロセスのものか確認するため、複数ウィンドウのうちどれが
+/// アクティブでも正しく最小化できる。
 #[cfg(target_os = "windows")]
 mod windows_impl {
     use super::ActivateOutcome;
@@ -99,6 +109,22 @@ mod windows_impl {
             return Ok(ActivateOutcome::NotFound);
         }
 
+        unsafe {
+            // toggle: まずフォアグラウンドウィンドウ自体が対象プロセスのものか確認する。
+            // 対象プロセスが複数ウィンドウを持つ場合、EnumWindows が最初に見つける
+            // ウィンドウとフォアグラウンドウィンドウが別物なことがあるため、
+            // 「今アクティブな対象ウィンドウ」は独立して判定する必要がある。
+            if toggle {
+                let foreground = GetForegroundWindow();
+                if !foreground.is_invalid()
+                    && window_exe_stem(foreground).as_deref() == Some(target_stem.as_str())
+                {
+                    let _ = ShowWindow(foreground, SW_MINIMIZE);
+                    return Ok(ActivateOutcome::Minimized);
+                }
+            }
+        }
+
         let mut state = SearchState {
             target_stem,
             found: None,
@@ -116,11 +142,6 @@ mod windows_impl {
         let hwnd = HWND(raw as *mut std::ffi::c_void);
 
         unsafe {
-            let foreground = GetForegroundWindow();
-            if toggle && foreground == hwnd {
-                let _ = ShowWindow(hwnd, SW_MINIMIZE);
-                return Ok(ActivateOutcome::Minimized);
-            }
             if IsIconic(hwnd).as_bool() {
                 let _ = ShowWindow(hwnd, SW_RESTORE);
             }
@@ -141,6 +162,31 @@ mod windows_impl {
             .to_lowercase()
     }
 
+    /// `hwnd` を所有するプロセスの実行ファイル名 (file stem, 小文字) を返す。
+    /// プロセスハンドルの取得やイメージ名取得に失敗した場合は `None`。
+    unsafe fn window_exe_stem(hwnd: HWND) -> Option<String> {
+        let mut pid: u32 = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == 0 {
+            return None;
+        }
+
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let mut buf = [0u16; 1024];
+        let mut size = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(
+            process,
+            PROCESS_NAME_WIN32,
+            PWSTR(buf.as_mut_ptr()),
+            &mut size,
+        );
+        let _ = CloseHandle(process);
+        ok.ok()?;
+
+        let exe_path = String::from_utf16_lossy(&buf[..size as usize]);
+        Some(exe_stem(&exe_path))
+    }
+
     unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
         let state = &mut *(lparam.0 as *mut SearchState);
 
@@ -157,31 +203,7 @@ mod windows_impl {
             return true.into();
         }
 
-        let mut pid: u32 = 0;
-        GetWindowThreadProcessId(hwnd, Some(&mut pid));
-        if pid == 0 {
-            return true.into();
-        }
-
-        let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
-            return true.into();
-        };
-
-        let mut buf = [0u16; 1024];
-        let mut size = buf.len() as u32;
-        let ok = QueryFullProcessImageNameW(
-            process,
-            PROCESS_NAME_WIN32,
-            PWSTR(buf.as_mut_ptr()),
-            &mut size,
-        );
-        let _ = CloseHandle(process);
-        if ok.is_err() {
-            return true.into();
-        }
-
-        let exe_path = String::from_utf16_lossy(&buf[..size as usize]);
-        if exe_stem(&exe_path) == state.target_stem {
+        if window_exe_stem(hwnd).as_deref() == Some(state.target_stem.as_str()) {
             state.found = Some(hwnd.0 as isize);
             return false.into();
         }
