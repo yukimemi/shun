@@ -64,11 +64,12 @@ pub fn build_template_context(
     let mut ctx = tera::Context::new();
     ctx.insert("args", &extra_args.join(" "));
     ctx.insert("args_list", extra_args);
-    // 環境変数を {{ env.VAR_NAME }} として使えるようにする
     let env_map: std::collections::HashMap<String, String> = std::env::vars().collect();
     ctx.insert("env", &env_map);
     // ユーザー定義変数を {{ vars.xxx }} として使えるようにする
     ctx.insert("vars", vars);
+    // "windows" | "macos" | "linux" (`std::env::consts::OS`)。OS ごとの出し分け用。
+    ctx.insert("os", std::env::consts::OS);
     // override で差し替えられた元ファイルのパス変数
     if let Some(sf) = source_file {
         let p = std::path::Path::new(sf);
@@ -99,9 +100,12 @@ pub fn launch_with_extra(
     vars: &std::collections::HashMap<String, String>,
 ) -> Result<(), String> {
     // path / args / workdir にテンプレートマーカーがあれば展開
-    let has_template = item.path.contains("{{")
-        || item.args.iter().any(|a| a.contains("{{"))
-        || item.workdir.as_deref().is_some_and(|w| w.contains("{{"));
+    let has_template = crate::utils::has_template_syntax(&item.path)
+        || item.args.iter().any(|a| crate::utils::has_template_syntax(a))
+        || item
+            .workdir
+            .as_deref()
+            .is_some_and(crate::utils::has_template_syntax);
     if has_template || !extra_args.is_empty() {
         let ctx = build_template_context(&extra_args, vars, item.source_file.as_deref());
         let rendered_path = render_template(&item.path, &ctx);
@@ -438,8 +442,8 @@ fn history_items(config: &Config) -> Vec<LaunchItem> {
                     history_key: Some(history_key),
                     source_file: None,
                 })
-            } else if is_url(&entry.key) && !entry.key.contains("{{") {
-                // テンプレート URL（{{ }} を含む）は直接開けないのでスキップ
+            } else if is_url(&entry.key) && !crate::utils::has_template_syntax(&entry.key) {
+                // テンプレート URL（{{ }} / {% %} を含む）は直接開けないのでスキップ
                 Some(LaunchItem {
                     name: entry.key.clone(),
                     path: entry.key.clone(),

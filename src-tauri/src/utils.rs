@@ -29,6 +29,14 @@ pub fn macos_app_bundle_root(exe: &Path) -> Option<PathBuf> {
     Some(app_dir.to_path_buf())
 }
 
+/// 文字列に Tera テンプレート構文（値展開 `{{ }}` または制御構文 `{% %}`）が
+/// 含まれるかを判定する。両フォームとも一律で「テンプレートとして展開すべき
+/// 文字列」の判定に使う（`os` 変数だけを使う `{% if os == "windows" %}...{% endif %}`
+/// のような制御構文のみの文字列も対象に含めるため、`{{` の有無だけでは判定しない）。
+pub fn has_template_syntax(s: &str) -> bool {
+    s.contains("{{") || s.contains("{%")
+}
+
 fn expand_tilde(path: &str) -> String {
     if path.starts_with("~/") || path.starts_with("~\\") || path == "~" {
         let home = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -192,6 +200,21 @@ mod tests {
     fn bundle_root_rejects_bare_binary() {
         let exe = PathBuf::from("MacOS/shun");
         assert_eq!(macos_app_bundle_root(&exe), None);
+    }
+
+    #[test]
+    fn has_template_syntax_detects_value_placeholder() {
+        assert!(has_template_syntax("{{ vars.foo }}"));
+    }
+
+    #[test]
+    fn has_template_syntax_detects_control_only_block() {
+        assert!(has_template_syntax(r#"{% if os == "windows" %}wt{% endif %}"#));
+    }
+
+    #[test]
+    fn has_template_syntax_false_for_plain_string() {
+        assert!(!has_template_syntax("neovide"));
     }
 }
 

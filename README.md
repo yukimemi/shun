@@ -358,7 +358,7 @@ Merge rules:
 <details>
 <summary>Template placeholders in <code>path</code> and <code>args</code></summary>
 
-You can use [Tera](https://keats.github.io/tera/) template syntax in the `path` and `args` fields. Templates are evaluated at launch time when args are provided via Args mode (`Tab`).
+You can use [Tera](https://keats.github.io/tera/) template syntax in `path`, `args`, and most other string fields. `{{ vars.* }}`, `{{ env.* }}`, and `{{ os }}` are resolved once when the config loads (so they work in `hotkey`, `name`, `workdir`, enum fields, etc. too); `{{ args }}` / `{{ args_list }}` / `{{ file_* }}` are only resolved at launch time for `path`, `args`, and `workdir` (when args are provided via Args mode (`Tab`) or an override matches). Plain `{% if %}...{% endif %}` control blocks with no `{{ }}` inside are expanded the same way as `{{ }}` placeholders.
 
 **Context variables:**
 
@@ -368,6 +368,7 @@ You can use [Tera](https://keats.github.io/tera/) template syntax in the `path` 
 | `{{ args_list }}` | Extra args as an array |
 | `{{ env.VAR_NAME }}` | Environment variable |
 | `{{ vars.my_var }}` | User-defined variable from `[vars]` in config |
+| `{{ os }}` | Current OS: `"windows"` \| `"macos"` \| `"linux"` |
 
 **Override-only variables** (available in `[[overrides]]` `path`, `args`, and `completion_list` when a scanned file is matched — expose the original file's path information for use in templates):
 
@@ -428,6 +429,25 @@ name       = "Open Project"
 path       = "neovide"
 args       = ["{{ vars.src_dir }}/{{ args }}"]
 completion = "path"
+```
+
+**Example — OS-conditional app (one shared config.toml across machines):**
+
+```toml
+# path picked per OS; only the matching OS gets a valid hotkey
+# ({% if %} with no {{ }} inside still expands — an empty/invalid
+# hotkey string is skipped with a warning, same as any bad shortcut)
+[[apps]]
+name        = "Terminal"
+path        = "wt"
+hotkey      = "{% if os == \"windows\" %}F12{% endif %}"
+hotkey_mode = "toggle"
+
+[[apps]]
+name        = "WezTerm"
+path        = "wezterm-gui"
+hotkey      = "{% if os == \"macos\" %}F12{% endif %}"
+hotkey_mode = "toggle"
 ```
 
 **Example — `args_list` for multi-argument commands:**
