@@ -30,10 +30,15 @@ struct Binding {
 
 struct State {
     bindings: Vec<Binding>,
-    /// keydown を握りつぶした VK。対応する keyup も握りつぶし、オートリピートでの
-    /// 多重発火を防ぐ。
-    held: Vec<u16>,
+    /// keydown を握りつぶした VK と最後にイベントを見た時刻 (`KBDLLHOOKSTRUCT.time`, ms)。
+    /// 対応する keyup も握りつぶし、オートリピートでの多重発火を防ぐ。
+    held: Vec<(u16, u32)>,
 }
+
+/// held のエントリをオートリピートとみなす最大間隔 (ms)。Windows の「表示までの待ち時間」
+/// 最大値 (約 1 秒) より長くとる。これを超えた keydown は keyup を取りこぼした
+/// (ロック画面・UAC 等) とみなし、新しい押下として扱う。
+const REPEAT_WINDOW_MS: u32 = 2000;
 
 static STATE: Mutex<State> = Mutex::new(State {
     bindings: Vec::new(),
@@ -93,7 +98,7 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         let msg = wparam.0 as u32;
         let down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
         let up = msg == WM_KEYUP || msg == WM_SYSKEYUP;
-        if (down || up) && handle_key(kb.vkCode as u16, down) {
+        if (down || up) && handle_key(kb.vkCode as u16, down, kb.time) {
             return LRESULT(1);
         }
     }
@@ -102,15 +107,21 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
 
 /// キーイベントを処理し、握りつぶすべきなら `true` を返す。
 /// フックはタイムアウトがあるため、コールバックは別スレッドで実行する。
-fn handle_key(vk: u16, down: bool) -> bool {
+fn handle_key(vk: u16, down: bool, time: u32) -> bool {
     let Ok(mut state) = STATE.lock() else {
         return false;
     };
-    if let Some(i) = state.held.iter().position(|&v| v == vk) {
+    if let Some(i) = state.held.iter().position(|&(v, _)| v == vk) {
         if !down {
             state.held.swap_remove(i);
+            return true;
         }
-        return true; // keyup もしくはオートリピート
+        let last = state.held[i].1;
+        if time.wrapping_sub(last) <= REPEAT_WINDOW_MS {
+            state.held[i].1 = time;
+            return true; // オートリピート
+        }
+        state.held.swap_remove(i); // keyup 取りこぼし → 新しい押下として扱う
     }
     if !down {
         return false;
@@ -120,7 +131,7 @@ fn handle_key(vk: u16, down: bool) -> bool {
         return false;
     };
     let callback = Arc::clone(&binding.callback);
-    state.held.push(vk);
+    state.held.push((vk, time));
     drop(state);
     log::debug!("kbhook: vk {vk:#x} mods {mods:?} matched, dispatching");
     std::thread::spawn(move || callback());

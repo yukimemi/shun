@@ -70,7 +70,7 @@ fn try_activate(
     window: WindowMatch,
     toggle: bool,
 ) -> Result<ActivateOutcome, String> {
-    windows_impl::activate(window.exe.unwrap_or(&item.path), window, toggle)
+    windows_impl::activate(&item.path, window, toggle)
 }
 
 #[cfg(target_os = "macos")]
@@ -120,13 +120,14 @@ mod windows_impl {
     use windows::core::{BOOL, PWSTR};
     use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM};
     use windows::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-        PROCESS_QUERY_LIMITED_INFORMATION,
+        AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
+        PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GetForegroundWindow, GetWindow, GetWindowLongPtrW, GetWindowTextW,
-        GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow, ShowWindow,
-        GWL_EXSTYLE, GW_OWNER, SW_MINIMIZE, SW_RESTORE, WS_EX_TOOLWINDOW,
+        BringWindowToTop, EnumWindows, GetForegroundWindow, GetWindow, GetWindowLongPtrW,
+        GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
+        SetForegroundWindow, ShowWindow, GWL_EXSTYLE, GW_OWNER, SW_MINIMIZE, SW_RESTORE,
+        WS_EX_TOOLWINDOW,
     };
 
     /// 探す対象ウィンドウの条件。exe stem 一致 AND タイトル部分一致（指定時）
@@ -164,11 +165,19 @@ mod windows_impl {
     }
 
     pub(super) fn activate(
-        target_path: &str,
+        path: &str,
         window: super::WindowMatch,
         toggle: bool,
     ) -> Result<ActivateOutcome, String> {
-        let stem = exe_stem(target_path);
+        // window_exe はプロセス名そのもの（`Foo.Bar` のようにドットを含み得る）なので
+        // `.exe` だけを落とす。未指定・空文字なら path の file stem。
+        let stem = match window.exe.map(str::trim).filter(|e| !e.is_empty()) {
+            Some(exe) => {
+                let lower = exe.to_lowercase();
+                lower.strip_suffix(".exe").unwrap_or(&lower).to_string()
+            }
+            None => exe_stem(path),
+        };
         if stem.is_empty() {
             return Ok(ActivateOutcome::NotFound);
         }
@@ -213,13 +222,32 @@ mod windows_impl {
             if IsIconic(hwnd).as_bool() {
                 let _ = ShowWindow(hwnd, SW_RESTORE);
             }
-            // フォアグラウンドロックにより失敗することがある（その場合タスクバーの
-            // 点滅で終わる）。OS 制約であり回避不能なので、警告に留めて成功扱いにする。
-            if !SetForegroundWindow(hwnd).as_bool() {
+            if !force_foreground(hwnd) {
                 log::warn!("app_window(windows): SetForegroundWindow failed (foreground lock?)");
             }
         }
         Ok(ActivateOutcome::Activated)
+    }
+
+    /// フォアグラウンドロックを回避して `hwnd` を前面に出す。
+    ///
+    /// `RegisterHotKey` 経由の呼び出しは OS から前面化の権利を与えられるが、低レベル
+    /// キーボードフック (kbhook) 経由では与えられず `SetForegroundWindow` が拒否される。
+    /// 現在の前面スレッドに入力キューを一時的にアタッチすると前面化が許可される。
+    unsafe fn force_foreground(hwnd: HWND) -> bool {
+        if SetForegroundWindow(hwnd).as_bool() {
+            return true;
+        }
+        let fg_tid = GetWindowThreadProcessId(GetForegroundWindow(), None);
+        let cur_tid = GetCurrentThreadId();
+        let attached =
+            fg_tid != 0 && fg_tid != cur_tid && AttachThreadInput(cur_tid, fg_tid, true).as_bool();
+        let _ = BringWindowToTop(hwnd);
+        let ok = SetForegroundWindow(hwnd).as_bool();
+        if attached {
+            let _ = AttachThreadInput(cur_tid, fg_tid, false);
+        }
+        ok
     }
 
     fn exe_stem(path: &str) -> String {
@@ -256,9 +284,10 @@ mod windows_impl {
     }
 
     unsafe fn window_title(hwnd: HWND) -> String {
-        let mut buf = [0u16; 512];
-        let len = GetWindowTextW(hwnd, &mut buf);
-        String::from_utf16_lossy(&buf[..len.max(0) as usize])
+        let cap = GetWindowTextLengthW(hwnd).max(0) as usize + 1;
+        let mut buf = vec![0u16; cap];
+        let len = GetWindowTextW(hwnd, &mut buf).max(0) as usize;
+        String::from_utf16_lossy(&buf[..len])
     }
 
     unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
