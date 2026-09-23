@@ -509,8 +509,12 @@ fn on_launch_hotkey(app: &tauri::AppHandle) {
 
 /// `[[apps]].hotkey` の処理（launch / activate / toggle）。
 fn on_app_hotkey(entry: &config::AppEntry, mode: &config::AppHotkeyMode) {
-    let item = apps::launch_item_from_entry(entry);
-    let vars = config::load_config().0.vars;
+    // 登録時にキャプチャした entry に、押下時点の [[overrides]] を適用する
+    // （hotkey 自体の変更は /reload が必要だが、override の変更は即時反映される）
+    let cfg = config::load_config().0;
+    let mut item = apps::launch_item_from_entry(entry);
+    apps::apply_overrides(&mut item, &cfg.overrides);
+    let vars = cfg.vars;
     let window = app_window::WindowMatch {
         exe: entry.window_exe.as_deref(),
         title: entry.window_title.as_deref(),

@@ -244,7 +244,7 @@ Auto-created at first launch:
 
 ## Testing
 
-### Rust tests (167 total)
+### Rust tests (184 total)
 Each module has a `#[cfg(test)]` block:
 - `config.rs` — defaults, TOML parsing, keybinding overrides, `hotkey`/`hotkey_mode` parsing
 - `search.rs` — fuzzy/exact/migemo filter
@@ -325,4 +325,4 @@ Real example: making `currentWidth` a `$state` caused `resizeForSearch` to track
 - Per-app global hotkeys: `[[apps]].hotkey` + `hotkey_mode` (`launch`/`activate`/`toggle`);
   Windows fully supported via `app_window.rs`, macOS/Linux are best-effort (osascript/wmctrl)
   and fall back to `launch` when unsupported — see README "Per-app global hotkeys"
-- Rust tests: 167 total / Frontend tests: 53 total
+- Rust tests: 184 total / Frontend tests: 53 total
