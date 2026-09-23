@@ -289,6 +289,8 @@ extensions = ["sh", "py", "ps1", "cmd"]
 
 **`[[overrides]]` fields:**
 
+When several overrides match the same item, the **last** one wins (so `config.local.toml` entries beat `config.toml`). Overrides also apply to per-app global hotkeys (`[[apps]].hotkey`). On Windows, a bare `path = "brave"` that is not on `PATH` is resolved via the `App Paths` registry.
+
 | Field | Type | Description |
 |---|---|---|
 | `name` | string | Case-insensitive stem name match (optional) |

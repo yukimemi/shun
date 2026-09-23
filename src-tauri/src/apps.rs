@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-use crate::config::{AppEntry, CompletionType, Config, ScanDir};
+use crate::config::{AppEntry, AppOverride, CompletionType, Config, ScanDir};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LaunchItem {
@@ -287,36 +287,161 @@ enum ResolvedCmd {
     Other,
 }
 
-/// 拡張子なしのコマンド名を PATHEXT で解決する
+/// `App Paths` レジストリ値の正規化（前後空白と囲みの二重引用符を除去、空なら None）
+#[cfg(target_os = "windows")]
+fn normalize_app_path_value(raw: &str) -> Option<String> {
+    let t = raw.trim().trim_matches('"').trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t.to_string())
+    }
+}
+
+/// `App Paths\<stem>.exe` の (Default) を HKCU → HKLM の順で引き、実在する exe のパスを返す
+#[cfg(target_os = "windows")]
+fn lookup_app_paths(stem: &str) -> Option<String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::System::Registry::{
+        RegGetValueW, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_EXPAND_SZ, RRF_RT_REG_SZ,
+    };
+
+    let subkey: Vec<u16> =
+        format!("Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\{stem}.exe\0")
+            .encode_utf16()
+            .collect();
+    for root in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
+        let mut size: u32 = 0;
+        let flags = RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ;
+        // (Default) 値: valuename に NULL を渡す
+        let first = unsafe {
+            RegGetValueW(
+                root,
+                PCWSTR(subkey.as_ptr()),
+                PCWSTR::null(),
+                flags,
+                None,
+                None,
+                Some(&mut size),
+            )
+        };
+        if first.is_err() || size < 2 {
+            continue;
+        }
+        let mut buf: Vec<u16> = vec![0; (size as usize).div_ceil(2) + 1];
+        let mut size2 = (buf.len() * 2) as u32;
+        let second = unsafe {
+            RegGetValueW(
+                root,
+                PCWSTR(subkey.as_ptr()),
+                PCWSTR::null(),
+                flags,
+                None,
+                Some(buf.as_mut_ptr() as *mut _),
+                Some(&mut size2),
+            )
+        };
+        if second.is_err() {
+            continue;
+        }
+        let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+        let raw = String::from_utf16_lossy(&buf[..len]);
+        if let Some(p) = normalize_app_path_value(&raw).filter(|p| Path::new(p).is_file()) {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// 拡張子なしのコマンド名を PATHEXT で解決する。PATH で見つからなければ
+/// `App Paths` レジストリ（Brave / Chrome / VS Code など）を引く。
 #[cfg(target_os = "windows")]
 fn resolve_windows_cmd(name: &str) -> ResolvedCmd {
-    use std::path::Path;
-    // すでに拡張子がある or パス区切りを含む場合はそのまま
-    let p = Path::new(name);
-    if p.extension().is_some() || name.contains('/') || name.contains('\\') {
+    if name.contains('/') || name.contains('\\') {
         return ResolvedCmd::Other;
     }
-    let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".EXE;.CMD;.BAT;.PS1".to_string());
+    let p = Path::new(name);
     let path_var = std::env::var("PATH").unwrap_or_default();
-    for dir in std::env::split_paths(&path_var) {
-        for ext in pathext.split(';') {
-            let full = dir.join(format!("{}{}", name, ext));
-            if full.exists() {
-                let resolved = full.to_string_lossy().to_string();
-                let ext_lower = ext.to_lowercase();
-                return if ext_lower == ".cmd" {
-                    ResolvedCmd::Cmd(resolved)
-                } else if ext_lower == ".bat" {
-                    ResolvedCmd::Bat(resolved)
-                } else if ext_lower == ".ps1" {
-                    ResolvedCmd::Ps1(resolved)
-                } else {
-                    ResolvedCmd::Exe(resolved)
-                };
+    // `brave.exe` のように .exe 付きの場合は PATH 上の同名ファイルを優先し、無ければ stem で引く
+    let stem = match p.extension() {
+        None => name,
+        Some(ext) if ext.eq_ignore_ascii_case("exe") => {
+            if std::env::split_paths(&path_var).any(|dir| dir.join(name).is_file()) {
+                return ResolvedCmd::Other;
+            }
+            p.file_stem().and_then(|s| s.to_str()).unwrap_or(name)
+        }
+        Some(_) => return ResolvedCmd::Other,
+    };
+    if p.extension().is_none() {
+        let pathext =
+            std::env::var("PATHEXT").unwrap_or_else(|_| ".EXE;.CMD;.BAT;.PS1".to_string());
+        for dir in std::env::split_paths(&path_var) {
+            for ext in pathext.split(';') {
+                let full = dir.join(format!("{}{}", name, ext));
+                if full.exists() {
+                    let resolved = full.to_string_lossy().to_string();
+                    let ext_lower = ext.to_lowercase();
+                    return if ext_lower == ".cmd" {
+                        ResolvedCmd::Cmd(resolved)
+                    } else if ext_lower == ".bat" {
+                        ResolvedCmd::Bat(resolved)
+                    } else if ext_lower == ".ps1" {
+                        ResolvedCmd::Ps1(resolved)
+                    } else {
+                        ResolvedCmd::Exe(resolved)
+                    };
+                }
             }
         }
     }
-    ResolvedCmd::Other
+    match lookup_app_paths(stem) {
+        Some(p) => ResolvedCmd::Exe(p),
+        None => ResolvedCmd::Other,
+    }
+}
+
+/// [[overrides]] を name (stem, 大文字小文字無視) AND/OR ext (拡張子) でマッチして上書きする。
+/// 両方指定時は AND（name かつ ext が一致）、片方のみ指定時はその条件のみ評価。
+/// 複数マッチした場合は後ろのものが勝つ（`config.local.toml` の定義が `config.toml` を上書きする）。
+pub fn apply_overrides(item: &mut LaunchItem, overrides: &[AppOverride]) {
+    let item_name_lower = item.name.to_lowercase();
+    let item_ext = std::path::Path::new(&item.path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let Some(ov) = overrides.iter().rfind(|o| {
+        let name_ok = o.name.is_empty() || o.name.to_lowercase() == item_name_lower;
+        let ext_ok = o
+            .ext
+            .as_deref()
+            .is_none_or(|e| e.to_lowercase() == item_ext);
+        (name_ok && ext_ok) && (!o.name.is_empty() || o.ext.is_some())
+    }) else {
+        return;
+    };
+    // マッチした元ファイルパスを常に source_file に保存（{{ file_* }} テンプレートで参照可能）
+    item.source_file = Some(item.path.clone());
+    // path が指定されていれば実行ファイルを差し替え
+    if let Some(ref v) = ov.path {
+        item.path = v.clone();
+    }
+    if let Some(ref v) = ov.completion {
+        item.completion = v.clone();
+    }
+    if !ov.completion_list.is_empty() {
+        item.completion_list = ov.completion_list.clone();
+    }
+    if ov.completion_command.is_some() {
+        item.completion_command = ov.completion_command.clone();
+    }
+    if let Some(ref v) = ov.args {
+        item.args = v.clone();
+    }
+    if ov.workdir.is_some() {
+        item.workdir = ov.workdir.clone();
+    }
 }
 
 pub fn collect_items(config: &Config) -> Vec<LaunchItem> {
@@ -338,45 +463,8 @@ pub fn collect_items(config: &Config) -> Vec<LaunchItem> {
     // 履歴にある URL / Path アイテムを復元
     items.extend(history_items(config));
 
-    // [[overrides]] を name (stem, 大文字小文字無視) AND/OR ext (拡張子) でマッチして上書き
-    // 両方指定時は AND（name かつ ext が一致）、片方のみ指定時はその条件のみ評価
     for item in &mut items {
-        let item_name_lower = item.name.to_lowercase();
-        let item_ext = std::path::Path::new(&item.path)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-        if let Some(ov) = config.overrides.iter().find(|o| {
-            let name_ok = o.name.is_empty() || o.name.to_lowercase() == item_name_lower;
-            let ext_ok = o.ext.is_none()
-                || o.ext
-                    .as_deref()
-                    .is_some_and(|e| e.to_lowercase() == item_ext);
-            (name_ok && ext_ok) && (!o.name.is_empty() || o.ext.is_some())
-        }) {
-            // マッチした元ファイルパスを常に source_file に保存（{{ file_* }} テンプレートで参照可能）
-            item.source_file = Some(item.path.clone());
-            // path が指定されていれば実行ファイルを差し替え
-            if let Some(ref v) = ov.path {
-                item.path = v.clone();
-            }
-            if let Some(ref v) = ov.completion {
-                item.completion = v.clone();
-            }
-            if !ov.completion_list.is_empty() {
-                item.completion_list = ov.completion_list.clone();
-            }
-            if ov.completion_command.is_some() {
-                item.completion_command = ov.completion_command.clone();
-            }
-            if let Some(ref v) = ov.args {
-                item.args = v.clone();
-            }
-            if ov.workdir.is_some() {
-                item.workdir = ov.workdir.clone();
-            }
-        }
+        apply_overrides(item, &config.overrides);
     }
 
     items
@@ -1098,6 +1186,79 @@ mod tests {
             completion_list: vec![],
             completion_command: None,
         }
+    }
+
+    fn item_from(name: &str, path: &str) -> LaunchItem {
+        launch_item_from_entry(&app_entry(name, path))
+    }
+
+    #[test]
+    fn apply_overrides_replaces_fields_and_keeps_source_file() {
+        let mut item = item_from("Brave", "brave");
+        let mut ov = make_override(
+            "brave",
+            None,
+            Some("C:/b/brave.exe"),
+            Some(vec!["--x"]),
+            Some("C:/w"),
+        );
+        ov.completion_list = vec!["a".into()];
+        apply_overrides(&mut item, &[ov]);
+        assert_eq!(item.path, "C:/b/brave.exe");
+        assert_eq!(item.args, vec!["--x"]);
+        assert_eq!(item.workdir.as_deref(), Some("C:/w"));
+        assert_eq!(item.completion_list, vec!["a"]);
+        assert_eq!(item.source_file.as_deref(), Some("brave"));
+    }
+
+    #[test]
+    fn apply_overrides_later_entry_wins() {
+        let mut item = item_from("brave", "brave");
+        let ovs = [
+            make_override("brave", None, Some("first.exe"), Some(vec!["1"]), None),
+            make_override("brave", None, Some("second.exe"), None, None),
+        ];
+        apply_overrides(&mut item, &ovs);
+        assert_eq!(item.path, "second.exe");
+        // マッチした 1 件のみ適用（項目ごとの合成はしない）
+        assert!(item.args.is_empty());
+    }
+
+    #[test]
+    fn apply_overrides_no_match_leaves_item_untouched() {
+        let mut item = item_from("brave", "brave");
+        apply_overrides(
+            &mut item,
+            &[make_override("other", None, Some("x"), None, None)],
+        );
+        assert_eq!(item.path, "brave");
+        assert!(item.source_file.is_none());
+        // name も ext も空の override はマッチしない
+        apply_overrides(&mut item, &[make_override("", None, Some("x"), None, None)]);
+        assert_eq!(item.path, "brave");
+    }
+
+    #[test]
+    fn apply_overrides_name_is_case_insensitive_and_unset_fields_kept() {
+        let mut item = item_from("Brave", "brave");
+        item.args = vec!["keep".into()];
+        apply_overrides(
+            &mut item,
+            &[make_override("BRAVE", None, Some("b.exe"), None, None)],
+        );
+        assert_eq!(item.path, "b.exe");
+        assert_eq!(item.args, vec!["keep"]);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn normalize_app_path_value_strips_quotes_and_empty() {
+        assert_eq!(
+            normalize_app_path_value("  \"C:\\a b\\x.exe\" ").as_deref(),
+            Some("C:\\a b\\x.exe")
+        );
+        assert_eq!(normalize_app_path_value("  \"\" "), None);
+        assert_eq!(normalize_app_path_value(""), None);
     }
 
     #[test]
