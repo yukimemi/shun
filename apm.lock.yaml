@@ -1,14 +1,77 @@
 lockfile_version: '1'
-generated_at: '2026-05-03T04:44:39.790151+00:00'
-apm_version: 0.11.0
+generated_at: '2026-09-23T00:52:15.331404+00:00'
+apm_version: 0.28.0
 dependencies:
 - repo_url: yukimemi/renri
+  name: renri
   host: github.com
-  resolved_commit: 6b034f40323225855d2ffce0b15a77807e441723
+  resolved_commit: 7d418b7d23e9910083c6c1b8e87798bb82b9df37
   resolved_ref: main
+  version: 0.1.17
   package_type: apm_package
   deployed_files:
+  - .agents/skills/renri
+  - .agents/skills/renri/SKILL.md
   - .claude/skills/renri
+  - .claude/skills/renri/SKILL.md
   - .gemini/skills/renri
   - .github/skills/renri
-  content_hash: sha256:8362ac856f78eefaf5cede49891bee311a56905d6f17b0b3e69f8aac46c2b72b
+  deployed_file_hashes:
+    .agents/skills/renri/SKILL.md: sha256:b0ef8bb599b5dc116a39dc2d3712dd95c722974b91f109a26263052c8d1090d6
+    .claude/skills/renri/SKILL.md: sha256:b0ef8bb599b5dc116a39dc2d3712dd95c722974b91f109a26263052c8d1090d6
+  content_hash: sha256:9d4eca1f31dc9a21b82eb5fd8b197561fb474dc62c4363854682184f34ccaef0
+deployments:
+- kind: project-relative
+  target: claude
+  value: .claude/skills/renri
+  runtime: null
+  scope: project
+  owners:
+  - yukimemi/renri
+  active_owner: yukimemi/renri
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/renri/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - yukimemi/renri
+  active_owner: yukimemi/renri
+  content_hash: sha256:b0ef8bb599b5dc116a39dc2d3712dd95c722974b91f109a26263052c8d1090d6
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/renri
+  runtime: null
+  scope: project
+  owners:
+  - yukimemi/renri
+  active_owner: yukimemi/renri
+  content_hash: null
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/renri/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - yukimemi/renri
+  active_owner: yukimemi/renri
+  content_hash: sha256:b0ef8bb599b5dc116a39dc2d3712dd95c722974b91f109a26263052c8d1090d6
+- kind: project-relative
+  target: copilot
+  value: .github/skills/renri
+  runtime: null
+  scope: project
+  owners:
+  - yukimemi/renri
+  active_owner: yukimemi/renri
+  content_hash: null
+- kind: project-relative
+  target: gemini
+  value: .gemini/skills/renri
+  runtime: null
+  scope: project
+  owners:
+  - yukimemi/renri
+  active_owner: yukimemi/renri
+  content_hash: null

@@ -53,8 +53,9 @@ pub fn activate_or_launch(
     }
 }
 
-/// Windows でのウィンドウ照合条件。
+/// Windows でのウィンドウ照合条件。他 OS では読まれない（config から渡されるだけ）。
 #[derive(Clone, Copy)]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub struct WindowMatch<'a> {
     /// 照合する実行ファイル名。`None` なら `item.path` の file stem。
     pub exe: Option<&'a str>,
