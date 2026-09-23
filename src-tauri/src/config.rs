@@ -311,6 +311,16 @@ pub struct AppEntry {
     /// `hotkey` が押された時の動作。省略時は `"launch"`。
     #[serde(default)]
     pub hotkey_mode: AppHotkeyMode,
+    /// `hotkey_mode = "activate"` / `"toggle"` でウィンドウを探す際に照合する実行ファイル名
+    /// (Windows のみ、拡張子なし・大文字小文字無視)。省略時は `path` の file stem。
+    /// `wt` → `WindowsTerminal.exe` のように起動スタブと実プロセスが異なる場合に使う。
+    pub window_exe: Option<String>,
+    /// activate / toggle の対象を、タイトルにこの文字列を含むウィンドウに限定する
+    /// (Windows のみ、大文字小文字無視の部分一致)。同じ exe の複数ウィンドウを区別する用途。
+    pub window_title: Option<String>,
+    /// タイトルにこの文字列を含むウィンドウを activate / toggle の対象から除外する
+    /// (Windows のみ、大文字小文字無視の部分一致)。
+    pub window_title_exclude: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -747,6 +757,9 @@ preview_scroll_up   = "Ctrl+k"       # Scroll preview panel up
 # completion_search_mode = "fuzzy"    # "fuzzy" | "exact" | "migemo"
 # hotkey                 = "Ctrl+Alt+N" # optional per-app global hotkey
 # hotkey_mode            = "launch"     # "launch" (default) | "activate" | "toggle"
+# window_exe             = "WindowsTerminal" # Windows: exe name to match for activate/toggle (default: stem of path)
+# window_title           = "Yazi"            # Windows: also require this substring in the window title
+# window_title_exclude   = "Yazi"            # Windows: skip windows whose title contains this substring
 
 # Auto-register scripts from directories (non-existent paths are silently ignored)
 # Windows

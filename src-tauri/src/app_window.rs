@@ -32,12 +32,16 @@ enum ActivateOutcome {
 /// ウィンドウが見つからない・OS 未対応・操作が失敗したいずれの場合も `apps::launch_with_extra()`
 /// にフォールバックする（`launch_with_extra` を使うのは `Launch` モードと同じく `path` / `args` /
 /// `workdir` の `{{ vars.* }}` テンプレートを展開するため）。
+///
+/// `window` は Windows でのウィンドウ照合条件 (`[[apps]].window_exe` / `window_title`)。
+/// 他 OS では無視される。
 pub fn activate_or_launch(
     item: &LaunchItem,
+    window: WindowMatch,
     toggle: bool,
     vars: &std::collections::HashMap<String, String>,
 ) -> Result<(), String> {
-    match try_activate(item, toggle) {
+    match try_activate(item, window, toggle) {
         Ok(ActivateOutcome::Activated) | Ok(ActivateOutcome::Minimized) => Ok(()),
         Ok(ActivateOutcome::NotFound) | Ok(ActivateOutcome::Unsupported) => {
             apps::launch_with_extra(item, Vec::new(), vars)
@@ -49,23 +53,50 @@ pub fn activate_or_launch(
     }
 }
 
+/// Windows でのウィンドウ照合条件。
+#[derive(Clone, Copy)]
+pub struct WindowMatch<'a> {
+    /// 照合する実行ファイル名。`None` なら `item.path` の file stem。
+    pub exe: Option<&'a str>,
+    /// タイトルに含まれるべき文字列（大文字小文字無視）。`None` なら条件なし。
+    pub title: Option<&'a str>,
+    /// タイトルにこの文字列を含むウィンドウは除外する（大文字小文字無視）。
+    pub title_exclude: Option<&'a str>,
+}
+
 #[cfg(target_os = "windows")]
-fn try_activate(item: &LaunchItem, toggle: bool) -> Result<ActivateOutcome, String> {
-    windows_impl::activate(&item.path, toggle)
+fn try_activate(
+    item: &LaunchItem,
+    window: WindowMatch,
+    toggle: bool,
+) -> Result<ActivateOutcome, String> {
+    windows_impl::activate(&item.path, window, toggle)
 }
 
 #[cfg(target_os = "macos")]
-fn try_activate(item: &LaunchItem, toggle: bool) -> Result<ActivateOutcome, String> {
+fn try_activate(
+    item: &LaunchItem,
+    _window: WindowMatch,
+    toggle: bool,
+) -> Result<ActivateOutcome, String> {
     macos_impl::activate(&item.name, toggle)
 }
 
 #[cfg(target_os = "linux")]
-fn try_activate(item: &LaunchItem, toggle: bool) -> Result<ActivateOutcome, String> {
+fn try_activate(
+    item: &LaunchItem,
+    _window: WindowMatch,
+    toggle: bool,
+) -> Result<ActivateOutcome, String> {
     linux_impl::activate(&item.name, toggle)
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-fn try_activate(_item: &LaunchItem, _toggle: bool) -> Result<ActivateOutcome, String> {
+fn try_activate(
+    _item: &LaunchItem,
+    _window: WindowMatch,
+    _toggle: bool,
+) -> Result<ActivateOutcome, String> {
     Ok(ActivateOutcome::Unsupported)
 }
 
@@ -89,36 +120,82 @@ mod windows_impl {
     use windows::core::{BOOL, PWSTR};
     use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM};
     use windows::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-        PROCESS_QUERY_LIMITED_INFORMATION,
+        AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
+        PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GetForegroundWindow, GetWindow, GetWindowLongPtrW, GetWindowThreadProcessId,
-        IsIconic, IsWindowVisible, SetForegroundWindow, ShowWindow, GWL_EXSTYLE, GW_OWNER,
-        SW_MINIMIZE, SW_RESTORE, WS_EX_TOOLWINDOW,
+        BringWindowToTop, EnumWindows, GetForegroundWindow, GetWindow, GetWindowLongPtrW,
+        GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
+        SetForegroundWindow, ShowWindow, GWL_EXSTYLE, GW_OWNER, SW_MINIMIZE, SW_RESTORE,
+        WS_EX_TOOLWINDOW,
     };
 
+    /// 探す対象ウィンドウの条件。exe stem 一致 AND タイトル部分一致（指定時）
+    /// AND タイトル除外文字列を含まない（指定時）。
+    struct Target {
+        stem: String,
+        /// 小文字化済み
+        title: Option<String>,
+        /// 小文字化済み
+        title_exclude: Option<String>,
+    }
+
+    impl Target {
+        unsafe fn matches(&self, hwnd: HWND) -> bool {
+            if window_exe_stem(hwnd).as_deref() != Some(self.stem.as_str()) {
+                return false;
+            }
+            if self.title.is_none() && self.title_exclude.is_none() {
+                return true;
+            }
+            let title = window_title(hwnd).to_lowercase();
+            self.title
+                .as_ref()
+                .is_none_or(|t| title.contains(t.as_str()))
+                && self
+                    .title_exclude
+                    .as_ref()
+                    .is_none_or(|t| !title.contains(t.as_str()))
+        }
+    }
+
     struct SearchState {
-        target_stem: String,
+        target: Target,
         found: Option<isize>,
     }
 
-    pub(super) fn activate(target_path: &str, toggle: bool) -> Result<ActivateOutcome, String> {
-        let target_stem = exe_stem(target_path);
-        if target_stem.is_empty() {
+    pub(super) fn activate(
+        path: &str,
+        window: super::WindowMatch,
+        toggle: bool,
+    ) -> Result<ActivateOutcome, String> {
+        // window_exe はプロセス名そのもの（`Foo.Bar` のようにドットを含み得る）なので
+        // `.exe` だけを落とす。未指定・空文字なら path の file stem。
+        let stem = match window.exe.map(str::trim).filter(|e| !e.is_empty()) {
+            Some(exe) => {
+                let lower = exe.to_lowercase();
+                lower.strip_suffix(".exe").unwrap_or(&lower).to_string()
+            }
+            None => exe_stem(path),
+        };
+        if stem.is_empty() {
             return Ok(ActivateOutcome::NotFound);
         }
+        let normalize = |s: Option<&str>| s.filter(|t| !t.is_empty()).map(str::to_lowercase);
+        let target = Target {
+            stem,
+            title: normalize(window.title),
+            title_exclude: normalize(window.title_exclude),
+        };
 
         unsafe {
-            // toggle: まずフォアグラウンドウィンドウ自体が対象プロセスのものか確認する。
+            // toggle: まずフォアグラウンドウィンドウ自体が対象か確認する。
             // 対象プロセスが複数ウィンドウを持つ場合、EnumWindows が最初に見つける
             // ウィンドウとフォアグラウンドウィンドウが別物なことがあるため、
             // 「今アクティブな対象ウィンドウ」は独立して判定する必要がある。
             if toggle {
                 let foreground = GetForegroundWindow();
-                if !foreground.is_invalid()
-                    && window_exe_stem(foreground).as_deref() == Some(target_stem.as_str())
-                {
+                if !foreground.is_invalid() && target.matches(foreground) {
                     let _ = ShowWindow(foreground, SW_MINIMIZE);
                     return Ok(ActivateOutcome::Minimized);
                 }
@@ -126,7 +203,7 @@ mod windows_impl {
         }
 
         let mut state = SearchState {
-            target_stem,
+            target,
             found: None,
         };
         unsafe {
@@ -145,13 +222,32 @@ mod windows_impl {
             if IsIconic(hwnd).as_bool() {
                 let _ = ShowWindow(hwnd, SW_RESTORE);
             }
-            // フォアグラウンドロックにより失敗することがある（その場合タスクバーの
-            // 点滅で終わる）。OS 制約であり回避不能なので、警告に留めて成功扱いにする。
-            if !SetForegroundWindow(hwnd).as_bool() {
+            if !force_foreground(hwnd) {
                 log::warn!("app_window(windows): SetForegroundWindow failed (foreground lock?)");
             }
         }
         Ok(ActivateOutcome::Activated)
+    }
+
+    /// フォアグラウンドロックを回避して `hwnd` を前面に出す。
+    ///
+    /// `RegisterHotKey` 経由の呼び出しは OS から前面化の権利を与えられるが、低レベル
+    /// キーボードフック (kbhook) 経由では与えられず `SetForegroundWindow` が拒否される。
+    /// 現在の前面スレッドに入力キューを一時的にアタッチすると前面化が許可される。
+    unsafe fn force_foreground(hwnd: HWND) -> bool {
+        if SetForegroundWindow(hwnd).as_bool() {
+            return true;
+        }
+        let fg_tid = GetWindowThreadProcessId(GetForegroundWindow(), None);
+        let cur_tid = GetCurrentThreadId();
+        let attached =
+            fg_tid != 0 && fg_tid != cur_tid && AttachThreadInput(cur_tid, fg_tid, true).as_bool();
+        let _ = BringWindowToTop(hwnd);
+        let ok = SetForegroundWindow(hwnd).as_bool();
+        if attached {
+            let _ = AttachThreadInput(cur_tid, fg_tid, false);
+        }
+        ok
     }
 
     fn exe_stem(path: &str) -> String {
@@ -187,6 +283,13 @@ mod windows_impl {
         Some(exe_stem(&exe_path))
     }
 
+    unsafe fn window_title(hwnd: HWND) -> String {
+        let cap = GetWindowTextLengthW(hwnd).max(0) as usize + 1;
+        let mut buf = vec![0u16; cap];
+        let len = GetWindowTextW(hwnd, &mut buf).max(0) as usize;
+        String::from_utf16_lossy(&buf[..len])
+    }
+
     unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
         let state = &mut *(lparam.0 as *mut SearchState);
 
@@ -203,7 +306,7 @@ mod windows_impl {
             return true.into();
         }
 
-        if window_exe_stem(hwnd).as_deref() == Some(state.target_stem.as_str()) {
+        if state.target.matches(hwnd) {
             state.found = Some(hwnd.0 as isize);
             return false.into();
         }
