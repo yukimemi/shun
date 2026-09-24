@@ -33,8 +33,8 @@ enum ActivateOutcome {
 /// にフォールバックする（`launch_with_extra` を使うのは `Launch` モードと同じく `path` / `args` /
 /// `workdir` の `{{ vars.* }}` テンプレートを展開するため）。
 ///
-/// `window` は Windows でのウィンドウ照合条件 (`[[apps]].window_exe` / `window_title`)。
-/// 他 OS では無視される。
+/// `window` はウィンドウ照合条件 (`[[apps]].window_app` / `window_title` ...)。
+/// `window_app` は全 OS 共通、タイトル条件は Windows のみ。
 pub fn activate_or_launch(
     item: &LaunchItem,
     window: WindowMatch,
@@ -53,43 +53,60 @@ pub fn activate_or_launch(
     }
 }
 
-/// Windows でのウィンドウ照合条件。他 OS では読まれない（config から渡されるだけ）。
+/// ウィンドウ照合条件（config から渡される）。`title` / `title_exclude` は Windows のみ参照する。
 #[derive(Clone, Copy)]
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub struct WindowMatch<'a> {
-    /// 照合する実行ファイル名。`None` なら `item.path` の file stem。
-    pub exe: Option<&'a str>,
+    /// 照合するアプリ/プロセス名 (`[[apps]].window_app`)。`None` なら `item.path` の file stem。
+    pub app: Option<&'a str>,
     /// タイトルに含まれるべき文字列（大文字小文字無視）。`None` なら条件なし。
     pub title: Option<&'a str>,
     /// タイトルにこの文字列を含むウィンドウは除外する（大文字小文字無視）。
     pub title_exclude: Option<&'a str>,
 }
 
-#[cfg(target_os = "windows")]
+/// activate / toggle の照合対象アプリ名を全 OS 共通の規則で解決する。
+///
+/// 1. trim 後に空でない `window_app` があればそれ。
+/// 2. なければ `path` の file stem（`name` には依存しない）。
+///
+/// 末尾の `.exe` / `.app` は大文字小文字を無視して除去する（大文字小文字自体は保持）。
+/// 解決結果が空なら `None`。
+pub fn resolve_window_app(window_app: Option<&str>, path: &str) -> Option<String> {
+    let base = match window_app.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(a) => a.to_string(),
+        None => std::path::Path::new(path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+    };
+    let lower = base.to_ascii_lowercase();
+    let cut = if lower.ends_with(".exe") || lower.ends_with(".app") {
+        base.len() - 4
+    } else {
+        base.len()
+    };
+    let name = base[..cut].trim();
+    (!name.is_empty()).then(|| name.to_string())
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 fn try_activate(
     item: &LaunchItem,
     window: WindowMatch,
     toggle: bool,
 ) -> Result<ActivateOutcome, String> {
-    windows_impl::activate(&item.path, window, toggle)
-}
-
-#[cfg(target_os = "macos")]
-fn try_activate(
-    item: &LaunchItem,
-    _window: WindowMatch,
-    toggle: bool,
-) -> Result<ActivateOutcome, String> {
-    macos_impl::activate(&item.name, toggle)
-}
-
-#[cfg(target_os = "linux")]
-fn try_activate(
-    item: &LaunchItem,
-    _window: WindowMatch,
-    toggle: bool,
-) -> Result<ActivateOutcome, String> {
-    linux_impl::activate(&item.name, toggle)
+    let Some(app) = resolve_window_app(window.app, &item.path) else {
+        return Ok(ActivateOutcome::NotFound);
+    };
+    #[cfg(target_os = "windows")]
+    return windows_impl::activate(&app, window, toggle);
+    #[cfg(target_os = "macos")]
+    return macos_impl::activate(&app, toggle);
+    #[cfg(target_os = "linux")]
+    return linux_impl::activate(&app, toggle);
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
@@ -104,9 +121,8 @@ fn try_activate(
 /// Windows: `EnumWindows` で対象プロセスの通常ウィンドウを1つ探し、
 /// `SetForegroundWindow` / `ShowWindow` で操作する。
 ///
-/// マッチは `item.path` の file stem (拡張子・ディレクトリを除いた実行ファイル名) を
-/// 大文字小文字無視で比較する。`path` が PATH 上のコマンド名・`.lnk` などのケースでも
-/// 実行中プロセスの exe 名と比較できるようにするため。
+/// マッチは解決済みアプリ名（`window_app` または `path` の file stem）を
+/// 大文字小文字無視で実行ファイル名と比較する。
 ///
 /// 対象を絞るフィルタ: 可視ウィンドウのみ、オーナーウィンドウを持たない、
 /// `WS_EX_TOOLWINDOW` を除外（通常のアプリウィンドウのみを対象にする）。
@@ -166,22 +182,12 @@ mod windows_impl {
     }
 
     pub(super) fn activate(
-        path: &str,
+        app: &str,
         window: super::WindowMatch,
         toggle: bool,
     ) -> Result<ActivateOutcome, String> {
-        // window_exe はプロセス名そのもの（`Foo.Bar` のようにドットを含み得る）なので
-        // `.exe` だけを落とす。未指定・空文字なら path の file stem。
-        let stem = match window.exe.map(str::trim).filter(|e| !e.is_empty()) {
-            Some(exe) => {
-                let lower = exe.to_lowercase();
-                lower.strip_suffix(".exe").unwrap_or(&lower).to_string()
-            }
-            None => exe_stem(path),
-        };
-        if stem.is_empty() {
-            return Ok(ActivateOutcome::NotFound);
-        }
+        // app は resolve_window_app() で解決済み（.exe 除去済み）。比較用に小文字化する。
+        let stem = app.to_lowercase();
         let normalize = |s: Option<&str>| s.filter(|t| !t.is_empty()).map(str::to_lowercase);
         let target = Target {
             stem,
@@ -315,45 +321,44 @@ mod windows_impl {
     }
 }
 
-/// macOS: `osascript` 経由で AppleScript を実行し、起動/前面化/最小化を行う。
+/// macOS: `osascript` 経由で AppleScript を実行し、起動中判定/前面化/最小化を行う。
 ///
-/// `tell application "<name>" to activate` は対象が未起動なら起動し、起動済みなら
-/// 前面化する、という2つの動作を1コマンドで賄える。`item.name` をそのままアプリ名として
-/// 渡すため、config の `[[apps]].name` が実際の macOS アプリ名（`.app` のベース名）と
-/// 一致しない場合は動作しない（README 参照）。
+/// アプリ名は解決済みの `window_app`（または `path` の stem）で、`.app` のベース名と
+/// 一致している必要がある。`tell application "X" to activate` は未起動のアプリを勝手に
+/// 起動してしまうため、まず `application X is running` で起動中か判定し、未起動なら
+/// `NotFound` を返して呼び出し側に設定済み `path` を起動させる。アプリ名は `on run argv`
+/// の引数で渡すのでエスケープ不要。判定・前面判定・activate が同じ識別子を使う。
 ///
-/// 制約: ウィンドウの前面化・最小化操作にはアクセシビリティ権限が必要。権限が
-/// 未許可の場合 `osascript` はエラーを返し、`Err` として呼び出し側に伝播し
-/// `activate_or_launch()` が `apps::launch()` にフォールバックする。
+/// 制約: 実機未検証。前面化・最小化にはアクセシビリティ権限が必要で、`osascript` が
+/// エラーを返した場合は `Err` として `activate_or_launch()` が起動にフォールバックする。
 #[cfg(target_os = "macos")]
 mod macos_impl {
     use super::ActivateOutcome;
 
+    const SCRIPT: &str = r#"on run argv
+    set appName to item 1 of argv
+    set doToggle to (item 2 of argv) is "1"
+    if not (application appName is running) then return "notfound"
+    if doToggle and (frontmost of application appName) then
+        tell application appName to set miniaturized of every window to true
+        return "minimized"
+    end if
+    tell application appName to activate
+    return "activated"
+end run"#;
+
     pub(super) fn activate(app_name: &str, toggle: bool) -> Result<ActivateOutcome, String> {
-        if app_name.is_empty() {
-            return Ok(ActivateOutcome::NotFound);
-        }
-        let escaped = app_name.replace('\\', "\\\\").replace('"', "\\\"");
-
-        if toggle {
-            let frontmost = run_osascript(
-                r#"tell application "System Events" to get name of first process whose frontmost is true"#,
-            )?;
-            if frontmost.trim().eq_ignore_ascii_case(&escaped) {
-                run_osascript(&format!(
-                    r#"tell application "{escaped}" to set miniaturized of every window to true"#
-                ))?;
-                return Ok(ActivateOutcome::Minimized);
-            }
-        }
-
-        run_osascript(&format!(r#"tell application "{escaped}" to activate"#))?;
-        Ok(ActivateOutcome::Activated)
+        let out = run_osascript(app_name, toggle)?;
+        Ok(match out.trim() {
+            "notfound" => ActivateOutcome::NotFound,
+            "minimized" => ActivateOutcome::Minimized,
+            _ => ActivateOutcome::Activated,
+        })
     }
 
-    fn run_osascript(script: &str) -> Result<String, String> {
+    fn run_osascript(app_name: &str, toggle: bool) -> Result<String, String> {
         let output = std::process::Command::new("osascript")
-            .args(["-e", script])
+            .args(["-e", SCRIPT, app_name, if toggle { "1" } else { "0" }])
             .output()
             .map_err(|e| e.to_string())?;
         if !output.status.success() {
@@ -363,9 +368,10 @@ mod macos_impl {
     }
 }
 
-/// Linux: `wmctrl` があれば `-a <name>` でアクティブ化する（部分一致・大文字小文字無視で
-/// ウィンドウタイトルとマッチする）。`wmctrl` が無い、または X11 以外（Wayland など）で
-/// 動作しない環境では `Unsupported` を返し、呼び出し側が `apps::launch()` にフォールバックする。
+/// Linux: `wmctrl` があれば `-x -a <app>` でアクティブ化する。`-x` により WM_CLASS
+/// (`instance.class`) と部分一致・大文字小文字無視で照合する（タイトルではない）。
+/// 部分一致のため短い名前は別アプリに誤マッチし得る。`wmctrl` が無い、または X11 以外
+/// （Wayland など）で動作しない環境では `Unsupported` を返し、呼び出し側が起動にフォールバックする。
 ///
 /// 制約: `wmctrl` には「現在フォーカスされているウィンドウか」を安定して判定する手段が
 /// ない（追加で `xdotool` 等を要求すると依存が増える）。そのため `toggle` は `activate` と
@@ -375,11 +381,8 @@ mod linux_impl {
     use super::ActivateOutcome;
 
     pub(super) fn activate(app_name: &str, _toggle: bool) -> Result<ActivateOutcome, String> {
-        if app_name.is_empty() {
-            return Ok(ActivateOutcome::NotFound);
-        }
         let output = match std::process::Command::new("wmctrl")
-            .args(["-a", app_name])
+            .args(["-x", "-a", app_name])
             .output()
         {
             Ok(o) => o,
@@ -390,5 +393,46 @@ mod linux_impl {
         } else {
             Ok(ActivateOutcome::NotFound)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_window_app as r;
+
+    #[test]
+    fn explicit_app_wins() {
+        assert_eq!(r(Some("Code"), "/usr/bin/foo").as_deref(), Some("Code"));
+    }
+
+    #[test]
+    fn falls_back_to_path_stem() {
+        assert_eq!(r(None, "C:/tools/todoke.exe").as_deref(), Some("todoke"));
+        assert_eq!(r(None, "todoke").as_deref(), Some("todoke"));
+    }
+
+    #[test]
+    fn blank_app_falls_back() {
+        assert_eq!(r(Some("  "), "/bin/todoke").as_deref(), Some("todoke"));
+        assert_eq!(r(Some(""), "/bin/todoke").as_deref(), Some("todoke"));
+    }
+
+    #[test]
+    fn strips_exe_and_app_preserving_case() {
+        assert_eq!(
+            r(Some("WindowsTerminal.EXE"), "x").as_deref(),
+            Some("WindowsTerminal")
+        );
+        assert_eq!(
+            r(Some("Visual Studio Code.app"), "x").as_deref(),
+            Some("Visual Studio Code")
+        );
+        assert_eq!(r(Some("Foo.Bar"), "x").as_deref(), Some("Foo.Bar"));
+    }
+
+    #[test]
+    fn empty_resolves_to_none() {
+        assert_eq!(r(None, ""), None);
+        assert_eq!(r(Some(".exe"), ""), None);
     }
 }

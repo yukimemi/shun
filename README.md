@@ -310,7 +310,7 @@ Each `[[apps]]` entry can register its own global hotkey, independent of `keybin
 |---|---|---|
 | `hotkey` | string | Optional. A shortcut string parseable the same way as `keybindings.launch` (e.g. `"Ctrl+Alt+N"`). Omit to skip hotkey registration for this app |
 | `hotkey_mode` | string | `"launch"` (default) \| `"activate"` \| `"toggle"` |
-| `window_exe` | string | Optional, Windows only. Executable name (without extension, case-insensitive) used to find the window for `activate` / `toggle`. Defaults to the file name of `path`. Needed when `path` is a launcher stub, e.g. `path = "wt"` → `window_exe = "WindowsTerminal"` |
+| `window_app` | string | Optional, all OSes. App/process name used to find the window for `activate` / `toggle`: executable name on Windows (without `.exe`), `.app` name on macOS (without `.app`), WM_CLASS on Linux. Case-insensitive on Windows/Linux. Defaults to the file name (stem) of `path`; `name` is never used. Needed when `path` is a launcher stub, e.g. `path = "wt"` → `window_app = "WindowsTerminal"`. The legacy key `window_exe` is still accepted as an alias (set only one of the two) |
 | `window_title` | string | Optional, Windows only. Additionally require the window title to contain this string (case-insensitive) for `activate` / `toggle`. Distinguishes windows of the same executable, e.g. a dedicated yazi window in Windows Terminal |
 | `window_title_exclude` | string | Optional, Windows only. Skip windows whose title contains this string (case-insensitive) for `activate` / `toggle`. E.g. keep the F12 Windows Terminal hotkey from grabbing a dedicated yazi window |
 
@@ -335,8 +335,8 @@ still works and the key press is not passed on to the focused app.
 | Platform | Behavior |
 |---|---|
 | Windows | Full support. Matches the app's own top-level window by executable file name (case-insensitive). If the app has multiple windows, only the first one found is operated on. Foreground-lock restrictions imposed by Windows may occasionally prevent focus-stealing (the taskbar icon flashes instead); this is logged as a warning, not an error |
-| macOS | Uses `osascript`/AppleScript with the app's `name` from config, so `name` must match the actual macOS application name. Requires Accessibility permission for System Events; if not granted, the app hotkey silently falls back to launching a new instance |
-| Linux | Requires `wmctrl` to be installed; falls back to `launch` if it's missing. Only works under X11 — has no effect on Wayland. `toggle` behaves the same as `activate` (no reliable way to detect focus without extra tooling), i.e. it never minimizes |
+| macOS | Uses `osascript`/AppleScript. The target is `window_app`, or the file stem of `path` if unset (not `name`), and must equal the `.app` name (e.g. `Visual Studio Code`); a `path` pointing inside `.app/Contents/MacOS/foo` needs an explicit `window_app`. If the app is not running, shun launches `path` instead of letting AppleScript start it. Requires Accessibility permission; if not granted (or `osascript` errors), the hotkey falls back to launching a new instance. Not verified on real hardware |
+| Linux | Requires `wmctrl` to be installed; matches `window_app` (or the stem of `path`) against the window's WM_CLASS via `wmctrl -x -a` (substring, case-insensitive, so short names can match the wrong app); falls back to `launch` if it's missing. Only works under X11 — has no effect on Wayland. `toggle` behaves the same as `activate` (no reliable way to detect focus without extra tooling), i.e. it never minimizes |
 
 If a window can't be found, the platform is unsupported, or the window operation otherwise fails,
 shun falls back to launching a new instance rather than doing nothing.
@@ -452,7 +452,7 @@ completion = "path"
 [[apps]]
 name        = "Terminal"
 path        = "wt"
-window_exe  = "WindowsTerminal"   # wt.exe is a stub; the window belongs to WindowsTerminal.exe
+window_app  = "WindowsTerminal"   # wt.exe is a stub; the window belongs to WindowsTerminal.exe
 hotkey      = "{% if os == \"windows\" %}F12{% endif %}"
 hotkey_mode = "toggle"
 
