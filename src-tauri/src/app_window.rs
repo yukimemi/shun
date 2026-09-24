@@ -331,6 +331,10 @@ mod windows_impl {
 ///
 /// 制約: 実機未検証。前面化・最小化にはアクセシビリティ権限が必要で、`osascript` が
 /// エラーを返した場合は `Err` として `activate_or_launch()` が起動にフォールバックする。
+///
+/// 対象アプリ固有の用語（`frontmost` / `miniaturized` 等）は変数名の `tell application` では
+/// コンパイル時に解決できないため、toggle の前面判定・最小化は用語が静的に確定する
+/// `System Events`（プロセス名 = `appName`）経由で行う。`is running` / `activate` は変数名で可。
 #[cfg(target_os = "macos")]
 mod macos_impl {
     use super::ActivateOutcome;
@@ -339,9 +343,17 @@ mod macos_impl {
     set appName to item 1 of argv
     set doToggle to (item 2 of argv) is "1"
     if not (application appName is running) then return "notfound"
-    if doToggle and (frontmost of application appName) then
-        tell application appName to set miniaturized of every window to true
-        return "minimized"
+    if doToggle then
+        tell application "System Events"
+            if exists (process appName) then
+                if frontmost of process appName then
+                    repeat with w in (every window of process appName)
+                        set value of attribute "AXMinimized" of w to true
+                    end repeat
+                    return "minimized"
+                end if
+            end if
+        end tell
     end if
     tell application appName to activate
     return "activated"
