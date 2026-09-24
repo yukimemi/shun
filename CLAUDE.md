@@ -257,7 +257,7 @@ Each module has a `#[cfg(test)]` block:
 - `apps.rs` — is_url, is_path, launch_with_extra
 - `lib.rs::hotkey_plan_tests` — `plan_hotkey_registrations()`: defaults, per-app hotkey
   planning, invalid-shortcut warnings, launch/app and app/app conflict resolution
-- `app_window.rs::resolve_window_app` (OS-independent) is unit-tested; the OS window operations themselves are not; the OS window operations (`EnumWindows` /
+- `app_window.rs::resolve_window_app` (OS-independent) is unit-tested; the OS window operations themselves are not (`EnumWindows` /
   `osascript` / `wmctrl`) aren't practically unit-testable; verify `activate`/`toggle`
   manually per-OS
 
