@@ -516,7 +516,7 @@ fn on_app_hotkey(entry: &config::AppEntry, mode: &config::AppHotkeyMode) {
     apps::apply_overrides(&mut item, &cfg.overrides);
     let vars = cfg.vars;
     let window = app_window::WindowMatch {
-        exe: entry.window_exe.as_deref(),
+        app: entry.window_app.as_deref(),
         title: entry.window_title.as_deref(),
         title_exclude: entry.window_title_exclude.as_deref(),
     };
@@ -1662,7 +1662,7 @@ mod hotkey_plan_tests {
             completion_search_mode: None,
             hotkey: hotkey.map(|s| s.to_string()),
             hotkey_mode: mode,
-            window_exe: None,
+            window_app: None,
             window_title: None,
             window_title_exclude: None,
         }

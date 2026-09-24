@@ -177,6 +177,7 @@ Add per-repo extras (e.g. `cargo fetch`, `npm install`) by extending
 - `lib.rs::register_shortcuts()` calls `plan_hotkey_registrations()` once and registers
   everything; called from both `setup()` and the `/reload` command right after
   `unregister_all()`, so the two paths can't drift
+- Match target for all OSes = `window_app` (legacy alias `window_exe`) else the stem of `path` (never `name`), resolved by `app_window::resolve_window_app`; macOS checks "is running" first and returns NotFound so `path` is launched
 - `app_window::activate_or_launch(item, toggle)` implements `activate`/`toggle`: Windows uses
   `EnumWindows` + exe-name matching (via the `windows` crate); macOS shells out to
   `osascript`; Linux shells out to `wmctrl`. Any failure/unsupported-platform/window-not-found
@@ -244,7 +245,7 @@ Auto-created at first launch:
 
 ## Testing
 
-### Rust tests (184 total)
+### Rust tests (190 total)
 Each module has a `#[cfg(test)]` block:
 - `config.rs` — defaults, TOML parsing, keybinding overrides, `hotkey`/`hotkey_mode` parsing
 - `search.rs` — fuzzy/exact/migemo filter
@@ -256,7 +257,7 @@ Each module has a `#[cfg(test)]` block:
 - `apps.rs` — is_url, is_path, launch_with_extra
 - `lib.rs::hotkey_plan_tests` — `plan_hotkey_registrations()`: defaults, per-app hotkey
   planning, invalid-shortcut warnings, launch/app and app/app conflict resolution
-- `app_window.rs` has no automated tests — OS window operations (`EnumWindows` /
+- `app_window.rs::resolve_window_app` (OS-independent) is unit-tested; the OS window operations themselves are not (`EnumWindows` /
   `osascript` / `wmctrl`) aren't practically unit-testable; verify `activate`/`toggle`
   manually per-OS
 
@@ -325,4 +326,4 @@ Real example: making `currentWidth` a `$state` caused `resizeForSearch` to track
 - Per-app global hotkeys: `[[apps]].hotkey` + `hotkey_mode` (`launch`/`activate`/`toggle`);
   Windows fully supported via `app_window.rs`, macOS/Linux are best-effort (osascript/wmctrl)
   and fall back to `launch` when unsupported — see README "Per-app global hotkeys"
-- Rust tests: 184 total / Frontend tests: 53 total
+- Rust tests: 190 total / Frontend tests: 53 total

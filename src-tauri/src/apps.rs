@@ -1163,7 +1163,7 @@ mod tests {
             completion_search_mode: None,
             hotkey: None,
             hotkey_mode: Default::default(),
-            window_exe: None,
+            window_app: None,
             window_title: None,
             window_title_exclude: None,
         }
