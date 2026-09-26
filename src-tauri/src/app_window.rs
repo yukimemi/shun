@@ -326,20 +326,27 @@ mod windows_impl {
     }
 }
 
-/// macOS: `NSWorkspace` / `NSRunningApplication` (AppKit) を直接呼んで起動中判定・前面化・
-/// 「トグルで隠す」を行う。以前は `osascript` 経由で AppleScript を実行していたが、
-/// サブプロセス起動 + AppleScript コンパイルのオーバーヘッドがあり、かつ `toggle` の
-/// 前面判定・最小化 (`AXMinimized`) には System Events 経由のUI操作が必要で
-/// Accessibility 権限が要る上、権限が無いと（ダイアログすら出ずに）黙って失敗し、
-/// `activate_or_launch()` が毎回新規起動にフォールバックし続けるという実害が
-/// 実機で発生した (2026-09-27)。
+/// macOS: `NSWorkspace` / `NSRunningApplication` (AppKit) で起動中判定・`isActive` 判定・
+/// `hide`/`unhide` を行うが、実際に前面へ持ってくる操作だけは `open` コマンド（サブプロセス）
+/// に任せる。
 ///
-/// `NSRunningApplication` の `activateWithOptions` / `isActive` / `hide` はどれも
-/// Accessibility 権限を必要としない通常の AppKit API なので、代わりにこちらを使う。
-/// `toggle` で「フロントなら引っ込める」動作は、ウィンドウ単位の `AXMinimized`（各
-/// ウィンドウを個別に最小化）ではなく、アプリ単位の `hide`（Cmd+H 相当）に変わる —
-/// 複数ウィンドウがあっても一括で退避できる点は同じだが、Dock/Cmd+Tab 上のアプリ自体は
-/// 引き続き見える（ウィンドウだけが隠れる）という挙動差がある。
+/// 経緯: 当初は前面化も `NSRunningApplication.activateWithOptions()` で行っていたが、
+/// 実機で「見つかった・起動中・非表示でもない」アプリに対してすら常に `false` を返し
+/// 何も起きない不具合が発生した (2026-09-27)。メインスレッド/バックグラウンドスレッドの
+/// どちらから呼んでも・Accessibility 権限や「App管理」権限を与えても変化なし
+/// （切り分け用の使い捨てバイナリで確認済み: 素の CLI プロセスからは同じ呼び出しが
+/// バックグラウンドスレッドからでも成功する — つまりスレッド一般の問題ではなく、
+/// shun という実行コンテキスト固有の何かが `activateWithOptions` を黙って拒否している）。
+/// 一方、shun 自身のランチャーUIで同じアプリ（`System` ソースの候補、`apps::launch()` が
+/// `.app` アイテムに既に `open` を使っている）を選んで Enter する操作は確実に前面化できる
+/// （`Config` ソースの候補 = `[[apps]].path` を直接 spawn する方は同じく効かないことも実機で
+/// 確認済み — `open` を経由するかどうかが分岐点）。そのため前面化そのものは
+/// `open <解決済み .app バンドルパス>` に統一した — `open` は対象が既に起動中なら
+/// ウィンドウを前面化・非表示解除する（Finder でダブルクリックするのと同じ）。
+///
+/// `toggle` で「フロントなら引っ込める」動作はウィンドウ単位の最小化ではなく、アプリ単位の
+/// `hide`（Cmd+H 相当）— 複数ウィンドウがあっても一括で退避できる点は同じだが、Dock/Cmd+Tab
+/// 上のアプリ自体は引き続き見える（ウィンドウだけが隠れる）という挙動差がある。
 ///
 /// アプリ名は解決済みの `window_app`（または `path` の stem）。`NSRunningApplication` の
 /// `localizedName`（Launch Services 上のローカライズ済み表示名。例: 日本語環境では
@@ -348,29 +355,27 @@ mod windows_impl {
 /// 比較する — 前者だけだと非英語ロケールで多くのアプリがマッチしなくなる。見つからなければ
 /// `NotFound` を返し、呼び出し側に設定済み `path` を起動させる。
 ///
-/// `hide()` / `activateWithOptions()` 自体が `false` を返しても `Err` にはしない —
-/// `activate_or_launch()` の `Err` 分岐は「起動にフォールバック」するため、既に起動済みと
-/// 分かっているアプリに対してそれをやると新規プロセスが重複起動してしまう（この実装が
-/// 修正しようとしていた不具合と同じ結果になる）。見つからなかった場合のみ `NotFound` を
-/// 返し、その場合の起動フォールバックは正当（本当に未起動なので新規起動が正しい）。
+/// `hide()` 自体が `false` を返しても `Err` にはしない — `activate_or_launch()` の `Err`
+/// 分岐は「起動にフォールバック」するため、既に起動済みと分かっているアプリに対してそれを
+/// やると新規プロセスが重複起動してしまう。見つからなかった場合のみ `NotFound` を返し、
+/// その場合の起動フォールバックは正当（本当に未起動なので新規起動が正しい）。
 #[cfg(target_os = "macos")]
 mod macos_impl {
     use super::ActivateOutcome;
     use dispatch2::DispatchQueue;
     use objc2::rc::Retained;
-    use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
+    use objc2_app_kit::{NSRunningApplication, NSWorkspace};
 
-    /// `on_app_hotkey`/`on_launch_hotkey` always call into this from a background thread
-    /// (`register_app_hotkey_handler`/`register_launch_handler` in lib.rs spawn one
-    /// specifically so hotkey handling never blocks the main thread — see PR that fixed the
-    /// original main-thread-blocking bug). `NSRunningApplication.activateWithOptions`/`hide`/
-    /// `unhide`, however, are AppKit APIs that are unreliable off the main thread: confirmed on
-    /// real hardware that `activateWithOptions()` consistently returned `false` — for an app
-    /// that was found, running, and not hidden — when called from that background thread
-    /// (2026-09-27). So every AppKit call in `activate_on_main_thread` is marshaled onto the
-    /// main thread via `DispatchQueue::main().exec_sync()`, which blocks the calling
-    /// (background) thread until it's done. This would deadlock if ever called from the main
-    /// thread itself — it never is, by construction above.
+    /// `on_app_hotkey`/`on_launch_hotkey` always call into this from a background thread.
+    /// `NSRunningApplication`'s time-varying properties (`isActive`, `isHidden`) are documented
+    /// by Apple as stale/race-prone when read off the main thread ("its time-varying properties
+    /// may change from under you as the main run loop runs (or not)") — confirmed on real
+    /// hardware: `isActive()` reported `true` for an app that was not actually frontmost when
+    /// read from this background thread, causing the wrong branch (`hide` instead of activating)
+    /// to run (2026-09-27). So the whole check-then-act sequence below is marshaled onto the
+    /// main thread via `DispatchQueue::main().exec_sync()`, which blocks the calling background
+    /// thread until it's done. This would deadlock if ever called from the main thread itself —
+    /// it never is, by construction above.
     pub(super) fn activate(app_name: &str, toggle: bool) -> Result<ActivateOutcome, String> {
         let mut result = None;
         DispatchQueue::main().exec_sync(|| {
@@ -391,27 +396,16 @@ mod macos_impl {
             return Ok(ActivateOutcome::Minimized);
         }
 
-        // `activateWithOptions` alone does not reliably unhide an app that was hidden via
-        // `hide()` (Apple's own NSRunningApplication docs recommend pairing `unhide()` with
-        // `activate(options:)` to guarantee visibility) — without this, toggle's second press
-        // (hide → activate) left the app hidden forever (2026-09-27, confirmed on real hardware:
-        // WezTerm never came back after being hidden by the first F12 press).
-        if app.isHidden() && !app.unhide() {
-            log::warn!("macos_impl: NSRunningApplication::unhide() failed for \"{app_name}\"");
-        }
-
-        // `activateIgnoringOtherApps` is deprecated (no-op) on macOS 14+, but shun ships with
-        // no `minimumSystemVersion` override so Tauri's default (10.13) still applies; on
-        // macOS < 14 a hotkey-triggered activation request (shun itself was never the active
-        // app) can otherwise be silently ignored per Apple's own docs for this flag ("the new
-        // app is activated only if there's no currently active application").
-        #[allow(deprecated)]
-        let options = NSApplicationActivationOptions::ActivateAllWindows
-            | NSApplicationActivationOptions::ActivateIgnoringOtherApps;
-        if !app.activateWithOptions(options) {
-            log::warn!(
-                "macos_impl: NSRunningApplication::activateWithOptions() failed for \"{app_name}\""
-            );
+        match app.bundleURL().and_then(|url| url.path()) {
+            Some(path) => {
+                let path = path.to_string();
+                if let Err(e) = std::process::Command::new("open").arg(&path).spawn() {
+                    log::warn!("macos_impl: failed to spawn `open {path}`: {e}");
+                }
+            }
+            None => {
+                log::warn!("macos_impl: could not resolve a bundle path for \"{app_name}\"");
+            }
         }
         Ok(ActivateOutcome::Activated)
     }
