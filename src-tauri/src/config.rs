@@ -318,8 +318,7 @@ pub struct AppEntry {
     /// `hotkey_mode = "activate"` / `"toggle"` でウィンドウ/プロセスを探す際に照合するアプリ名
     /// (全 OS 共通)。省略時は `path` の file stem（`name` は使わない）。
     /// `wt` → `WindowsTerminal` のように起動スタブと実プロセスが異なる場合や、macOS の
-    /// `.app` 名を指定したい場合に使う。旧キー `window_exe` も受理する。
-    #[serde(alias = "window_exe")]
+    /// `.app` 名を指定したい場合に使う。
     pub window_app: Option<String>,
     /// activate / toggle の対象を、タイトルにこの文字列を含むウィンドウに限定する
     /// (Windows のみ、大文字小文字無視の部分一致)。同じ exe の複数ウィンドウを区別する用途。
@@ -768,7 +767,7 @@ preview_scroll_up   = "Ctrl+k"       # Scroll preview panel up
 # completion_search_mode = "fuzzy"    # "fuzzy" | "exact" | "migemo"
 # hotkey                 = "Ctrl+Alt+N" # optional per-app global hotkey
 # hotkey_mode            = "launch"     # "launch" (default) | "activate" | "toggle"
-# window_app             = "WindowsTerminal" # app/process name to match for activate/toggle (default: stem of path; legacy alias: window_exe)
+# window_app             = "WindowsTerminal" # app/process name to match for activate/toggle (default: stem of path)
 # window_title           = "Yazi"            # Windows: also require this substring in the window title
 # window_title_exclude   = "Yazi"            # Windows: skip windows whose title contains this substring
 
@@ -1019,21 +1018,15 @@ hotkey_mode = "activate"
     }
 
     #[test]
-    fn parse_window_app_and_legacy_window_exe_alias() {
+    fn parse_window_app() {
         let toml = r#"
 [[apps]]
 name       = "A"
 path       = "/a"
 window_app = "Code"
-
-[[apps]]
-name       = "B"
-path       = "/b"
-window_exe = "WindowsTerminal"
 "#;
         let c: Config = toml::from_str(toml).unwrap();
         assert_eq!(c.apps[0].window_app.as_deref(), Some("Code"));
-        assert_eq!(c.apps[1].window_app.as_deref(), Some("WindowsTerminal"));
     }
 
     #[test]
