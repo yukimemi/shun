@@ -1,9 +1,11 @@
 //! 特定アプリのウィンドウをアクティブ化/トグルするための OS 抽象レイヤ。
 //!
 //! 公開契約はプラットフォームに関わらず `activate_or_launch()` 一つだけ。
-//! ウィンドウが見つからない・OS が未対応・操作が失敗した場合は、いずれも
-//! `apps::launch()` へフォールバックする（安全側に倒す）。呼び出し側はこの
-//! フォールバックを意識する必要がなく、OS ごとの実装差はここに閉じ込める。
+//! ウィンドウが見つからない・OS が未対応の場合は `apps::launch()` へフォールバックする
+//! （安全側に倒す）。呼び出し側はこのフォールバックを意識する必要がなく、OS ごとの実装差は
+//! ここに閉じ込める。例外: macOS は「見つかったが操作(`hide`/`activate`)自体が失敗した」場合は
+//! フォールバックしない — 既に起動済みと分かっているアプリを起動フォールバックすると
+//! 新規プロセスが重複してしまうため（`macos_impl` 参照）。
 
 use crate::apps::{self, LaunchItem};
 
@@ -12,9 +14,10 @@ use crate::apps::{self, LaunchItem};
 /// catch-all フォールバック実装でのみ使われる）ため dead_code を許容する。
 #[allow(dead_code)]
 enum ActivateOutcome {
-    /// 対象ウィンドウをフォアグラウンドへ持ってきた（最小化からの復元も含む）。
+    /// 対象アプリをフォアグラウンドへ持ってきた（最小化からの復元も含む）。
     Activated,
-    /// フォアグラウンドだった対象ウィンドウを最小化した（toggle 時のみ）。
+    /// フォアグラウンドだった対象アプリを引っ込めた（toggle 時のみ）。Windows/Linux は
+    /// ウィンドウ単位の最小化、macOS はアプリ単位の `hide`（Cmd+H 相当）— `macos_impl` 参照。
     Minimized,
     /// 対象ウィンドウが見つからなかった → 呼び出し側で起動する。
     NotFound,
@@ -26,12 +29,14 @@ enum ActivateOutcome {
 ///
 /// - `toggle = false` (`hotkey_mode = "activate"`): 起動済みならフォアグラウンドへ、
 ///   未起動なら新規起動する。
-/// - `toggle = true` (`hotkey_mode = "toggle"`): 対象ウィンドウが現在フォアグラウンドなら
-///   最小化する。そうでなければ `toggle = false` と同じ（アクティブ化 or 起動）。
+/// - `toggle = true` (`hotkey_mode = "toggle"`): 対象アプリが現在フォアグラウンドなら
+///   引っ込める（Windows/Linux はウィンドウ最小化、macOS は `hide`）。そうでなければ
+///   `toggle = false` と同じ（アクティブ化 or 起動）。
 ///
-/// ウィンドウが見つからない・OS 未対応・操作が失敗したいずれの場合も `apps::launch_with_extra()`
-/// にフォールバックする（`launch_with_extra` を使うのは `Launch` モードと同じく `path` / `args` /
-/// `workdir` の `{{ vars.* }}` テンプレートを展開するため）。
+/// ウィンドウが見つからない・OS 未対応のいずれの場合も `apps::launch_with_extra()` に
+/// フォールバックする（`launch_with_extra` を使うのは `Launch` モードと同じく `path` / `args` /
+/// `workdir` の `{{ vars.* }}` テンプレートを展開するため）。macOS は例外として、見つかった
+/// アプリに対する操作自体の失敗ではフォールバックしない（`macos_impl` のドキュメント参照）。
 ///
 /// `window` はウィンドウ照合条件 (`[[apps]].window_app` / `window_title` ...)。
 /// `window_app` は全 OS 共通、タイトル条件は Windows のみ。
@@ -332,26 +337,28 @@ mod windows_impl {
 /// `NSRunningApplication` の `activateWithOptions` / `isActive` / `hide` はどれも
 /// Accessibility 権限を必要としない通常の AppKit API なので、代わりにこちらを使う。
 /// `toggle` で「フロントなら引っ込める」動作は、ウィンドウ単位の `AXMinimized`（各
-/// ウィンドウを個別に最小化）ではなく、アプリ単位の `hide`（Cmd+H 相当、Dock/Cmd+Tab
-/// から見えなくなる）に変わる — 複数ウィンドウがあっても一括で退避できる点は同じだが、
-/// 個別ウィンドウの最小化状態としては Dock に残らない、という挙動差がある。
+/// ウィンドウを個別に最小化）ではなく、アプリ単位の `hide`（Cmd+H 相当）に変わる —
+/// 複数ウィンドウがあっても一括で退避できる点は同じだが、Dock/Cmd+Tab 上のアプリ自体は
+/// 引き続き見える（ウィンドウだけが隠れる）という挙動差がある。
 ///
-/// アプリ名は解決済みの `window_app`（または `path` の stem）で、`NSRunningApplication`
-/// の `localizedName`（Launch Services 上の表示名、`.app` のベース名相当）と大文字小文字
-/// 無視で比較する。見つからなければ `NotFound` を返し、呼び出し側に設定済み `path` を
-/// 起動させる。
+/// アプリ名は解決済みの `window_app`（または `path` の stem）。`NSRunningApplication` の
+/// `localizedName`（Launch Services 上のローカライズ済み表示名。例: 日本語環境では
+/// Preview.app が "プレビュー" になる）と、`bundleURL` から取った拡張子抜きファイル名
+/// （ロケールに依存しない `.app` のベース名、例: "Preview"）の両方と大文字小文字無視で
+/// 比較する — 前者だけだと非英語ロケールで多くのアプリがマッチしなくなる。見つからなければ
+/// `NotFound` を返し、呼び出し側に設定済み `path` を起動させる。
+///
+/// `hide()` / `activateWithOptions()` 自体が `false` を返しても `Err` にはしない —
+/// `activate_or_launch()` の `Err` 分岐は「起動にフォールバック」するため、既に起動済みと
+/// 分かっているアプリに対してそれをやると新規プロセスが重複起動してしまう（この実装が
+/// 修正しようとしていた不具合と同じ結果になる）。見つからなかった場合のみ `NotFound` を
+/// 返し、その場合の起動フォールバックは正当（本当に未起動なので新規起動が正しい）。
 #[cfg(target_os = "macos")]
 mod macos_impl {
     use super::ActivateOutcome;
     use objc2::rc::Retained;
     use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
 
-    /// アプリが見つかった以上、`hide`/`activateWithOptions` が (稀に) `false` を返しても
-    /// `Err` にはしない — `activate_or_launch()` の `Err` 分岐は「起動にフォールバック」
-    /// するため、既に起動済みと分かっているアプリに対してそれをやると新規プロセスが
-    /// 重複起動してしまう（今回まさに追いかけていた不具合と同じ結果になる）。
-    /// 見つからなかった場合のみ `NotFound` を返し、その場合の起動フォールバックは
-    /// 正当（本当に未起動なので新規起動が正しい）。
     pub(super) fn activate(app_name: &str, toggle: bool) -> Result<ActivateOutcome, String> {
         let Some(app) = find_running(app_name) else {
             return Ok(ActivateOutcome::NotFound);
@@ -364,7 +371,15 @@ mod macos_impl {
             return Ok(ActivateOutcome::Minimized);
         }
 
-        if !app.activateWithOptions(NSApplicationActivationOptions::ActivateAllWindows) {
+        // `activateIgnoringOtherApps` is deprecated (no-op) on macOS 14+, but shun ships with
+        // no `minimumSystemVersion` override so Tauri's default (10.13) still applies; on
+        // macOS < 14 a hotkey-triggered activation request (shun itself was never the active
+        // app) can otherwise be silently ignored per Apple's own docs for this flag ("the new
+        // app is activated only if there's no currently active application").
+        #[allow(deprecated)]
+        let options = NSApplicationActivationOptions::ActivateAllWindows
+            | NSApplicationActivationOptions::ActivateIgnoringOtherApps;
+        if !app.activateWithOptions(options) {
             log::warn!(
                 "macos_impl: NSRunningApplication::activateWithOptions() failed for \"{app_name}\""
             );
@@ -376,10 +391,20 @@ mod macos_impl {
         let running = NSWorkspace::sharedWorkspace().runningApplications();
         (0..running.count())
             .map(|i| running.objectAtIndex(i))
-            .find(|app| {
-                app.localizedName()
-                    .is_some_and(|name| name.to_string().eq_ignore_ascii_case(app_name))
-            })
+            .find(|app| matches(app, app_name))
+    }
+
+    fn matches(app: &NSRunningApplication, app_name: &str) -> bool {
+        if app
+            .localizedName()
+            .is_some_and(|name| name.to_string().eq_ignore_ascii_case(app_name))
+        {
+            return true;
+        }
+        app.bundleURL()
+            .and_then(|url| url.URLByDeletingPathExtension())
+            .and_then(|url| url.lastPathComponent())
+            .is_some_and(|stem| stem.to_string().eq_ignore_ascii_case(app_name))
     }
 }
 
