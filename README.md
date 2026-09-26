@@ -122,7 +122,7 @@ After editing config, run `/reload` to apply all changes without restarting.
 | `/config` | Open a config file (`Tab` to pick; `delete_item` key to delete; creates new `config.*.toml` if typed manually) |
 | `/theme <name>` | Switch theme for this session (`Tab` to pick; set in `config.toml` to persist) |
 | `/update` | Install latest release (shows version if update available) |
-| `/history` | Open history file in default editor |
+| `/history` | Open history file (via `editor_command` if set, else default editor) |
 | `/version` | Show current version |
 | `/save` | Save a setting to `config.local.toml` (`Tab` to pick: `monitor`, `position`, `theme`, `search_mode`, `sort_order`) |
 | `/reset` | Reset a setting in `config.local.toml` — falls back to `config.toml` or default (`Tab` to pick) |
@@ -193,6 +193,10 @@ max_completions = 6
 
 # Note: preview panel height is fixed to max_items × item height when visible,
 # so increasing max_items also increases the preview panel height.
+
+# Editor command used by /config and /history (default: unset → OS file association)
+# Space-separated command + args (no quoting support), e.g. "code -n" or "todoke"
+# editor_command = "code -n"
 
 [keybindings]
 launch      = "Ctrl+Space"   # Global hotkey to show/hide

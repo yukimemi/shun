@@ -1036,13 +1036,46 @@ fn open_config(name: Option<String>) -> Result<(), String> {
             p
         }
     };
-    tauri_plugin_opener::open_path(path, None::<&str>).map_err(|e| e.to_string())
+    open_with_editor(path)
 }
 
 #[tauri::command]
 fn open_history(_app: tauri::AppHandle) -> Result<(), String> {
     let path = history::history_path();
+    open_with_editor(path)
+}
+
+/// `/config` `/history` は `config.editor_command`（例: `"todoke"`, `"code -n"`）が
+/// 設定されていればそれで開く。GUI 起動（LaunchAgent 経由の自動起動含む）では
+/// シェルの rc ファイル（`.zshenv` 等）の export を継承しないため `$EDITOR` には頼らない。
+/// 未設定、または起動失敗時は OS のファイル関連付けにフォールバックする。
+fn open_with_editor(path: std::path::PathBuf) -> Result<(), String> {
+    let editor_command = config::load_config().0.editor_command;
+    if let Some(cmd) = editor_command.as_deref() {
+        if let Some((program, args)) = split_editor_command(cmd) {
+            match std::process::Command::new(program)
+                .args(args)
+                .arg(&path)
+                .spawn()
+            {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    log::warn!(
+                        "open_with_editor: editor_command \"{cmd}\" failed to spawn ({e}); falling back to OS file association"
+                    );
+                }
+            }
+        }
+    }
     tauri_plugin_opener::open_path(path, None::<&str>).map_err(|e| e.to_string())
+}
+
+/// `editor_command` を空白区切りでプログラム名と引数に分解する（クォート非対応）。
+/// 空文字列・空白のみの場合は `None`（呼び出し元は OS 関連付けにフォールバックする）。
+fn split_editor_command(cmd: &str) -> Option<(&str, Vec<&str>)> {
+    let mut parts = cmd.split_whitespace();
+    let program = parts.next()?;
+    Some((program, parts.collect()))
 }
 
 #[tauri::command]
@@ -1495,7 +1528,9 @@ pub fn run() {
                     }
                     "config" => {
                         let path = config::config_path();
-                        tauri_plugin_opener::open_path(path, None::<&str>).ok();
+                        if let Err(e) = open_with_editor(path) {
+                            log::warn!("tray Config: failed to open config file: {e}");
+                        }
                     }
                     "exit" => {
                         app.exit(0);
@@ -1764,5 +1799,33 @@ mod hotkey_plan_tests {
         );
         // launch 自体の警告は get_config_and_warnings() 側が動的に出すのでここには積まない
         assert!(plan.warnings.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod editor_command_tests {
+    use super::split_editor_command;
+
+    #[test]
+    fn splits_program_and_args() {
+        assert_eq!(split_editor_command("todoke"), Some(("todoke", vec![])));
+        assert_eq!(
+            split_editor_command("code -n --wait"),
+            Some(("code", vec!["-n", "--wait"]))
+        );
+    }
+
+    #[test]
+    fn collapses_repeated_whitespace() {
+        assert_eq!(
+            split_editor_command("  code   -n  "),
+            Some(("code", vec!["-n"]))
+        );
+    }
+
+    #[test]
+    fn empty_or_blank_yields_none() {
+        assert_eq!(split_editor_command(""), None);
+        assert_eq!(split_editor_command("   "), None);
     }
 }

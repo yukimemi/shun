@@ -110,6 +110,10 @@ pub struct Config {
     pub preview_search: bool,
     #[serde(default)]
     pub vars: HashMap<String, String>,
+    /// `/config` `/history` で使うエディタコマンド。未設定なら OS のファイル関連付けで開く。
+    /// "todoke", "code -n" のように空白区切りでコマンド+引数を指定できる（クォート非対応）。
+    #[serde(default)]
+    pub editor_command: Option<String>,
     #[serde(default)]
     pub apps: Vec<AppEntry>,
     #[serde(default)]
@@ -424,6 +428,7 @@ impl Default for Config {
             preview_args: default_true(),
             preview_search: default_true(),
             vars: HashMap::new(),
+            editor_command: None,
             apps: vec![],
             scan_dirs: vec![],
             overrides: vec![],
@@ -709,6 +714,10 @@ max_completions = 6
 # Max lines to load for file preview (default: 500)
 # max_preview_lines = 500
 
+# Editor command used by /config and /history (default: unset → OS file association)
+# Space-separated command + args (no quoting support), e.g. "code -n" or "todoke"
+# editor_command = "todoke"
+
 [keybindings]
 launch            = "Ctrl+Space"   # Global hotkey to show/hide
 next              = "Ctrl+n"
@@ -907,6 +916,20 @@ sort_order = "recent_first""#;
     fn parse_auto_start() {
         let c: Config = toml::from_str("auto_start = false").unwrap();
         assert!(!c.auto_start);
+    }
+
+    #[test]
+    fn editor_command_defaults_to_none() {
+        let c = Config::default();
+        assert_eq!(c.editor_command, None);
+        let c: Config = toml::from_str("").unwrap();
+        assert_eq!(c.editor_command, None);
+    }
+
+    #[test]
+    fn parse_editor_command() {
+        let c: Config = toml::from_str(r#"editor_command = "code -n""#).unwrap();
+        assert_eq!(c.editor_command.as_deref(), Some("code -n"));
     }
 
     #[test]
