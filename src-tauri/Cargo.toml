@@ -60,8 +60,8 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
     "NSRunningApplication",
     "NSWorkspace",
 ] }
-# Used to marshal NSRunningApplication activation calls onto the main thread
-# (unreliable off it — see app_window.rs::macos_impl's doc comment).
+# Used to marshal isActive/isHidden reads onto the main thread (documented by
+# Apple as stale/race-prone off it — see app_window.rs::macos_impl's doc comment).
 dispatch2 = "0.3"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
