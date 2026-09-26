@@ -321,107 +321,65 @@ mod windows_impl {
     }
 }
 
-/// macOS: `osascript` 経由で AppleScript を実行し、起動中判定/前面化/最小化を行う。
+/// macOS: `NSWorkspace` / `NSRunningApplication` (AppKit) を直接呼んで起動中判定・前面化・
+/// 「トグルで隠す」を行う。以前は `osascript` 経由で AppleScript を実行していたが、
+/// サブプロセス起動 + AppleScript コンパイルのオーバーヘッドがあり、かつ `toggle` の
+/// 前面判定・最小化 (`AXMinimized`) には System Events 経由のUI操作が必要で
+/// Accessibility 権限が要る上、権限が無いと（ダイアログすら出ずに）黙って失敗し、
+/// `activate_or_launch()` が毎回新規起動にフォールバックし続けるという実害が
+/// 実機で発生した (2026-09-27)。
 ///
-/// アプリ名は解決済みの `window_app`（または `path` の stem）で、`.app` のベース名と
-/// 一致している必要がある。`tell application "X" to activate` は未起動のアプリを勝手に
-/// 起動してしまうため、まず `application X is running` で起動中か判定し、未起動なら
-/// `NotFound` を返して呼び出し側に設定済み `path` を起動させる。アプリ名は `on run argv`
-/// の引数で渡すのでエスケープ不要。判定・前面判定・activate が同じ識別子を使う。
+/// `NSRunningApplication` の `activateWithOptions` / `isActive` / `hide` はどれも
+/// Accessibility 権限を必要としない通常の AppKit API なので、代わりにこちらを使う。
+/// `toggle` で「フロントなら引っ込める」動作は、ウィンドウ単位の `AXMinimized`（各
+/// ウィンドウを個別に最小化）ではなく、アプリ単位の `hide`（Cmd+H 相当、Dock/Cmd+Tab
+/// から見えなくなる）に変わる — 複数ウィンドウがあっても一括で退避できる点は同じだが、
+/// 個別ウィンドウの最小化状態としては Dock に残らない、という挙動差がある。
 ///
-/// 制約: 実機未検証。前面化・最小化にはアクセシビリティ権限が必要で、`osascript` が
-/// エラーを返した場合は `Err` として `activate_or_launch()` が起動にフォールバックする。
-///
-/// 対象アプリ固有の用語（`frontmost` / `miniaturized` 等）は変数名の `tell application` では
-/// コンパイル時に解決できないため、toggle の前面判定・最小化は用語が静的に確定する
-/// `System Events`（プロセス名 = `appName`）経由で行う。`is running` / `activate` は変数名で可。
+/// アプリ名は解決済みの `window_app`（または `path` の stem）で、`NSRunningApplication`
+/// の `localizedName`（Launch Services 上の表示名、`.app` のベース名相当）と大文字小文字
+/// 無視で比較する。見つからなければ `NotFound` を返し、呼び出し側に設定済み `path` を
+/// 起動させる。
 #[cfg(target_os = "macos")]
 mod macos_impl {
     use super::ActivateOutcome;
+    use objc2::rc::Retained;
+    use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
 
-    const SCRIPT: &str = r#"on run argv
-    set appName to item 1 of argv
-    set doToggle to (item 2 of argv) is "1"
-    if not (application appName is running) then return "notfound"
-    if doToggle then
-        tell application "System Events"
-            if exists (process appName) then
-                if frontmost of process appName then
-                    repeat with w in (every window of process appName)
-                        set value of attribute "AXMinimized" of w to true
-                    end repeat
-                    return "minimized"
-                end if
-            end if
-        end tell
-    end if
-    tell application appName to activate
-    return "activated"
-end run"#;
-
+    /// アプリが見つかった以上、`hide`/`activateWithOptions` が (稀に) `false` を返しても
+    /// `Err` にはしない — `activate_or_launch()` の `Err` 分岐は「起動にフォールバック」
+    /// するため、既に起動済みと分かっているアプリに対してそれをやると新規プロセスが
+    /// 重複起動してしまう（今回まさに追いかけていた不具合と同じ結果になる）。
+    /// 見つからなかった場合のみ `NotFound` を返し、その場合の起動フォールバックは
+    /// 正当（本当に未起動なので新規起動が正しい）。
     pub(super) fn activate(app_name: &str, toggle: bool) -> Result<ActivateOutcome, String> {
-        let out = run_osascript(app_name, toggle)?;
-        Ok(match out.trim() {
-            "notfound" => ActivateOutcome::NotFound,
-            "minimized" => ActivateOutcome::Minimized,
-            _ => ActivateOutcome::Activated,
-        })
+        let Some(app) = find_running(app_name) else {
+            return Ok(ActivateOutcome::NotFound);
+        };
+
+        if toggle && app.isActive() {
+            if !app.hide() {
+                log::warn!("macos_impl: NSRunningApplication::hide() failed for \"{app_name}\"");
+            }
+            return Ok(ActivateOutcome::Minimized);
+        }
+
+        if !app.activateWithOptions(NSApplicationActivationOptions::ActivateAllWindows) {
+            log::warn!(
+                "macos_impl: NSRunningApplication::activateWithOptions() failed for \"{app_name}\""
+            );
+        }
+        Ok(ActivateOutcome::Activated)
     }
 
-    /// 対象アプリ（特に Electron 製の Teams/Outlook/Slack 等）が Apple Event への応答で
-    /// 詰まっている場合、`osascript` はその応答を無期限に待ち続ける。ホットキー1回分の
-    /// バックグラウンドスレッドが永久に生き残らないよう、この待ち時間には上限を設ける
-    /// （タイムアウト時は `Err` を返し、呼び出し側 `activate_or_launch` が起動にフォールバックする）。
-    ///
-    /// `toggle` モードで `tell application "System Events"` に初めて到達したとき
-    /// （= `window_app` が対象アプリの実際の Launch Services 名と一致して初めて
-    /// このパスに入れるようになったとき）、macOS が「shun が System Events を
-    /// 操作することを許可しますか」という Automation 権限ダイアログを表示することがある。
-    /// これはユーザーがクリックするまで応答が返らないため、あまり短いタイムアウトだと
-    /// クリックする前に強制終了されてしまい、権限が一生許可されないまま
-    /// 「毎回 activate/toggle に失敗 → launch フォールバックで新規プロセスが起動し続ける」
-    /// という状態になる (2026-09-27 実機で発生・確認済み: F12 の2回目以降で
-    /// WezTerm が新規に起動し続けた)。30秒あれば大抵のダイアログはクリックできる。
-    const OSASCRIPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-
-    fn run_osascript(app_name: &str, toggle: bool) -> Result<String, String> {
-        let mut child = std::process::Command::new("osascript")
-            .args(["-e", SCRIPT, app_name, if toggle { "1" } else { "0" }])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| e.to_string())?;
-
-        let start = std::time::Instant::now();
-        loop {
-            match child.try_wait().map_err(|e| e.to_string())? {
-                Some(status) => {
-                    use std::io::Read;
-                    let mut stdout_buf = String::new();
-                    let mut stderr_buf = String::new();
-                    if let Some(mut stdout) = child.stdout.take() {
-                        let _ = stdout.read_to_string(&mut stdout_buf);
-                    }
-                    if let Some(mut stderr) = child.stderr.take() {
-                        let _ = stderr.read_to_string(&mut stderr_buf);
-                    }
-                    if !status.success() {
-                        return Err(stderr_buf.trim().to_string());
-                    }
-                    return Ok(stdout_buf);
-                }
-                None => {
-                    if start.elapsed() >= OSASCRIPT_TIMEOUT {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        return Err(format!(
-                            "osascript timed out after {OSASCRIPT_TIMEOUT:?} activating \"{app_name}\""
-                        ));
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                }
-            }
-        }
+    fn find_running(app_name: &str) -> Option<Retained<NSRunningApplication>> {
+        let running = NSWorkspace::sharedWorkspace().runningApplications();
+        (0..running.count())
+            .map(|i| running.objectAtIndex(i))
+            .find(|app| {
+                app.localizedName()
+                    .is_some_and(|name| name.to_string().eq_ignore_ascii_case(app_name))
+            })
     }
 }
 
