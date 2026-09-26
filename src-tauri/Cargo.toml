@@ -49,6 +49,18 @@ windows = { version = "0.62", features = [
     "Win32_UI_Input_KeyboardAndMouse",
 ] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Used by app_window.rs to activate/toggle app windows natively (NSWorkspace,
+# NSRunningApplication) instead of shelling out to osascript/AppleScript.
+# Version pinned to whatever tauri/wry already resolve transitively so this
+# doesn't pull in a second copy of the objc2 runtime.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSRunningApplication",
+    "NSWorkspace",
+] }
+
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-updater = "2"

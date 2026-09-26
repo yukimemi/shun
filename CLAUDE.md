@@ -179,8 +179,9 @@ Add per-repo extras (e.g. `cargo fetch`, `npm install`) by extending
   `unregister_all()`, so the two paths can't drift
 - Match target for all OSes = `window_app` else the stem of `path` (never `name`), resolved by `app_window::resolve_window_app`; macOS checks "is running" first and returns NotFound so `path` is launched
 - `app_window::activate_or_launch(item, toggle)` implements `activate`/`toggle`: Windows uses
-  `EnumWindows` + exe-name matching (via the `windows` crate); macOS shells out to
-  `osascript`; Linux shells out to `wmctrl`. Any failure/unsupported-platform/window-not-found
+  `EnumWindows` + exe-name matching (via the `windows` crate); macOS uses `NSWorkspace`/
+  `NSRunningApplication` (objc2-app-kit) directly — no subprocess, no Accessibility permission;
+  Linux shells out to `wmctrl`. Any failure/unsupported-platform/window-not-found
   case falls back to `apps::launch()` — see the README's "Per-app global hotkeys" section for
   per-OS constraints
 
@@ -258,7 +259,7 @@ Each module has a `#[cfg(test)]` block:
 - `lib.rs::hotkey_plan_tests` — `plan_hotkey_registrations()`: defaults, per-app hotkey
   planning, invalid-shortcut warnings, launch/app and app/app conflict resolution
 - `app_window.rs::resolve_window_app` (OS-independent) is unit-tested; the OS window operations themselves are not (`EnumWindows` /
-  `osascript` / `wmctrl`) aren't practically unit-testable; verify `activate`/`toggle`
+  `NSWorkspace` / `wmctrl`) aren't practically unit-testable; verify `activate`/`toggle`
   manually per-OS
 
 ### Frontend tests (53 total)
@@ -324,6 +325,6 @@ Real example: making `currentWidth` a `$state` caused `resizeForSearch` to track
 - Migemo search mode: `rustmigemo` (Rust) + `jsmigemo` (JS); dict bundled as `public/migemo-compact-dict.bin` via `include_bytes!`
 - `shouldBypassTemplate` in utils.js: history+template bypass detection
 - Per-app global hotkeys: `[[apps]].hotkey` + `hotkey_mode` (`launch`/`activate`/`toggle`);
-  Windows fully supported via `app_window.rs`, macOS/Linux are best-effort (osascript/wmctrl)
+  Windows and macOS fully supported via `app_window.rs`, Linux is best-effort (wmctrl)
   and fall back to `launch` when unsupported — see README "Per-app global hotkeys"
 - Rust tests: 190 total / Frontend tests: 53 total

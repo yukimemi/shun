@@ -4413,6 +4413,8 @@ dependencies = [
  "futures-util",
  "log",
  "nucleo-matcher",
+ "objc2",
+ "objc2-app-kit",
  "parking_lot",
  "regex",
  "reqwest",
