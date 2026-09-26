@@ -341,11 +341,12 @@ still works and the key press is not passed on to the focused app.
 | Platform | Behavior |
 |---|---|
 | Windows | Full support. Matches the app's own top-level window by executable file name (case-insensitive). If the app has multiple windows, only the first one found is operated on. Foreground-lock restrictions imposed by Windows may occasionally prevent focus-stealing (the taskbar icon flashes instead); this is logged as a warning, not an error |
-| macOS | Uses `NSWorkspace`/`NSRunningApplication` (AppKit) directly — no `osascript`/AppleScript, no Accessibility permission needed. The target is `window_app`, or the file stem of `path` if unset (not `name`), and must equal the app's Launch Services display name (e.g. `Visual Studio Code`; may differ from the executable name, e.g. WezTerm's app name is `WezTerm` but its executable is `wezterm-gui`). If the app is not running, shun launches `path` instead. `toggle`'s "already frontmost" case calls `hide()` (like ⌘H — hides the whole app) rather than minimizing individual windows |
+| macOS | Uses `NSWorkspace`/`NSRunningApplication` (AppKit) directly — no `osascript`/AppleScript, no Accessibility permission needed. The target is `window_app`, or the file stem of `path` if unset (not `name`); matched against the app's localized display name **or** its `.app` file stem (locale-independent), so it works whether you write the English bundle name or it only matches your system's localized name. If the app is not running, shun launches `path` instead. `toggle`'s "already frontmost" case calls `hide()` (like ⌘H — hides the whole app's windows, but the app itself stays visible in the Dock/⌘Tab) rather than minimizing individual windows. Unlike Windows/Linux, a found-but-failed operation here does not fall back to launching (would duplicate an already-running app) |
 | Linux | Requires `wmctrl` to be installed; matches `window_app` (or the stem of `path`) against the window's WM_CLASS via `wmctrl -x -a` (substring, case-insensitive, so short names can match the wrong app); falls back to `launch` if it's missing. Only works under X11 — has no effect on Wayland. `toggle` behaves the same as `activate` (no reliable way to detect focus without extra tooling), i.e. it never minimizes |
 
-If a window can't be found, the platform is unsupported, or the window operation otherwise fails,
-shun falls back to launching a new instance rather than doing nothing.
+If a window can't be found or the platform is unsupported, shun falls back to launching a new
+instance rather than doing nothing (macOS: a found app whose `hide`/`activate` operation itself
+fails does *not* fall back to launching, to avoid spawning a duplicate of an app already running).
 
 ### Override files (`config.*.toml`)
 

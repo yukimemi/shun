@@ -572,8 +572,8 @@ fn register_launch_handler(app: &tauri::AppHandle, shortcut: Shortcut) -> Result
 
 /// `[[apps]].hotkey` を登録する。
 ///
-/// launch キーと同様、ハンドラ本体（config 再読み込み + macOS では `osascript` の
-/// 起動・待機を含む）は main thread をブロックしないよう別スレッドで実行する。
+/// launch キーと同様、ハンドラ本体（config 再読み込みを含む）は main thread を
+/// ブロックしないよう別スレッドで実行する。
 fn register_app_hotkey_handler(
     app: &tauri::AppHandle,
     shortcut: Shortcut,
