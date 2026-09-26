@@ -877,12 +877,40 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                     .await
                     .map_err(|e| e.to_string())?;
                 #[cfg(target_os = "macos")]
-                strip_macos_quarantine_before_restart();
+                {
+                    strip_macos_quarantine_before_restart();
+                    relaunch_after_update_macos(&app)?;
+                }
+                #[cfg(not(target_os = "macos"))]
                 app.restart();
             }
             Ok(())
         }
     }
+}
+
+/// macOS の `app.restart()` は内部で新しいプロセスを spawn した後、spawn の成否に関わらず
+/// 無条件に `exit(0)` する実装になっている (tauri 2.11 `tauri::process::restart_macos_app`)。
+/// spawn が失敗しても構わず exit してしまうため、update 自体は正常に完了しているのに
+/// 「アプリが跡形もなく消えて二度と起動してこない」という事態になり得る
+/// (2026-09-26 実機で発生・確認済み: update 後 launchctl 上は exit status 0 のまま消滅)。
+///
+/// そのため macOS の update 経路では `app.restart()` を使わず、自前で spawn した結果を
+/// 確認してから旧プロセスを終了する。spawn に失敗した場合は旧プロセスを生かしたまま
+/// `Err` を返し、フロントエンドにエラーとして表示させる方が無音消滅よりはるかにマシ。
+#[cfg(target_os = "macos")]
+fn relaunch_after_update_macos(app: &tauri::AppHandle) -> Result<(), String> {
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("relaunch_after_update: failed to resolve current exe: {e}"))?;
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    std::process::Command::new(&exe).args(&args).spawn().map_err(|e| {
+        format!(
+            "relaunch_after_update: failed to spawn {}: {e} — keeping this instance running instead of exiting blindly",
+            exe.display()
+        )
+    })?;
+    app.exit(0);
+    Ok(())
 }
 
 /// macOS 向け配布物は Apple の code signing / notarization を行っていない未署名ビルドのため、
