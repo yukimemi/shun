@@ -278,7 +278,7 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
 }
 
 #[cfg(target_os = "windows")]
-enum ResolvedCmd {
+pub(crate) enum ResolvedCmd {
     Cmd(String),
     Bat(String),
     Ps1(String),
@@ -356,7 +356,7 @@ fn lookup_app_paths(stem: &str) -> Option<String> {
 /// 拡張子なしのコマンド名を PATHEXT で解決する。PATH で見つからなければ
 /// `App Paths` レジストリ（Brave / Chrome / VS Code など）を引く。
 #[cfg(target_os = "windows")]
-fn resolve_windows_cmd(name: &str) -> ResolvedCmd {
+pub(crate) fn resolve_windows_cmd(name: &str) -> ResolvedCmd {
     if name.contains('/') || name.contains('\\') {
         return ResolvedCmd::Other;
     }

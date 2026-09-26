@@ -1053,11 +1053,7 @@ fn open_with_editor(path: std::path::PathBuf) -> Result<(), String> {
     let editor_command = config::load_config().0.editor_command;
     if let Some(cmd) = editor_command.as_deref() {
         if let Some((program, args)) = split_editor_command(cmd) {
-            match std::process::Command::new(program)
-                .args(args)
-                .arg(&path)
-                .spawn()
-            {
+            match editor_base_command(program).args(args).arg(&path).spawn() {
                 Ok(_) => return Ok(()),
                 Err(e) => {
                     log::warn!(
@@ -1076,6 +1072,51 @@ fn split_editor_command(cmd: &str) -> Option<(&str, Vec<&str>)> {
     let mut parts = cmd.split_whitespace();
     let program = parts.next()?;
     Some((program, parts.collect()))
+}
+
+/// `editor_command` のプログラム名から起動用の `Command` を組み立てる。
+/// Unix では `Command::new` が PATH を引いてくれるのでそのまま渡す。
+#[cfg(not(target_os = "windows"))]
+fn editor_base_command(program: &str) -> std::process::Command {
+    std::process::Command::new(program)
+}
+
+/// Windows の `Command::new` は `.exe` しか補完せず PATHEXT を見ないため、
+/// `code`（実体は `code.cmd`）のような拡張子なしのシムは spawn に失敗する。
+/// `apps::launch` と同じ `resolve_windows_cmd` で PATHEXT / `App Paths` を解決する。
+/// エディタは裏で開けばよいので `.cmd` / `.bat` / `.ps1` はコンソールを出さない
+/// （`apps::launch` が CLI ツール向けに CREATE_NEW_CONSOLE を使うのとは異なる）。
+#[cfg(target_os = "windows")]
+fn editor_base_command(program: &str) -> std::process::Command {
+    use crate::apps::ResolvedCmd;
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    match crate::apps::resolve_windows_cmd(program) {
+        ResolvedCmd::Cmd(resolved) | ResolvedCmd::Bat(resolved) => {
+            let mut c = std::process::Command::new("cmd");
+            c.args(["/c", &resolved]);
+            c.creation_flags(CREATE_NO_WINDOW);
+            c
+        }
+        ResolvedCmd::Ps1(resolved) => {
+            let mut c = std::process::Command::new("powershell");
+            c.args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "ByPass",
+                "-File",
+                &resolved,
+            ]);
+            c.creation_flags(CREATE_NO_WINDOW);
+            c
+        }
+        // PATH 上で見つかった実行ファイルは絶対パスで起動する（素のコマンド名だと
+        // 相対パス扱いで os error 2 になることがある）。
+        ResolvedCmd::Exe(resolved) => std::process::Command::new(resolved),
+        // 絶対パス指定・PATHEXT でも解決できない場合は元の文字列をそのまま渡す
+        // （spawn 失敗時は呼び出し元が OS 関連付けにフォールバックする）。
+        ResolvedCmd::Other => std::process::Command::new(program),
+    }
 }
 
 #[tauri::command]
