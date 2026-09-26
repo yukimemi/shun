@@ -4413,6 +4413,7 @@ dependencies = [
  "futures-util",
  "log",
  "nucleo-matcher",
+ "parking_lot",
  "regex",
  "reqwest",
  "rustmigemo",

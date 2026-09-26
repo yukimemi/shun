@@ -1,8 +1,9 @@
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 use futures_util::StreamExt;
 use log::{debug, info};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
@@ -42,7 +43,7 @@ fn refresh_cache_bg(cache: CacheState) {
     info!("refresh_cache_bg: spawning background thread");
     std::thread::spawn(move || {
         let new = build_cache();
-        *cache.lock().unwrap() = Some(new);
+        *cache.lock() = Some(new);
         info!("refresh_cache_bg: cache updated");
     });
 }
@@ -58,7 +59,7 @@ struct ConfigAndWarnings {
 #[tauri::command]
 fn get_config_and_warnings(state: tauri::State<WarningsState>) -> ConfigAndWarnings {
     let (config, config_warnings) = config::load_config();
-    let runtime_warnings = state.lock().unwrap().clone();
+    let runtime_warnings = state.lock().clone();
 
     // launch key の警告を毎回動的チェック（config 修正後に /reload なしで即消えるよう）
     let launch_key = &config.keybindings.launch;
@@ -117,14 +118,14 @@ fn search_items(
     state: tauri::State<CacheState>,
 ) -> Vec<apps::LaunchItem> {
     let (config, mut items) = {
-        let cache = state.lock().unwrap();
+        let cache = state.lock();
         match cache.as_ref() {
             Some(c) => (c.config.clone(), c.items.clone()),
             None => {
                 drop(cache);
                 let c = build_cache();
                 let result = (c.config.clone(), c.items.clone());
-                *state.lock().unwrap() = Some(c);
+                *state.lock() = Some(c);
                 result
             }
         }
@@ -192,7 +193,7 @@ fn complete_path(
     state: tauri::State<CacheState>,
 ) -> CompleteResult {
     let (vars, global_search_mode) = {
-        let cache = state.lock().unwrap();
+        let cache = state.lock();
         let vars = cache
             .as_ref()
             .map(|c| c.config.vars.clone())
@@ -257,7 +258,7 @@ fn launch_item(
     let extra = extra_args.unwrap_or_default();
 
     let (vars, history_max_items) = {
-        let cache = state.lock().unwrap();
+        let cache = state.lock();
         let vars = cache
             .as_ref()
             .map(|c| c.config.vars.clone())
@@ -498,6 +499,10 @@ fn on_launch_hotkey(app: &tauri::AppHandle) {
             refresh_cache_bg(cache);
         } else {
             debug!("shortcut: window hidden → show");
+            // /save position・/reset position などフロント側からの hide ではキャッシュが
+            // 更新されないため、表示位置は毎回ディスクから読み直す。
+            // このハンドラは register_launch_handler で別スレッドに逃がしてあるので、
+            // ここでのディスク I/O が main thread をブロックすることはない。
             let cfg = config::load_config().0;
             position_window(&window, &cfg, cfg.window_width as f64);
             window.show().ok();
@@ -536,25 +541,65 @@ fn on_app_hotkey(entry: &config::AppEntry, mode: &config::AppHotkeyMode) {
 }
 
 /// launch キーを登録する。
+///
+/// ハンドラ本体は Carbon のホットキーコールバック（macOS では main thread で実行される）
+/// を config 読み込みなどのディスク I/O でブロックしないよう、別スレッドに逃がして実行する。
+/// `in_flight` は前回分の処理が終わる前の連打で背景スレッドが積み上がらないようにするガード。
 fn register_launch_handler(app: &tauri::AppHandle, shortcut: Shortcut) -> Result<(), String> {
     let handle = app.clone();
-    register_hotkey(app, shortcut, Arc::new(move || on_launch_hotkey(&handle))).map_err(|e| {
+    let in_flight = Arc::new(AtomicBool::new(false));
+    register_hotkey(
+        app,
+        shortcut,
+        Arc::new(move || {
+            if in_flight.swap(true, Ordering::AcqRel) {
+                debug!("launch hotkey: previous press still in flight, skipping");
+                return;
+            }
+            let handle = handle.clone();
+            let in_flight = Arc::clone(&in_flight);
+            std::thread::spawn(move || {
+                on_launch_hotkey(&handle);
+                in_flight.store(false, Ordering::Release);
+            });
+        }),
+    )
+    .map_err(|e| {
         log::warn!("Failed to register launch shortcut: {e}");
         e
     })
 }
 
 /// `[[apps]].hotkey` を登録する。
+///
+/// launch キーと同様、ハンドラ本体（config 再読み込み + macOS では `osascript` の
+/// 起動・待機を含む）は main thread をブロックしないよう別スレッドで実行する。
 fn register_app_hotkey_handler(
     app: &tauri::AppHandle,
     shortcut: Shortcut,
     entry: config::AppEntry,
     mode: config::AppHotkeyMode,
 ) -> Result<(), String> {
+    let in_flight = Arc::new(AtomicBool::new(false));
     register_hotkey(
         app,
         shortcut,
-        Arc::new(move || on_app_hotkey(&entry, &mode)),
+        Arc::new(move || {
+            if in_flight.swap(true, Ordering::AcqRel) {
+                debug!(
+                    "app hotkey \"{}\": previous press still in flight, skipping",
+                    entry.name
+                );
+                return;
+            }
+            let entry = entry.clone();
+            let mode = mode.clone();
+            let in_flight = Arc::clone(&in_flight);
+            std::thread::spawn(move || {
+                on_app_hotkey(&entry, &mode);
+                in_flight.store(false, Ordering::Release);
+            });
+        }),
     )
 }
 
@@ -605,7 +650,7 @@ fn reload(
     // launch key 警告は get_config_and_warnings() で動的生成するので WarningsState は空にリセット
     // launch キー登録が完全に失敗した場合のみ Err を返す（呼び出し元がエラー表示する）
     register_shortcuts(&app)?;
-    *warnings_state.lock().unwrap() = Vec::new();
+    *warnings_state.lock() = Vec::new();
 
     apply_autostart(&app, cfg.auto_start);
 
@@ -1480,24 +1525,28 @@ pub fn run() {
                 let blur_gen = Arc::new(AtomicU64::new(0));
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::Focused(false) = event {
-                        if config::load_config().0.hide_on_blur {
-                            let gen = blur_gen.fetch_add(1, Ordering::Relaxed) + 1;
-                            let window_check = window_blur.clone();
-                            let cache_check = Arc::clone(&cache_blur);
-                            let blur_gen_check = Arc::clone(&blur_gen);
-                            tauri::async_runtime::spawn(async move {
-                                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-                                // 最新の blur タスクでなければスキップ
-                                if blur_gen_check.load(Ordering::Relaxed) != gen {
-                                    return;
-                                }
-                                if window_check.is_focused().unwrap_or(false) {
-                                    return; // フォーカスが戻った → ドラッグによる一時的な blur
-                                }
-                                window_check.hide().ok();
-                                refresh_cache_bg(cache_check);
-                            });
-                        }
+                        let gen = blur_gen.fetch_add(1, Ordering::Relaxed) + 1;
+                        let window_check = window_blur.clone();
+                        let cache_check = Arc::clone(&cache_blur);
+                        let blur_gen_check = Arc::clone(&blur_gen);
+                        tauri::async_runtime::spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                            // 最新の blur タスクでなければスキップ
+                            if blur_gen_check.load(Ordering::Relaxed) != gen {
+                                return;
+                            }
+                            // config 読み込み (ディスク I/O) はここで行う。on_window_event は
+                            // ネイティブのイベントループスレッドで呼ばれるため、メインスレッドを
+                            // ブロックしないよう非同期タスク側にディスク I/O を寄せてある。
+                            if !config::load_config().0.hide_on_blur {
+                                return;
+                            }
+                            if window_check.is_focused().unwrap_or(false) {
+                                return; // フォーカスが戻った → ドラッグによる一時的な blur
+                            }
+                            window_check.hide().ok();
+                            refresh_cache_bg(cache_check);
+                        });
                     }
                 });
             }

@@ -368,15 +368,50 @@ end run"#;
         })
     }
 
+    /// 対象アプリ（特に Electron 製の Teams/Outlook/Slack 等）が Apple Event への応答で
+    /// 詰まっている場合、`osascript` はその応答を無期限に待ち続ける。ホットキー1回分の
+    /// バックグラウンドスレッドが永久に生き残らないよう、この待ち時間には上限を設ける
+    /// （タイムアウト時は `Err` を返し、呼び出し側 `activate_or_launch` が起動にフォールバックする）。
+    const OSASCRIPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
     fn run_osascript(app_name: &str, toggle: bool) -> Result<String, String> {
-        let output = std::process::Command::new("osascript")
+        let mut child = std::process::Command::new("osascript")
             .args(["-e", SCRIPT, app_name, if toggle { "1" } else { "0" }])
-            .output()
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
             .map_err(|e| e.to_string())?;
-        if !output.status.success() {
-            return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+
+        let start = std::time::Instant::now();
+        loop {
+            match child.try_wait().map_err(|e| e.to_string())? {
+                Some(status) => {
+                    use std::io::Read;
+                    let mut stdout_buf = String::new();
+                    let mut stderr_buf = String::new();
+                    if let Some(mut stdout) = child.stdout.take() {
+                        let _ = stdout.read_to_string(&mut stdout_buf);
+                    }
+                    if let Some(mut stderr) = child.stderr.take() {
+                        let _ = stderr.read_to_string(&mut stderr_buf);
+                    }
+                    if !status.success() {
+                        return Err(stderr_buf.trim().to_string());
+                    }
+                    return Ok(stdout_buf);
+                }
+                None => {
+                    if start.elapsed() >= OSASCRIPT_TIMEOUT {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(format!(
+                            "osascript timed out after {OSASCRIPT_TIMEOUT:?} activating \"{app_name}\""
+                        ));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+            }
         }
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 }
 
