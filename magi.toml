@@ -1,0 +1,100 @@
+# magi — blind multi-agent implementation competition.
+# `magi run "<task>"` walks: implement (N parallel worktrees)
+#   -> blind judging -> deliberation -> private final vote
+#   -> fold losers -> review + E2E loop -> gate -> merge.
+#
+# Rendered by teravars: a `[vars]` table, env
+# and system lookups, and `include = [...]` all work. Tera
+# braces are live everywhere in this file, but comments are
+# stripped before rendering (teravars >= 0.2.2), so a comment
+# may quote `{{ ... }}` freely.
+#
+# Layers deep-merge in increasing
+# precedence, so the roster can live once per machine in
+# <config_dir>/magi/config.toml and each repo only states its own
+# gate:
+#   <config_dir>/magi/config.toml  <  .magi/config.toml  <  magi.toml
+
+[vars]
+# Reference it as vars.cache inside Tera braces, anywhere below.
+# Single quotes inside the braces: teravars renders the raw file
+# text, so TOML's own \" escaping never reaches Tera.
+cache = "{{ env.MAGI_CACHE | default(value='/tmp') }}"
+
+[[agents]]
+id = "opus"
+kind = "claude"
+model = "opus"
+
+[[agents]]
+id = "sonnet"
+kind = "claude"
+model = "sonnet"
+
+[[agents]]
+id = "opencode"
+kind = "opencode"
+
+[[agents]]
+id = "codex"
+kind = "codex"
+
+[[agents]]
+id = "omp"
+kind = "omp"
+
+# Leave a role list empty to rotate through the roster.
+[roles]
+implementers = []
+judges = []
+reviewers = ["opus", "sonnet", "codex"]
+# conductor = "opus"  # arranges the queue; unset picks a seat like chatter does
+# synthesizer = "opus"  # blends the advisors into one brief; unset picks a seat like chatter does
+
+[graph]
+candidates = 3
+judges = 3
+deliberate_rounds = 1
+reviewers = 3
+review_rounds = 6
+# Fix rounds a failing verify.gate gets before the run is blocked (0 = none).
+gate_fix_rounds = 1
+max_parallel = 4
+language = "en"
+# One CLI conversation per seat: judges keep their own argument
+# across deliberation, the fixer keeps its implementation context.
+sessions = true
+# Reviewer-seat timeout. When timeout_verify is omitted, E2E and
+# the final gate inherit this value for compatibility.
+timeout_review = 1200
+# Optional independent E2E/final-gate timeout; uncomment to keep
+# verification independent if timeout_review changes later.
+# timeout_verify = 1200
+
+[verify]
+# Run once per review round in the winner's worktree; failures are
+# fed back to the fixer.
+e2e = []
+# Final gate. Every command must exit 0 before a merge.
+gate = [
+  "cd src-tauri && cargo fmt --check",
+  "cd src-tauri && cargo clippy -- -D warnings",
+  "cd src-tauri && cargo test",
+  "npm test",
+]
+# Mechanical fixers (formatters) run in the winner's worktree just
+# before the gate; whatever they change becomes one commit. A failing
+# command only warns - the gate stays the arbiter. Same timeout as the
+# gate (timeout_verify). Keep it light and idempotent.
+# pre_gate = []
+
+[merge]
+# none | local | pr
+mode = "pr"
+base = "main"
+# release_bump = true  # Rust (Cargo.toml) repositories only; a no-op elsewhere
+
+[update]
+# off | notify | install — checked in the background, throttled.
+mode = "notify"
+# interval = "24h"

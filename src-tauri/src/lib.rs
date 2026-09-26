@@ -1036,13 +1036,87 @@ fn open_config(name: Option<String>) -> Result<(), String> {
             p
         }
     };
-    tauri_plugin_opener::open_path(path, None::<&str>).map_err(|e| e.to_string())
+    open_with_editor(path)
 }
 
 #[tauri::command]
 fn open_history(_app: tauri::AppHandle) -> Result<(), String> {
     let path = history::history_path();
+    open_with_editor(path)
+}
+
+/// `/config` `/history` は `config.editor_command`（例: `"todoke"`, `"code -n"`）が
+/// 設定されていればそれで開く。GUI 起動（LaunchAgent 経由の自動起動含む）では
+/// シェルの rc ファイル（`.zshenv` 等）の export を継承しないため `$EDITOR` には頼らない。
+/// 未設定、または起動失敗時は OS のファイル関連付けにフォールバックする。
+fn open_with_editor(path: std::path::PathBuf) -> Result<(), String> {
+    let editor_command = config::load_config().0.editor_command;
+    if let Some(cmd) = editor_command.as_deref() {
+        if let Some((program, args)) = split_editor_command(cmd) {
+            match editor_base_command(program).args(args).arg(&path).spawn() {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    log::warn!(
+                        "open_with_editor: editor_command \"{cmd}\" failed to spawn ({e}); falling back to OS file association"
+                    );
+                }
+            }
+        }
+    }
     tauri_plugin_opener::open_path(path, None::<&str>).map_err(|e| e.to_string())
+}
+
+/// `editor_command` を空白区切りでプログラム名と引数に分解する（クォート非対応）。
+/// 空文字列・空白のみの場合は `None`（呼び出し元は OS 関連付けにフォールバックする）。
+fn split_editor_command(cmd: &str) -> Option<(&str, Vec<&str>)> {
+    let mut parts = cmd.split_whitespace();
+    let program = parts.next()?;
+    Some((program, parts.collect()))
+}
+
+/// `editor_command` のプログラム名から起動用の `Command` を組み立てる。
+/// Unix では `Command::new` が PATH を引いてくれるのでそのまま渡す。
+#[cfg(not(target_os = "windows"))]
+fn editor_base_command(program: &str) -> std::process::Command {
+    std::process::Command::new(program)
+}
+
+/// Windows の `Command::new` は `.exe` しか補完せず PATHEXT を見ないため、
+/// `code`（実体は `code.cmd`）のような拡張子なしのシムは spawn に失敗する。
+/// `apps::launch` と同じ `resolve_windows_cmd` で PATHEXT / `App Paths` を解決する。
+/// エディタは裏で開けばよいので `.cmd` / `.bat` / `.ps1` はコンソールを出さない
+/// （`apps::launch` が CLI ツール向けに CREATE_NEW_CONSOLE を使うのとは異なる）。
+#[cfg(target_os = "windows")]
+fn editor_base_command(program: &str) -> std::process::Command {
+    use crate::apps::ResolvedCmd;
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    match crate::apps::resolve_windows_cmd(program) {
+        ResolvedCmd::Cmd(resolved) | ResolvedCmd::Bat(resolved) => {
+            let mut c = std::process::Command::new("cmd");
+            c.args(["/c", &resolved]);
+            c.creation_flags(CREATE_NO_WINDOW);
+            c
+        }
+        ResolvedCmd::Ps1(resolved) => {
+            let mut c = std::process::Command::new("powershell");
+            c.args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "ByPass",
+                "-File",
+                &resolved,
+            ]);
+            c.creation_flags(CREATE_NO_WINDOW);
+            c
+        }
+        // PATH 上で見つかった実行ファイルは絶対パスで起動する（素のコマンド名だと
+        // 相対パス扱いで os error 2 になることがある）。
+        ResolvedCmd::Exe(resolved) => std::process::Command::new(resolved),
+        // 絶対パス指定・PATHEXT でも解決できない場合は元の文字列をそのまま渡す
+        // （spawn 失敗時は呼び出し元が OS 関連付けにフォールバックする）。
+        ResolvedCmd::Other => std::process::Command::new(program),
+    }
 }
 
 #[tauri::command]
@@ -1495,7 +1569,9 @@ pub fn run() {
                     }
                     "config" => {
                         let path = config::config_path();
-                        tauri_plugin_opener::open_path(path, None::<&str>).ok();
+                        if let Err(e) = open_with_editor(path) {
+                            log::warn!("tray Config: failed to open config file: {e}");
+                        }
                     }
                     "exit" => {
                         app.exit(0);
@@ -1764,5 +1840,33 @@ mod hotkey_plan_tests {
         );
         // launch 自体の警告は get_config_and_warnings() 側が動的に出すのでここには積まない
         assert!(plan.warnings.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod editor_command_tests {
+    use super::split_editor_command;
+
+    #[test]
+    fn splits_program_and_args() {
+        assert_eq!(split_editor_command("todoke"), Some(("todoke", vec![])));
+        assert_eq!(
+            split_editor_command("code -n --wait"),
+            Some(("code", vec!["-n", "--wait"]))
+        );
+    }
+
+    #[test]
+    fn collapses_repeated_whitespace() {
+        assert_eq!(
+            split_editor_command("  code   -n  "),
+            Some(("code", vec!["-n"]))
+        );
+    }
+
+    #[test]
+    fn empty_or_blank_yields_none() {
+        assert_eq!(split_editor_command(""), None);
+        assert_eq!(split_editor_command("   "), None);
     }
 }
