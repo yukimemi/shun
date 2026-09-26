@@ -356,10 +356,30 @@ mod windows_impl {
 #[cfg(target_os = "macos")]
 mod macos_impl {
     use super::ActivateOutcome;
+    use dispatch2::DispatchQueue;
     use objc2::rc::Retained;
     use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication, NSWorkspace};
 
+    /// `on_app_hotkey`/`on_launch_hotkey` always call into this from a background thread
+    /// (`register_app_hotkey_handler`/`register_launch_handler` in lib.rs spawn one
+    /// specifically so hotkey handling never blocks the main thread — see PR that fixed the
+    /// original main-thread-blocking bug). `NSRunningApplication.activateWithOptions`/`hide`/
+    /// `unhide`, however, are AppKit APIs that are unreliable off the main thread: confirmed on
+    /// real hardware that `activateWithOptions()` consistently returned `false` — for an app
+    /// that was found, running, and not hidden — when called from that background thread
+    /// (2026-09-27). So every AppKit call in `activate_on_main_thread` is marshaled onto the
+    /// main thread via `DispatchQueue::main().exec_sync()`, which blocks the calling
+    /// (background) thread until it's done. This would deadlock if ever called from the main
+    /// thread itself — it never is, by construction above.
     pub(super) fn activate(app_name: &str, toggle: bool) -> Result<ActivateOutcome, String> {
+        let mut result = None;
+        DispatchQueue::main().exec_sync(|| {
+            result = Some(activate_on_main_thread(app_name, toggle));
+        });
+        result.expect("DispatchQueue::main().exec_sync always runs its closure before returning")
+    }
+
+    fn activate_on_main_thread(app_name: &str, toggle: bool) -> Result<ActivateOutcome, String> {
         let Some(app) = find_running(app_name) else {
             return Ok(ActivateOutcome::NotFound);
         };
@@ -369,6 +389,15 @@ mod macos_impl {
                 log::warn!("macos_impl: NSRunningApplication::hide() failed for \"{app_name}\"");
             }
             return Ok(ActivateOutcome::Minimized);
+        }
+
+        // `activateWithOptions` alone does not reliably unhide an app that was hidden via
+        // `hide()` (Apple's own NSRunningApplication docs recommend pairing `unhide()` with
+        // `activate(options:)` to guarantee visibility) — without this, toggle's second press
+        // (hide → activate) left the app hidden forever (2026-09-27, confirmed on real hardware:
+        // WezTerm never came back after being hidden by the first F12 press).
+        if app.isHidden() && !app.unhide() {
+            log::warn!("macos_impl: NSRunningApplication::unhide() failed for \"{app_name}\"");
         }
 
         // `activateIgnoringOtherApps` is deprecated (no-op) on macOS 14+, but shun ships with
