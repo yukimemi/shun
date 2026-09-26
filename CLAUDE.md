@@ -177,7 +177,7 @@ Add per-repo extras (e.g. `cargo fetch`, `npm install`) by extending
 - `lib.rs::register_shortcuts()` calls `plan_hotkey_registrations()` once and registers
   everything; called from both `setup()` and the `/reload` command right after
   `unregister_all()`, so the two paths can't drift
-- Match target for all OSes = `window_app` (legacy alias `window_exe`) else the stem of `path` (never `name`), resolved by `app_window::resolve_window_app`; macOS checks "is running" first and returns NotFound so `path` is launched
+- Match target for all OSes = `window_app` else the stem of `path` (never `name`), resolved by `app_window::resolve_window_app`; macOS checks "is running" first and returns NotFound so `path` is launched
 - `app_window::activate_or_launch(item, toggle)` implements `activate`/`toggle`: Windows uses
   `EnumWindows` + exe-name matching (via the `windows` crate); macOS shells out to
   `osascript`; Linux shells out to `wmctrl`. Any failure/unsupported-platform/window-not-found

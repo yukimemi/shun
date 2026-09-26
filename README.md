@@ -316,7 +316,7 @@ Each `[[apps]]` entry can register its own global hotkey, independent of `keybin
 |---|---|---|
 | `hotkey` | string | Optional. A shortcut string parseable the same way as `keybindings.launch` (e.g. `"Ctrl+Alt+N"`). Omit to skip hotkey registration for this app |
 | `hotkey_mode` | string | `"launch"` (default) \| `"activate"` \| `"toggle"` |
-| `window_app` | string | Optional, all OSes. App/process name used to find the window for `activate` / `toggle`: executable name on Windows (without `.exe`), `.app` name on macOS (without `.app`), WM_CLASS on Linux. Case-insensitive on Windows/Linux. Defaults to the file name (stem) of `path`; `name` is never used. Needed when `path` is a launcher stub, e.g. `path = "wt"` → `window_app = "WindowsTerminal"`. The legacy key `window_exe` is still accepted as an alias (set only one of the two) |
+| `window_app` | string | Optional, all OSes. App/process name used to find the window for `activate` / `toggle`: executable name on Windows (without `.exe`), `.app` name on macOS (without `.app`), WM_CLASS on Linux. Case-insensitive on Windows/Linux. Defaults to the file name (stem) of `path`; `name` is never used. Needed when `path` is a launcher stub, e.g. `path = "wt"` → `window_app = "WindowsTerminal"` |
 | `window_title` | string | Optional, Windows only. Additionally require the window title to contain this string (case-insensitive) for `activate` / `toggle`. Distinguishes windows of the same executable, e.g. a dedicated yazi window in Windows Terminal |
 | `window_title_exclude` | string | Optional, Windows only. Skip windows whose title contains this string (case-insensitive) for `activate` / `toggle`. E.g. keep the F12 Windows Terminal hotkey from grabbing a dedicated yazi window |
 
