@@ -119,7 +119,7 @@ After editing config, run `/reload` to apply all changes without restarting.
 | Command | Action |
 |---|---|
 | `/reload` | Reload config — re-registers global shortcut, rescans apps, re-applies all settings |
-| `/config` | Open a config file (`Tab` to pick; `delete_item` key to delete; creates new `config.*.toml` if typed manually) |
+| `/config` | Open a config file (`Tab` to pick; `delete_item` key to delete; creates new `config.*.toml` if typed manually; via `editor_command` if set, else default editor) |
 | `/theme <name>` | Switch theme for this session (`Tab` to pick; set in `config.toml` to persist) |
 | `/update` | Install latest release (shows version if update available) |
 | `/history` | Open history file (via `editor_command` if set, else default editor) |
@@ -128,6 +128,8 @@ After editing config, run `/reload` to apply all changes without restarting.
 | `/reset` | Reset a setting in `config.local.toml` — falls back to `config.toml` or default (`Tab` to pick) |
 | `/help` | Show keybindings & current status (theme, search mode, sort order) |
 | `/exit` | Quit shun |
+
+The tray icon's "Config" menu item opens `config.toml` the same way as `/config` (via `editor_command` if set, else default editor).
 
 <details>
 <summary>Full configuration reference</summary>
