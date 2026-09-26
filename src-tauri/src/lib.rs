@@ -499,14 +499,11 @@ fn on_launch_hotkey(app: &tauri::AppHandle) {
             refresh_cache_bg(cache);
         } else {
             debug!("shortcut: window hidden → show");
-            // メインスレッド (Carbon ホットキーコールバック) をディスク I/O で
-            // ブロックしないよう、既にリフレッシュ済みのキャッシュから読む。
-            // キャッシュ未構築 (起動直後の一瞬) の場合のみ load_config() にフォールバック。
-            let cfg = cache
-                .lock()
-                .as_ref()
-                .map(|item| item.config.clone())
-                .unwrap_or_else(|| config::load_config().0);
+            // /save position・/reset position などフロント側からの hide ではキャッシュが
+            // 更新されないため、表示位置は毎回ディスクから読み直す。
+            // このハンドラは register_launch_handler で別スレッドに逃がしてあるので、
+            // ここでのディスク I/O が main thread をブロックすることはない。
+            let cfg = config::load_config().0;
             position_window(&window, &cfg, cfg.window_width as f64);
             window.show().ok();
             window.set_focus().ok();
