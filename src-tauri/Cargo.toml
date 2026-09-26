@@ -1,6 +1,6 @@
 [package]
 name = "shun"
-version = "5.4.6"
+version = "5.4.7"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -37,8 +37,8 @@ parking_lot = "0.12"
 
 [target.'cfg(windows)'.dependencies]
 # Must stay in sync with Tauri's transitive webview2-com/windows-core versions
-webview2-com = "0.38"
-windows-core = "0.61"
+webview2-com = "0.39"
+windows-core = "0.62"
 # Used by app_window.rs to activate/toggle app windows (EnumWindows, SetForegroundWindow, ...)
 windows = { version = "0.62", features = [
     "Win32_Foundation",
