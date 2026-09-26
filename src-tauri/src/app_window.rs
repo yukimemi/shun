@@ -372,7 +372,17 @@ end run"#;
     /// 詰まっている場合、`osascript` はその応答を無期限に待ち続ける。ホットキー1回分の
     /// バックグラウンドスレッドが永久に生き残らないよう、この待ち時間には上限を設ける
     /// （タイムアウト時は `Err` を返し、呼び出し側 `activate_or_launch` が起動にフォールバックする）。
-    const OSASCRIPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+    ///
+    /// `toggle` モードで `tell application "System Events"` に初めて到達したとき
+    /// （= `window_app` が対象アプリの実際の Launch Services 名と一致して初めて
+    /// このパスに入れるようになったとき）、macOS が「shun が System Events を
+    /// 操作することを許可しますか」という Automation 権限ダイアログを表示することがある。
+    /// これはユーザーがクリックするまで応答が返らないため、あまり短いタイムアウトだと
+    /// クリックする前に強制終了されてしまい、権限が一生許可されないまま
+    /// 「毎回 activate/toggle に失敗 → launch フォールバックで新規プロセスが起動し続ける」
+    /// という状態になる (2026-09-27 実機で発生・確認済み: F12 の2回目以降で
+    /// WezTerm が新規に起動し続けた)。30秒あれば大抵のダイアログはクリックできる。
+    const OSASCRIPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
     fn run_osascript(app_name: &str, toggle: bool) -> Result<String, String> {
         let mut child = std::process::Command::new("osascript")
