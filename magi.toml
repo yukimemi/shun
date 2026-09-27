@@ -21,36 +21,6 @@
 # text, so TOML's own \" escaping never reaches Tera.
 cache = "{{ env.MAGI_CACHE | default(value='/tmp') }}"
 
-[[agents]]
-id = "opus"
-kind = "claude"
-model = "opus"
-
-[[agents]]
-id = "sonnet"
-kind = "claude"
-model = "sonnet"
-
-[[agents]]
-id = "opencode"
-kind = "opencode"
-
-[[agents]]
-id = "codex"
-kind = "codex"
-
-[[agents]]
-id = "omp"
-kind = "omp"
-
-# Leave a role list empty to rotate through the roster.
-[roles]
-implementers = []
-judges = []
-reviewers = ["opus", "sonnet", "codex"]
-# conductor = "opus"  # arranges the queue; unset picks a seat like chatter does
-# synthesizer = "opus"  # blends the advisors into one brief; unset picks a seat like chatter does
-
 [graph]
 candidates = 3
 judges = 3
