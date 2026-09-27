@@ -131,12 +131,30 @@ jobs:
           perl -i -pe "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" package.json src-tauri/tauri.conf.json
           perl -i -pe "s/^version = \".*\"/version = \"${VERSION}\"/" src-tauri/Cargo.toml
 
+      # Without APPLE_SIGNING_IDENTITY, tauri-action skips macOS codesigning
+      # entirely (confirmed: the shipped .app has no bundle-level seal at
+      # all, `codesign --verify --deep --strict` reports "code object is not
+      # signed at all"). "-" is ad-hoc signing (no Apple Developer ID
+      # certificate configured) -- same trust level as before (still
+      # Gatekeeper-unidentified, users still need to right-click > Open the
+      # first time), but it makes tauri actually invoke `codesign`, which the
+      # shim below then intercepts to pin a stable identity.
+      - name: Install stable-identity codesign shim (macOS)
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/codesign-shim"
+          cp .github/scripts/codesign-stable-identity.sh "$RUNNER_TEMP/codesign-shim/codesign"
+          chmod +x "$RUNNER_TEMP/codesign-shim/codesign"
+          echo "$RUNNER_TEMP/codesign-shim" >> "$GITHUB_PATH"
+
       - name: Build and release
         uses: tauri-apps/tauri-action@v0.6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: "-"
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "shun ${{ github.ref_name }}"

@@ -3,6 +3,15 @@
 version = 4
 
 [[package]]
+name = "accessibility-sys"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46a6a8e90a1d8b96a48249e7c8f5b4058447bea8847280db7bfccb6dcab6b8e1"
+dependencies = [
+ "core-foundation-sys",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2740,6 +2749,7 @@ checksum = "d49e936b501e5c5bf01fda3a9452ff86dc3ea98ad5f283e1455153142d97518c"
 dependencies = [
  "bitflags 2.11.0",
  "block2",
+ "libc",
  "objc2",
  "objc2-core-foundation",
  "objc2-foundation",
@@ -4131,6 +4141,8 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 name = "shun"
 version = "5.4.7"
 dependencies = [
+ "accessibility-sys",
+ "core-foundation-sys",
  "dirs-next",
  "dispatch2",
  "futures-util",
@@ -4138,6 +4150,7 @@ dependencies = [
  "nucleo-matcher",
  "objc2",
  "objc2-app-kit",
+ "objc2-foundation",
  "parking_lot",
  "regex",
  "reqwest",

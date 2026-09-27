@@ -59,10 +59,25 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
     "std",
     "NSRunningApplication",
     "NSWorkspace",
+    "libc",
 ] }
 # Used to marshal isActive/isHidden reads onto the main thread (documented by
 # Apple as stale/race-prone off it — see app_window.rs::macos_impl's doc comment).
 dispatch2 = "0.3"
+# Used to enumerate/raise/minimize individual windows of another app via the
+# Accessibility API (AXUIElement) when `[[apps]].window_title` narrows a
+# `window_app` match to a specific window — NSRunningApplication/NSWorkspace
+# only operate at the whole-app level, not per-window. Only exercised when an
+# entry sets `window_title`; entries without it never touch this API.
+# NSString/CFString are toll-free bridged, so we build AX attribute-name
+# strings via objc2-foundation's NSString rather than hand-rolling
+# CFStringCreate calls against core-foundation-sys 0.8's older API.
+accessibility-sys = "0.2"
+core-foundation-sys = "0.8"
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSString",
+] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"
