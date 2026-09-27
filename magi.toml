@@ -56,7 +56,9 @@ gate = [
 # before the gate; whatever they change becomes one commit. A failing
 # command only warns - the gate stays the arbiter. Same timeout as the
 # gate (timeout_verify). Keep it light and idempotent.
-# pre_gate = []
+# A fresh candidate worktree has no node_modules, so `npm test` in the
+# gate would die with `vitest: command not found`. Install first.
+pre_gate = ["npm ci"]
 
 [merge]
 # none | local | pr
