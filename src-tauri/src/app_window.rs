@@ -361,9 +361,12 @@ mod windows_impl {
 /// ウィンドウ一覧 (`AXWindows`) からタイトルが一致する1つを探して個別に操作する
 /// (`AXRaise` で前面化 / `AXMinimized` 属性で最小化)。同じアプリ内の他のウィンドウには影響しない
 /// ため、例えば WezTerm 内の特定タブだけを activate/toggle でき、F12（アプリ全体の hide）が
-/// 巻き込むこともない。`AXIsProcessTrusted()` が false（Accessibility 権限未許可）の場合は
-/// ログを出してアプリ単位の動作にフォールバックする（`window_title` を使わないエントリは
-/// この API に一切触れない — Accessibility 権限が無くても今まで通り動く）。
+/// 巻き込むこともない。未許可の場合、`window_title` を使うエントリのホットキーが最初に
+/// 押されたタイミングでシステム標準の許可ダイアログを一度だけ出す
+/// （`AXIsProcessTrustedWithOptions` + `kAXTrustedCheckOptionPrompt`、以降はプロセスの
+/// 寿命中再度は出さない）。許可されなかった場合はログを出してアプリ単位の動作に
+/// フォールバックする（`window_title` を使わないエントリはこの API に一切触れない —
+/// Accessibility 権限もダイアログも無くても今まで通り動く）。
 ///
 /// アプリ名は解決済みの `window_app`（または `path` の stem）。`NSRunningApplication` の
 /// `localizedName`（Launch Services 上のローカライズ済み表示名。例: 日本語環境では
@@ -381,12 +384,16 @@ mod macos_impl {
     use super::{ActivateOutcome, WindowMatch};
     use accessibility_sys::{
         kAXErrorSuccess, kAXMainAttribute, kAXMinimizedAttribute, kAXRaiseAction,
-        kAXTitleAttribute, kAXWindowsAttribute, AXError, AXIsProcessTrusted,
-        AXUIElementCopyAttributeValue, AXUIElementCreateApplication, AXUIElementPerformAction,
-        AXUIElementRef, AXUIElementSetAttributeValue,
+        kAXTitleAttribute, kAXTrustedCheckOptionPrompt, kAXWindowsAttribute, AXError,
+        AXIsProcessTrusted, AXIsProcessTrustedWithOptions, AXUIElementCopyAttributeValue,
+        AXUIElementCreateApplication, AXUIElementPerformAction, AXUIElementRef,
+        AXUIElementSetAttributeValue,
     };
     use core_foundation_sys::array::{CFArrayGetCount, CFArrayGetValueAtIndex, CFArrayRef};
     use core_foundation_sys::base::{CFRelease, CFRetain, CFTypeRef};
+    use core_foundation_sys::dictionary::{
+        kCFTypeDictionaryKeyCallBacks, kCFTypeDictionaryValueCallBacks, CFDictionaryCreate,
+    };
     use core_foundation_sys::number::{
         kCFBooleanFalse, kCFBooleanTrue, CFBooleanGetValue, CFBooleanRef,
     };
@@ -398,6 +405,8 @@ mod macos_impl {
         NSRunningApplication, NSWorkspace,
     };
     use objc2_foundation::NSString;
+    use std::ffi::c_void;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     /// `on_app_hotkey`/`on_launch_hotkey` always call into this from a background thread.
     /// `NSRunningApplication`'s time-varying properties (`isActive`, `isHidden`) are documented
@@ -534,7 +543,7 @@ mod macos_impl {
         post_launch: bool,
     ) -> Result<ActivateOutcome, String> {
         let window_mode = title.is_some() || title_exclude.is_some();
-        let ax_trusted = unsafe { AXIsProcessTrusted() };
+        let ax_trusted = window_mode && unsafe { ax_is_trusted_prompting_once() };
 
         // shun 自身がこのエントリ向けに直近で spawn したプロセスがまだ生きていれば、
         // 名前/タイトルによる曖昧な検索を一切せず、そのインスタンスだけを対象にする —
@@ -583,12 +592,41 @@ mod macos_impl {
             }
             log::warn!(
                 "macos_impl: \"{app_name}\" has window_title/window_title_exclude set but \
-                 Accessibility permission is not granted (System Settings > Privacy & Security > \
-                 Accessibility) — falling back to whole-app activate/toggle"
+                 Accessibility permission was not granted when prompted (or the prompt was \
+                 dismissed) — falling back to whole-app activate/toggle. Grant it under System \
+                 Settings > Privacy & Security > Accessibility and press the hotkey again."
             );
         }
 
         activate_whole_app(app, app_name, toggle)
+    }
+
+    /// `AXIsProcessTrusted()` に加え、未許可ならシステム標準の許可ダイアログを一度だけ出す
+    /// （`AXIsProcessTrustedWithOptions` + `kAXTrustedCheckOptionPrompt`）。ホットキーを
+    /// 押すたびにダイアログが出ると鬱陶しいので、プロセスの寿命中は一度だけ試す
+    /// （`PROMPTED`）。呼び出し元で `window_mode` のときだけ呼ぶ — `window_title` を
+    /// 使わないエントリはこの関数自体に触れず、ダイアログも一切出ない。
+    unsafe fn ax_is_trusted_prompting_once() -> bool {
+        static PROMPTED: AtomicBool = AtomicBool::new(false);
+        if AXIsProcessTrusted() {
+            return true;
+        }
+        if PROMPTED.swap(true, Ordering::AcqRel) {
+            return false;
+        }
+        let keys = [kAXTrustedCheckOptionPrompt as *const c_void];
+        let values = [kCFBooleanTrue as *const c_void];
+        let options = CFDictionaryCreate(
+            std::ptr::null(),
+            keys.as_ptr(),
+            values.as_ptr(),
+            1,
+            &kCFTypeDictionaryKeyCallBacks,
+            &kCFTypeDictionaryValueCallBacks,
+        );
+        let trusted = AXIsProcessTrustedWithOptions(options);
+        CFRelease(options as CFTypeRef);
+        trusted
     }
 
     /// アプリ単位の activate / toggle（`window_title` / `window_title_exclude` いずれも
