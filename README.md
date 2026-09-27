@@ -88,6 +88,8 @@ Works out of the box with zero config. Config file is created automatically on f
 | macOS | `~/Library/Application Support/shun/config.toml` |
 | Linux | `~/.config/shun/config.toml` |
 
+**Window corners:** the launcher window is transparent and undecorated. Windows 11 rounds it natively; on macOS and Linux shun rounds the corners itself (10px). macOS uses Tauri's `macos-private-api` for real transparency. On Linux a compositor is required for transparency; without one the window stays square rather than showing black corners.
+
 On Windows and macOS, if `~/.config/shun/config.toml` already exists, it takes priority over the path above and is used instead (Linux already resolves to `~/.config/shun`, so this has no effect there). This also determines where `history.json` (frecency data, see `/history`) is read from and written to, since it always lives alongside `config.toml` — switching to `~/.config/shun` starts history fresh there rather than migrating entries from the old location.
 
 A minimal config to get started (non-existent paths are silently ignored):

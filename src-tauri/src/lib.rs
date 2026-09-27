@@ -56,6 +56,39 @@ struct ConfigAndWarnings {
     warnings: Vec<(String, String)>,
 }
 
+/// Whether the frontend should round the window corners itself.
+/// Windows: DWM already rounds undecorated windows. macOS: always (private-API
+/// transparency). Linux: only when a compositor is running, otherwise the
+/// transparent corners would render black.
+#[tauri::command]
+fn should_round_corners(window: tauri::WebviewWindow) -> bool {
+    #[cfg(windows)]
+    {
+        let _ = window;
+        false
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = window;
+        true
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use gtk::prelude::WidgetExt;
+        window
+            .gtk_window()
+            .ok()
+            .and_then(|w| w.screen())
+            .map(|s| s.is_composited())
+            .unwrap_or(false)
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    {
+        let _ = window;
+        false
+    }
+}
+
 #[tauri::command]
 fn get_config_and_warnings(state: tauri::State<WarningsState>) -> ConfigAndWarnings {
     let (config, config_warnings) = config::load_config();
@@ -1695,6 +1728,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_config_and_warnings,
+            should_round_corners,
             get_apps,
             search_items,
             launch_item,
