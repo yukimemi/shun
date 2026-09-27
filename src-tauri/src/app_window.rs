@@ -46,14 +46,20 @@ pub fn activate_or_launch(
     toggle: bool,
     vars: &std::collections::HashMap<String, String>,
 ) -> Result<(), String> {
+    // ウィンドウが見つからず新規起動するケース専用: 起動しただけでは終わらせず、
+    // macOS では続けて前面化も試みる（macos_impl::activate_after_launch のドキュメント参照）。
+    let launch_and_activate = || {
+        apps::launch_with_extra(item, Vec::new(), vars)?;
+        #[cfg(target_os = "macos")]
+        macos_impl::activate_after_launch(item, window);
+        Ok(())
+    };
     match try_activate(item, window, toggle) {
         Ok(ActivateOutcome::Activated) | Ok(ActivateOutcome::Minimized) => Ok(()),
-        Ok(ActivateOutcome::NotFound) | Ok(ActivateOutcome::Unsupported) => {
-            apps::launch_with_extra(item, Vec::new(), vars)
-        }
+        Ok(ActivateOutcome::NotFound) | Ok(ActivateOutcome::Unsupported) => launch_and_activate(),
         Err(e) => {
             log::warn!("activate_or_launch: window operation failed ({e}), launching instead");
-            apps::launch_with_extra(item, Vec::new(), vars)
+            launch_and_activate()
         }
     }
 }
@@ -111,7 +117,7 @@ fn try_activate(
     #[cfg(target_os = "windows")]
     return windows_impl::activate(&app, window, toggle);
     #[cfg(target_os = "macos")]
-    return macos_impl::activate(&app, window, toggle);
+    return macos_impl::activate(&item.name, &app, window, toggle);
     #[cfg(target_os = "linux")]
     return linux_impl::activate(&app, toggle);
 }
@@ -374,8 +380,8 @@ mod windows_impl {
 mod macos_impl {
     use super::{ActivateOutcome, WindowMatch};
     use accessibility_sys::{
-        kAXErrorSuccess, kAXFrontmostAttribute, kAXMainAttribute, kAXMinimizedAttribute,
-        kAXRaiseAction, kAXTitleAttribute, kAXWindowsAttribute, AXError, AXIsProcessTrusted,
+        kAXErrorSuccess, kAXMainAttribute, kAXMinimizedAttribute, kAXRaiseAction,
+        kAXTitleAttribute, kAXWindowsAttribute, AXError, AXIsProcessTrusted,
         AXUIElementCopyAttributeValue, AXUIElementCreateApplication, AXUIElementPerformAction,
         AXUIElementRef, AXUIElementSetAttributeValue,
     };
@@ -388,8 +394,8 @@ mod macos_impl {
     use dispatch2::DispatchQueue;
     use objc2::rc::Retained;
     use objc2_app_kit::{
-        NSApplicationActivationOptions, NSApplicationActivationPolicy, NSRunningApplication,
-        NSWorkspace,
+        NSApplication, NSApplicationActivationOptions, NSApplicationActivationPolicy,
+        NSRunningApplication, NSWorkspace,
     };
     use objc2_foundation::NSString;
 
@@ -413,6 +419,7 @@ mod macos_impl {
     /// and launches a duplicate. A real user's repeat presses are almost always slower than this,
     /// but the delay costs little and removes the failure mode outright.
     pub(super) fn activate(
+        item_name: &str,
         app_name: &str,
         window: WindowMatch,
         toggle: bool,
@@ -426,10 +433,12 @@ mod macos_impl {
         let mut result = None;
         DispatchQueue::main().exec_sync(|| {
             result = Some(activate_on_main_thread(
+                item_name,
                 app_name,
                 title.as_deref(),
                 title_exclude.as_deref(),
                 toggle,
+                false,
             ));
         });
         let result = result
@@ -448,23 +457,120 @@ mod macos_impl {
         result
     }
 
+    /// `activate_or_launch()` がウィンドウを見つけられず新規起動した直後に呼ばれる。
+    ///
+    /// バックグラウンドから spawn した GUI プロセスは、ウィンドウを作っても自動では
+    /// フォアグラウンドにならないことを実機で確認した（`wezterm-gui start -- yazi` の
+    /// 初回起動後、ウィンドウは背面に残ったまま — 次のホットキー押下で明示的に
+    /// activate するまで前面化しなかった）。
+    ///
+    /// `item.name` をキーにした `apps::launched_pid` キャッシュ（`activate_on_main_thread`
+    /// が最優先で参照する）のおかげで、単純な「同名の実行中インスタンスを何でもいいから
+    /// 前面化する」誤り（`window_title` 指定時、たった今 spawn したはずのウィンドウでは
+    /// なく、たまたま先に見つかった既存の別インスタンス — 例えば元々起動していたシェルの
+    /// WezTerm — が前面化されてしまう、実機で確認済みの不具合）を踏まずに済む。新しい
+    /// ウィンドウが実際に見えるようになるまでには一呼吸あるため、短い間隔で数回
+    /// リトライする（起動直後の1回だけではまだ見つからないことがある）。`toggle=false`
+    /// 固定（このタイミングで最小化してしまうことはない）。
+    ///
+    /// `post_launch=true` で呼ぶ: 起動直後のプロセスはまだウィンドウも AX も準備できて
+    /// おらず `AXWindows` の列挙が失敗しがち。通常経路ではそれを「列挙失敗」としてアプリ
+    /// 単位の前面化に倒すが、ここでそれをやると `open <bundle>` が元から動いていた別
+    /// インスタンス（shell の WezTerm）を前面化し、それを「成功」と見なしてリトライを
+    /// 打ち切ってしまう — 実機で確認した「Ctrl+F10 で shell 側がアクティブになる」の直接
+    /// 原因。`post_launch` では列挙失敗を「まだ準備中」＝リトライ扱いにする。
+    /// リトライを使い切っても見つからなければ、最後の手段として起動したプロセス自体
+    /// （pid キャッシュ）を前面化する — 少なくとも正しいインスタンスが前に出る。
+    pub(super) fn activate_after_launch(item: &super::LaunchItem, window: super::WindowMatch) {
+        let Some(app_name) = super::resolve_window_app(window.app, &item.path) else {
+            return;
+        };
+        let title = window.title.map(str::to_string);
+        let title_exclude = window.title_exclude.map(str::to_string);
+        for _ in 0..15 {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            let mut result = None;
+            DispatchQueue::main().exec_sync(|| {
+                result = Some(activate_on_main_thread(
+                    &item.name,
+                    &app_name,
+                    title.as_deref(),
+                    title_exclude.as_deref(),
+                    false,
+                    true,
+                ));
+            });
+            if matches!(result, Some(Ok(ActivateOutcome::Activated))) {
+                return;
+            }
+        }
+        let mut activated_launched = false;
+        DispatchQueue::main().exec_sync(|| {
+            if let Some(app) = crate::apps::launched_pid(&item.name).and_then(|pid| {
+                NSRunningApplication::runningApplicationWithProcessIdentifier(pid as libc::pid_t)
+            }) {
+                activate_specific_instance(&app, &app_name);
+                activated_launched = true;
+            }
+        });
+        log::warn!(
+            "macos_impl: \"{app_name}\" window {:?}/exclude {:?} not found after launching it{}",
+            title,
+            title_exclude,
+            if activated_launched {
+                " — activated the launched process itself instead"
+            } else {
+                ""
+            }
+        );
+    }
+
     fn activate_on_main_thread(
+        item_name: &str,
         app_name: &str,
         title: Option<&str>,
         title_exclude: Option<&str>,
         toggle: bool,
+        post_launch: bool,
     ) -> Result<ActivateOutcome, String> {
         let window_mode = title.is_some() || title_exclude.is_some();
-        let trusted = window_mode && unsafe { AXIsProcessTrusted() };
-        // 別プロセス登録（`wezterm-gui` 等）はウィンドウ検索でしか使えないので、
-        // Accessibility 権限がある場合だけ候補に含める（無ければ従来の名前/bundle 一致のみ）。
-        let (apps, strict_count) = find_running(app_name, trusted);
+        let ax_trusted = unsafe { AXIsProcessTrusted() };
+
+        // shun 自身がこのエントリ向けに直近で spawn したプロセスがまだ生きていれば、
+        // 名前/タイトルによる曖昧な検索を一切せず、そのインスタンスだけを対象にする —
+        // 同名の複数インスタンスが実行中でも取り違えない（実機で確認済みの不具合の根本
+        // 対応: window_title 検索でも、たった今 spawn したはずのウィンドウではなく、
+        // たまたま先に見つかった既存の別インスタンスの方を掴んでしまうことがあった）。
+        // 見つからなければ（未起動、または pid が既に終了 — 例えば wezterm-gui が
+        // 既存の mux に合流した際の、リクエスト用の短命プロセスが該当）、通常の
+        // 名前/タイトル検索に委ねる。
+        let launched_pid = crate::apps::launched_pid(item_name);
+        let cached_app = launched_pid.and_then(|pid| {
+            NSRunningApplication::runningApplicationWithProcessIdentifier(pid as libc::pid_t)
+        });
+        // 起動直後で、まだ起動したプロセスがアプリとして登録されていない: window_title が
+        // 無い（名前だけで区別できない）場合、名前検索に回すと元から動いていた別インスタンス
+        // を掴むので、まだ準備中としてリトライさせる。window_title がある場合はタイトル一致が
+        // 取り違えを防ぐうえ、既存の mux に合流したケース（ウィンドウは元のプロセスに属する）
+        // を拾うために名前検索が必要。
+        if post_launch && !window_mode && launched_pid.is_some() && cached_app.is_none() {
+            return Ok(ActivateOutcome::NotFound);
+        }
+        let (apps, strict_count): (Vec<Retained<NSRunningApplication>>, usize) = match cached_app {
+            Some(app) => (vec![app], 1),
+            None => {
+                // 別プロセス登録（`wezterm-gui` 等）はウィンドウ検索でしか使えないので、
+                // Accessibility 権限がある場合だけ候補に含める（無ければ従来の名前/bundle
+                // 一致のみ）。
+                find_running(app_name, window_mode && ax_trusted)
+            }
+        };
         let Some(app) = apps.first() else {
             return Ok(ActivateOutcome::NotFound);
         };
 
         if window_mode {
-            if trusted {
+            if ax_trusted {
                 return activate_window(
                     &apps,
                     strict_count,
@@ -472,6 +578,7 @@ mod macos_impl {
                     title,
                     title_exclude,
                     toggle,
+                    post_launch,
                 );
             }
             log::warn!(
@@ -497,7 +604,9 @@ mod macos_impl {
             }
             return Ok(ActivateOutcome::Minimized);
         }
-        open_bundle(app, app_name);
+        // 同じバンドルの別インスタンスが動いていると `open` は別のインスタンスを前面化して
+        // しまうため、インスタンス数に応じて `open` / pid 指定を使い分ける。
+        activate_specific_instance(app, app_name);
         Ok(ActivateOutcome::Activated)
     }
 
@@ -515,6 +624,7 @@ mod macos_impl {
         title: Option<&str>,
         title_exclude: Option<&str>,
         toggle: bool,
+        post_launch: bool,
     ) -> Result<ActivateOutcome, String> {
         let title_lower = title.map(str::to_lowercase);
         let exclude_lower = title_exclude.map(str::to_lowercase);
@@ -546,6 +656,12 @@ mod macos_impl {
         }
         let Some((app, window)) = found else {
             if enumeration_failed {
+                // 起動直後: 列挙失敗は「まだ準備中」。アプリ単位に倒すと別インスタンスを
+                // 前面化して「成功」扱いになってしまう（`activate_after_launch` 参照）ので、
+                // NotFound でリトライさせる。
+                if post_launch {
+                    return Ok(ActivateOutcome::NotFound);
+                }
                 // 実行中なのに AXWindows を取得できなかった: 「ウィンドウ無し」と区別する。
                 // NotFound を返すと起動フォールバックで重複プロセスが立つので、アプリ単位に倒す。
                 log::warn!(
@@ -594,8 +710,121 @@ mod macos_impl {
                 describe()
             );
         }
-        open_bundle(app, app_name);
+        activate_specific_instance(app, app_name);
         Ok(ActivateOutcome::Activated)
+    }
+
+    /// インスタンスを指定した前面化（`activate_window` / `activate_whole_app` 共通）。
+    ///
+    /// バックグラウンドの shun から直接の前面化要求（`activateWithOptions()`、
+    /// `AXFrontmostAttribute`、shun の子プロセスとして起動した System Events）は、
+    /// 戻り値上は成功しても macOS 14+ の協調的アクティベーションで黙って無視される
+    /// ことを実機で確認した（LaunchServices 起動の shun.app から 0/7、同じ呼び出しを
+    /// ターミナル起動の CLI から行うと 7/7）。
+    ///
+    /// - 同じバンドルの実行中インスタンスが1つだけ → `open <bundle path>`（LaunchServices
+    ///   が前面化を行うため確実、追加権限不要）。
+    /// - 複数ある（`wezterm-gui` を bare サブプロセスとして起動した場合など）→ `open` は
+    ///   どのインスタンスかを選べず、LaunchServices は元から動いていた方を前面化して
+    ///   しまう。`activate_cooperatively`（shun 自身を一度アクティブにしてから対象に
+    ///   yield）で pid 指定の前面化を行う。拒否された場合のみ System Events に委譲する。
+    fn activate_specific_instance(app: &NSRunningApplication, app_name: &str) {
+        let pid = app.processIdentifier();
+        let bundle_path = app
+            .bundleURL()
+            .and_then(|u| u.path())
+            .map(|p| p.to_string());
+        let same_bundle_count = bundle_path.as_deref().map_or(1, |bp| {
+            let running = NSWorkspace::sharedWorkspace().runningApplications();
+            (0..running.count())
+                .map(|i| running.objectAtIndex(i))
+                .filter(|a| {
+                    a.bundleURL()
+                        .and_then(|u| u.path())
+                        .is_some_and(|p| p.to_string() == bp)
+                })
+                .count()
+        });
+        if same_bundle_count <= 1 {
+            open_bundle(app, app_name);
+            return;
+        }
+        let allowed = activate_cooperatively(app);
+        log::info!(
+            "macos_impl: cooperative activation of \"{app_name}\" (pid {pid}) allowed={allowed}"
+        );
+        if !allowed {
+            activate_pid_via_system_events(pid, app_name, bundle_path);
+        }
+    }
+
+    /// macOS 14+ の協調的アクティベーション: 前面化は「現在アクティブなアプリが
+    /// yield した相手」に対してしか保証されない（`NSApplication.activate` /
+    /// `NSRunningApplication.activateFromApplication:options:` のドキュメント）。
+    /// バックグラウンドの shun から他アプリを前面化しようとしても黙って無視されるのは
+    /// このため（PR #262 の `activateWithOptions()`、`AXFrontmostAttribute`、shun の子
+    /// プロセスとして起動した System Events も同様に exit 0 / true なのに効かないことを
+    /// 実機で確認）。ユーザーが shun のホットキーを押した直後なので shun 自身は
+    /// アクティブになれる（Ctrl+Space でランチャーを出すのと同じ）— 一度 shun を
+    /// アクティブにし、対象に yield してから、shun を起点に対象をアクティブ化する。
+    /// メインスレッド専用。
+    fn activate_cooperatively(app: &NSRunningApplication) -> bool {
+        let Some(mtm) = objc2::MainThreadMarker::new() else {
+            return false;
+        };
+        let ns_app = NSApplication::sharedApplication(mtm);
+        #[allow(deprecated)]
+        ns_app.activateIgnoringOtherApps(true);
+        ns_app.yieldActivationToApplication(app);
+        app.activateFromApplication_options(
+            &NSRunningApplication::currentApplication(),
+            NSApplicationActivationOptions::empty(),
+        )
+    }
+
+    /// `pid` のプロセスを System Events（`osascript`）経由でフロントにする。shun の
+    /// プロセスからの直接の前面化 API は黙って無視されるため、pid 指定で前面化できる
+    /// 唯一の信頼できる手段（`activate_specific_instance` のドキュメント参照）。
+    /// 結果待ちはメインスレッドを塞がないよう別スレッドで行う（初回の Automation 許可
+    /// ダイアログ待ちもあり得る）。失敗時、`fallback_bundle` があれば `open` する。
+    fn activate_pid_via_system_events(
+        pid: libc::pid_t,
+        app_name: &str,
+        fallback_bundle: Option<String>,
+    ) {
+        let script = format!(
+            "tell application \"System Events\" to set frontmost of \
+             (first process whose unix id is {pid}) to true"
+        );
+        let child = match std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(e) => {
+                log::warn!("macos_impl: failed to spawn osascript: {e}");
+                if let Some(path) = fallback_bundle {
+                    let _ = std::process::Command::new("open").arg(path).spawn();
+                }
+                return;
+            }
+        };
+        let app_name = app_name.to_string();
+        std::thread::spawn(move || {
+            let mut child = child;
+            match child.wait() {
+                Ok(status) if status.success() => {}
+                other => {
+                    log::warn!(
+                        "macos_impl: System Events activation of \"{app_name}\" (pid {pid}) \
+                         failed ({other:?})"
+                    );
+                    if let Some(path) = fallback_bundle {
+                        let _ = std::process::Command::new("open").arg(path).spawn();
+                    }
+                }
+            }
+        });
     }
 
     fn open_bundle(app: &NSRunningApplication, app_name: &str) {
@@ -607,23 +836,11 @@ mod macos_impl {
                 }
             }
             None => {
-                // bundle を持たない別プロセス登録（例: `wezterm-gui`）は `open` できないので、
-                // NSRunningApplication 自体を前面化するしかない。`activateWithOptions()` の
-                // 戻り値は信用しない — PR #262 で実機確認済みの通り、shun の実行コンテキスト
-                // からだと `true` を返すのに実際には何も起きないことがある（原因不明、
-                // スレッド/権限とは無関係）。そのため戻り値に関わらず必ず AXFrontmost も試す。
-                let _ = app.activateWithOptions(NSApplicationActivationOptions::empty());
-                let ok = unsafe {
-                    AXIsProcessTrusted() && {
-                        let ax_app = AXUIElementCreateApplication(app.processIdentifier());
-                        let err = ax_set_bool_attr(ax_app, kAXFrontmostAttribute, true);
-                        CFRelease(ax_app as CFTypeRef);
-                        err == kAXErrorSuccess
-                    }
-                };
-                if !ok {
-                    log::warn!("macos_impl: could not activate \"{app_name}\" (no bundle path)");
-                }
+                // bundle を持たない別プロセス登録は `open` できない。shun のプロセスからの
+                // 直接の前面化 API（`activateWithOptions()` / `AXFrontmostAttribute`）は
+                // 実機で黙って無視されることが分かっている（`activate_specific_instance`
+                // のドキュメント参照）ので、pid を指定できる System Events に委譲する。
+                activate_pid_via_system_events(app.processIdentifier(), app_name, None);
             }
         }
     }

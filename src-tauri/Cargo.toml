@@ -63,7 +63,17 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
     "NSRunningApplication",
     "NSWorkspace",
     "libc",
+    # NSApp.activate / yieldActivationToApplication for macOS 14+ cooperative
+    # activation (app_window.rs::macos_impl::activate_cooperatively).
+    "NSApplication",
+    "NSResponder",
 ] }
+# For libc::pid_t, matching NSRunningApplication::runningApplicationWithProcessIdentifier's
+# signature (used to activate a specific shun-launched process by pid, bypassing
+# name/title search — see app_window.rs::macos_impl::activate_on_main_thread).
+# Version pinned to whatever's already resolved transitively via objc2-app-kit's
+# own "libc" feature above, so this doesn't pull in a second copy.
+libc = "0.2"
 # Used to marshal isActive/isHidden reads onto the main thread (documented by
 # Apple as stale/race-prone off it — see app_window.rs::macos_impl's doc comment).
 dispatch2 = "0.3"

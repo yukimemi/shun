@@ -4147,6 +4147,7 @@ dependencies = [
  "dispatch2",
  "futures-util",
  "gtk",
+ "libc",
  "log",
  "nucleo-matcher",
  "objc2",
