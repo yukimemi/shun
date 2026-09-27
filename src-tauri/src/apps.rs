@@ -3,6 +3,36 @@ use std::path::{Path, PathBuf};
 
 use crate::config::{AppEntry, AppOverride, CompletionType, Config, ScanDir};
 
+/// `[[apps]]` エントリ (`item.name` をキーに) が最後に spawn したプロセスの pid。
+///
+/// macOS の `app_window::activate_or_launch` が「shun 自身が起動した、まさにこの
+/// インスタンス」を window_title 等の曖昧なタイトル一致に頼らず直接操作するために使う
+/// （同名の複数インスタンスが実行中でも取り違えない）。プロセス寿命全体で保持する
+/// 単純なキャッシュ — エントリごとに直近の pid だけ分かればよく、履歴や永続化は不要。
+static LAUNCHED_PIDS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, u32>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// `name` のエントリが直近に spawn した pid を記録する。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn record_launched_pid(name: &str, pid: u32) {
+    LAUNCHED_PIDS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(name.to_string(), pid);
+}
+
+/// `name` のエントリが直近に spawn した pid を返す（記録が無ければ `None`）。
+/// 呼び出し側はさらに、そのプロセスがまだ生きているかを別途確認する必要がある。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn launched_pid(name: &str) -> Option<u32> {
+    LAUNCHED_PIDS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(name)
+        .copied()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LaunchItem {
     pub name: String,
@@ -282,7 +312,14 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
         cmd.env("PATH", resolved);
     }
 
-    cmd.spawn().map_err(|e| e.to_string())?;
+    let delegated_to_open = cmd.get_program() == "open";
+    let child = cmd.spawn().map_err(|e| e.to_string())?;
+    // `open` 経由の起動は、spawn した pid が `open` 自体（すぐ終了する）でアプリ本体ではない
+    // ため記録しない — 記録すると macOS の activate_after_launch が決して現れない pid を
+    // 待ち続けてしまう。`open` はそれ自体がアプリを前面化するので、後段の特定は不要。
+    if !delegated_to_open {
+        record_launched_pid(&item.name, child.id());
+    }
     Ok(())
 }
 
