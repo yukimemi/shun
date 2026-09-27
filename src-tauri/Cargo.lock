@@ -4146,6 +4146,7 @@ dependencies = [
  "dirs-next",
  "dispatch2",
  "futures-util",
+ "gtk",
  "log",
  "nucleo-matcher",
  "objc2",

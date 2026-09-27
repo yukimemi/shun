@@ -327,6 +327,13 @@
   onDestroy(() => window.removeEventListener("resize", _handleResize));
 
   onMount(async () => {
+    // Round the outer window only where the OS doesn't (Windows DWM does).
+    // Set before the first await so the first frame is already rounded.
+    invoke("should_round_corners")
+      .then((round) => {
+        if (round) document.documentElement.dataset.rounded = "";
+      })
+      .catch(() => {});
     await applyConfig({ resetModes: true });
     appVersion = await getVersion();
 
@@ -1130,6 +1137,10 @@
     height: 100vh;
     overflow: hidden;
     background: transparent;
+  }
+
+  :global(html[data-rounded]) main {
+    border-radius: 10px;
   }
 
   .launcher {

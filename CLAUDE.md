@@ -195,6 +195,11 @@ Add per-repo extras (e.g. `cargo fetch`, `npm install`) by extending
 - Args mode: `ghostSuffix` — from `allCompletions[completionIndex]`
 - `lastArgsGhost` — first args history entry shown before user types
 
+### Rounded window
+- Window is `decorations:false` + `transparent:true`. Windows DWM rounds it; on macOS/Linux the frontend sets `html[data-rounded]` (via the `should_round_corners` command, before the first `await` in `onMount`) and `main` gets `border-radius: 10px`
+- macOS transparency needs `app.macOSPrivateApi` in `tauri.conf.json` **and** the `macos-private-api` feature on `tauri` in `Cargo.toml` — keep both together
+- Linux returns `is_composited()`; no compositor → stays square (no black corners)
+
 ### Auto-update
 - `tauri-plugin-updater` checks GitHub releases on startup (background async)
 - Emits `update-available` event with new version string to frontend
