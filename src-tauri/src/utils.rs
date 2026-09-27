@@ -29,6 +29,56 @@ pub fn macos_app_bundle_root(exe: &Path) -> Option<PathBuf> {
     Some(app_dir.to_path_buf())
 }
 
+/// macOS: ユーザーのログインシェルが実際に持つ `PATH` を解決してキャッシュする。
+///
+/// shun は macOS では LaunchServices 経由で起動される通常の GUI アプリであり、
+/// ターミナル起動時にシェルの起動ファイル（`.zshrc` / `.zprofile` 等）が組み立てる
+/// `PATH`（Homebrew / mise / asdf / cargo / npm グローバルインストール等）を継承しない —
+/// GUI プロセスが launchd から受け取るのは最小限の `PATH`
+/// (`/usr/bin:/bin:/usr/sbin:/sbin`) だけ。そのため `path`/`args` にバインストール
+/// されたコマンド名だけ書くと `os error 2`（"No such file or directory"）になる
+/// （実機で確認: `wezterm-gui`、その内部で spawn する `yazi` の両方で再現）。
+///
+/// `$SHELL -lc 'echo -n $PATH'` を一度だけ起動して解決し、プロセス寿命全体で
+/// キャッシュする（ログインシェル起動はそれなりに時間がかかるため、起動のたびに
+/// 毎回叩かない）。失敗時（シェルが見つからない、非0終了など）は `None` — 呼び出し側は
+/// 継承済みの `PATH` のまま続行する（フェイルソフト、これがあるから壊れるようにはしない）。
+#[cfg(target_os = "macos")]
+pub fn macos_login_shell_path() -> Option<&'static str> {
+    static RESOLVED: std::sync::LazyLock<Option<String>> = std::sync::LazyLock::new(|| {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        let output = std::process::Command::new(&shell)
+            .args(["-lc", "echo -n \"$PATH\""])
+            .output()
+            .inspect_err(|e| {
+                log::warn!("macos_login_shell_path: failed to spawn {shell}: {e}");
+            })
+            .ok()?;
+        if !output.status.success() {
+            log::warn!(
+                "macos_login_shell_path: {shell} -lc exited with {}",
+                output.status
+            );
+            return None;
+        }
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if path.is_empty() {
+            None
+        } else {
+            Some(path)
+        }
+    });
+    RESOLVED.as_deref()
+}
+
+/// 非 macOS: 常に `None`（呼び出し側は継承済みの `PATH` のまま続行する）。呼び出し側が
+/// macOS 専用なので、他 OS ではこの関数自体が未使用になる。
+#[cfg(not(target_os = "macos"))]
+#[allow(dead_code)]
+pub fn macos_login_shell_path() -> Option<&'static str> {
+    None
+}
+
 /// 文字列に Tera テンプレート構文（値展開 `{{ }}` または制御構文 `{% %}`）が
 /// 含まれるかを判定する。両フォームとも一律で「テンプレートとして展開すべき
 /// 文字列」の判定に使う（`os` 変数だけを使う `{% if os == "windows" %}...{% endif %}`
