@@ -301,7 +301,7 @@ When several overrides match the same item, the **last** one wins (so `config.lo
 |---|---|---|
 | `name` | string | Case-insensitive stem name match (optional) |
 | `ext` | string | Extension match without dot (e.g. `"xlsx"`, `"pdf"`). ANDed with `name` when both are set — omit either to match on the other alone |
-| `path` | string | Executable to launch. Supports `{{ file_path }}` and other override variables |
+| `path` | string | Executable to launch. Supports `{{ file_path }}` and other override variables. On macOS, shun resolves your login shell's `PATH` once at first launch (`$SHELL -lc 'echo $PATH'`) and uses it when spawning `path`/`args` — LaunchServices-launched GUI apps otherwise only get a minimal default PATH (`/usr/bin:/bin:/usr/sbin:/sbin`), so Homebrew/mise/asdf/cargo/npm-installed commands wouldn't resolve by bare name (applies one level down too: a command a launched terminal spawns inside itself also gets this PATH, since it's inherited). If this resolution ever fails (e.g. an unusual `$SHELL`), shun falls back to its own minimal inherited PATH and a bare command name would need an absolute path instead |
 | `args` | string[] | Default arguments. Supports override template variables |
 | `workdir` | string | Working directory |
 | `completion` | string | `"list"` \| `"command"` \| `"path"` |
@@ -486,7 +486,10 @@ hotkey_mode = "toggle"
 # A dedicated yazi window in WezTerm: window_title picks it out from the
 # main terminal window above by title substring (yazi's own terminal title
 # contains "yazi"), so repeated presses reuse it instead of piling up new
-# windows, and toggling it never touches the main WezTerm window.
+# windows. Uses `activate`, not `toggle` — you generally want a launcher
+# shortcut like this to just bring the window forward every time, not hide
+# it away on alternate presses (use `toggle` for the "everyday shell"
+# hotkey above instead, where hiding it out of the way is the point).
 [[apps]]
 name        = "yazi (WezTerm)"
 path        = "wezterm-gui"
@@ -494,7 +497,7 @@ args        = ["start", "--", "yazi"]
 window_app  = "WezTerm"
 window_title = "yazi"
 hotkey      = "{% if os == \"macos\" %}Ctrl+F10{% endif %}"
-hotkey_mode = "toggle"
+hotkey_mode = "activate"
 ```
 
 **Example — `args_list` for multi-argument commands:**

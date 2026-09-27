@@ -273,6 +273,15 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
         }
     };
 
+    // macOS: GUI プロセスの最小限の PATH では Homebrew/mise/asdf 等でインストールされた
+    // コマンド名（`path`/`args` にバインで書いたもの）を解決できないため、ユーザーの
+    // ログインシェルが実際に持つ PATH を明示的に上書きする（utils::macos_login_shell_path
+    // のドキュメント参照）。解決できなければ継承済みの PATH のまま（フェイルソフト）。
+    #[cfg(target_os = "macos")]
+    if let Some(resolved) = crate::utils::macos_login_shell_path() {
+        cmd.env("PATH", resolved);
+    }
+
     cmd.spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
