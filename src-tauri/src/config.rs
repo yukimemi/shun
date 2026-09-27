@@ -321,10 +321,12 @@ pub struct AppEntry {
     /// `.app` 名を指定したい場合に使う。
     pub window_app: Option<String>,
     /// activate / toggle の対象を、タイトルにこの文字列を含むウィンドウに限定する
-    /// (Windows のみ、大文字小文字無視の部分一致)。同じ exe の複数ウィンドウを区別する用途。
+    /// (Windows / macOS のみ、大文字小文字無視の部分一致。macOS は Accessibility 権限が必要 —
+    /// 未許可ならログを出してアプリ単位の動作にフォールバックする)。
+    /// 同じアプリの複数ウィンドウを区別する用途。
     pub window_title: Option<String>,
     /// タイトルにこの文字列を含むウィンドウを activate / toggle の対象から除外する
-    /// (Windows のみ、大文字小文字無視の部分一致)。
+    /// (Windows / macOS のみ、大文字小文字無視の部分一致)。
     pub window_title_exclude: Option<String>,
 }
 
@@ -768,8 +770,8 @@ preview_scroll_up   = "Ctrl+k"       # Scroll preview panel up
 # hotkey                 = "Ctrl+Alt+N" # optional per-app global hotkey
 # hotkey_mode            = "launch"     # "launch" (default) | "activate" | "toggle"
 # window_app             = "WindowsTerminal" # app/process name to match for activate/toggle (default: stem of path)
-# window_title           = "Yazi"            # Windows: also require this substring in the window title
-# window_title_exclude   = "Yazi"            # Windows: skip windows whose title contains this substring
+# window_title           = "Yazi"            # Windows/macOS: also require this substring in the window title
+# window_title_exclude   = "Yazi"            # Windows/macOS: skip windows whose title contains this substring
 
 # Auto-register scripts from directories (non-existent paths are silently ignored)
 # Windows

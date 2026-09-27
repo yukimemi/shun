@@ -39,7 +39,7 @@ enum ActivateOutcome {
 /// アプリに対する操作自体の失敗ではフォールバックしない（`macos_impl` のドキュメント参照）。
 ///
 /// `window` はウィンドウ照合条件 (`[[apps]].window_app` / `window_title` ...)。
-/// `window_app` は全 OS 共通、タイトル条件は Windows のみ。
+/// `window_app` は全 OS 共通、タイトル条件は Windows / macOS のみ（Linux は非対応）。
 pub fn activate_or_launch(
     item: &LaunchItem,
     window: WindowMatch,
@@ -58,9 +58,11 @@ pub fn activate_or_launch(
     }
 }
 
-/// ウィンドウ照合条件（config から渡される）。`title` / `title_exclude` は Windows のみ参照する。
+/// ウィンドウ照合条件（config から渡される）。`title` / `title_exclude` は Windows と macOS が
+/// 参照する（Windows: `EnumWindows` のタイトル文字列、macOS: `AXTitle`）。Linux (`wmctrl`) は
+/// プロセス単位の照合しかできないため未参照。
 #[derive(Clone, Copy)]
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "windows", target_os = "macos")), allow(dead_code))]
 pub struct WindowMatch<'a> {
     /// 照合するアプリ/プロセス名 (`[[apps]].window_app`)。`None` なら `item.path` の file stem。
     pub app: Option<&'a str>,
@@ -109,7 +111,7 @@ fn try_activate(
     #[cfg(target_os = "windows")]
     return windows_impl::activate(&app, window, toggle);
     #[cfg(target_os = "macos")]
-    return macos_impl::activate(&app, toggle);
+    return macos_impl::activate(&app, window, toggle);
     #[cfg(target_os = "linux")]
     return linux_impl::activate(&app, toggle);
 }
@@ -344,9 +346,18 @@ mod windows_impl {
 /// `open <解決済み .app バンドルパス>` に統一した — `open` は対象が既に起動中なら
 /// ウィンドウを前面化・非表示解除する（Finder でダブルクリックするのと同じ）。
 ///
-/// `toggle` で「フロントなら引っ込める」動作はウィンドウ単位の最小化ではなく、アプリ単位の
-/// `hide`（Cmd+H 相当）— 複数ウィンドウがあっても一括で退避できる点は同じだが、Dock/Cmd+Tab
-/// 上のアプリ自体は引き続き見える（ウィンドウだけが隠れる）という挙動差がある。
+/// `toggle` で「フロントなら引っ込める」動作は、`window_title` 未指定の場合はウィンドウ単位の
+/// 最小化ではなく、アプリ単位の `hide`（Cmd+H 相当）— 複数ウィンドウがあっても一括で退避できる
+/// 点は同じだが、Dock/Cmd+Tab 上のアプリ自体は引き続き見える（ウィンドウだけが隠れる）という
+/// 挙動差がある。`window_title` 指定時は下記の通りウィンドウ単位の最小化になる。
+///
+/// `window_title` が指定されている場合は Accessibility API (`AXUIElement`) を使い、対象アプリの
+/// ウィンドウ一覧 (`AXWindows`) からタイトルが一致する1つを探して個別に操作する
+/// (`AXRaise` で前面化 / `AXMinimized` 属性で最小化)。同じアプリ内の他のウィンドウには影響しない
+/// ため、例えば WezTerm 内の特定タブだけを activate/toggle でき、F12（アプリ全体の hide）が
+/// 巻き込むこともない。`AXIsProcessTrusted()` が false（Accessibility 権限未許可）の場合は
+/// ログを出してアプリ単位の動作にフォールバックする（`window_title` を使わないエントリは
+/// この API に一切触れない — Accessibility 権限が無くても今まで通り動く）。
 ///
 /// アプリ名は解決済みの `window_app`（または `path` の stem）。`NSRunningApplication` の
 /// `localizedName`（Launch Services 上のローカライズ済み表示名。例: 日本語環境では
@@ -361,10 +372,26 @@ mod windows_impl {
 /// その場合の起動フォールバックは正当（本当に未起動なので新規起動が正しい）。
 #[cfg(target_os = "macos")]
 mod macos_impl {
-    use super::ActivateOutcome;
+    use super::{ActivateOutcome, WindowMatch};
+    use accessibility_sys::{
+        kAXErrorSuccess, kAXFrontmostAttribute, kAXMainAttribute, kAXMinimizedAttribute,
+        kAXRaiseAction, kAXTitleAttribute, kAXWindowsAttribute, AXError, AXIsProcessTrusted,
+        AXUIElementCopyAttributeValue, AXUIElementCreateApplication, AXUIElementPerformAction,
+        AXUIElementRef, AXUIElementSetAttributeValue,
+    };
+    use core_foundation_sys::array::{CFArrayGetCount, CFArrayGetValueAtIndex, CFArrayRef};
+    use core_foundation_sys::base::{CFRelease, CFRetain, CFTypeRef};
+    use core_foundation_sys::number::{
+        kCFBooleanFalse, kCFBooleanTrue, CFBooleanGetValue, CFBooleanRef,
+    };
+    use core_foundation_sys::string::CFStringRef;
     use dispatch2::DispatchQueue;
     use objc2::rc::Retained;
-    use objc2_app_kit::{NSRunningApplication, NSWorkspace};
+    use objc2_app_kit::{
+        NSApplicationActivationOptions, NSApplicationActivationPolicy, NSRunningApplication,
+        NSWorkspace,
+    };
+    use objc2_foundation::NSString;
 
     /// `on_app_hotkey`/`on_launch_hotkey` always call into this from a background thread.
     /// `NSRunningApplication`'s time-varying properties (`isActive`, `isHidden`) are documented
@@ -376,26 +403,202 @@ mod macos_impl {
     /// main thread via `DispatchQueue::main().exec_sync()`, which blocks the calling background
     /// thread until it's done. This would deadlock if ever called from the main thread itself —
     /// it never is, by construction above.
-    pub(super) fn activate(app_name: &str, toggle: bool) -> Result<ActivateOutcome, String> {
+    ///
+    /// After an `Activated`/`Minimized` outcome, this sleeps briefly on the (background) calling
+    /// thread — not the main thread, so the app stays responsive — before returning. Confirmed on
+    /// real hardware (2026-09-27): the window server needs a moment after `AXRaise`/
+    /// `activateWithOptions`/`AXMinimized` actually completes before `isActive()`/`AXMain` reflect
+    /// it; repeat-pressing the same toggle hotkey faster than that (~1.5-2s in testing) reads
+    /// stale state and either fails to toggle at all, or (worse) reports the window "not found"
+    /// and launches a duplicate. A real user's repeat presses are almost always slower than this,
+    /// but the delay costs little and removes the failure mode outright.
+    pub(super) fn activate(
+        app_name: &str,
+        window: WindowMatch,
+        toggle: bool,
+    ) -> Result<ActivateOutcome, String> {
+        // `WindowMatch` borrows from the caller's config strings; copy out the two fields we
+        // need so the closure below can be `'static` (`exec_sync` blocks until it returns, but
+        // its closure type still isn't allowed to borrow past this call in dispatch2's API).
+        let title = window.title.map(str::to_string);
+        let title_exclude = window.title_exclude.map(str::to_string);
+        let window_mode = title.is_some() || title_exclude.is_some();
         let mut result = None;
         DispatchQueue::main().exec_sync(|| {
-            result = Some(activate_on_main_thread(app_name, toggle));
+            result = Some(activate_on_main_thread(
+                app_name,
+                title.as_deref(),
+                title_exclude.as_deref(),
+                toggle,
+            ));
         });
-        result.expect("DispatchQueue::main().exec_sync always runs its closure before returning")
+        let result = result
+            .expect("DispatchQueue::main().exec_sync always runs its closure before returning");
+        // 設定待ちは window_title/window_title_exclude 使用時のみ — アプリ単位の `open`/`hide()`
+        // 経路には元々このスレッド遅延の根拠となった AX 反映ラグはなく、無条件に付けると
+        // 最も使われる（window_title 未指定の）ホットキーの応答を毎回無駄に遅らせてしまう。
+        if window_mode
+            && matches!(
+                result,
+                Ok(ActivateOutcome::Activated) | Ok(ActivateOutcome::Minimized)
+            )
+        {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        result
     }
 
-    fn activate_on_main_thread(app_name: &str, toggle: bool) -> Result<ActivateOutcome, String> {
-        let Some(app) = find_running(app_name) else {
+    fn activate_on_main_thread(
+        app_name: &str,
+        title: Option<&str>,
+        title_exclude: Option<&str>,
+        toggle: bool,
+    ) -> Result<ActivateOutcome, String> {
+        let window_mode = title.is_some() || title_exclude.is_some();
+        let trusted = window_mode && unsafe { AXIsProcessTrusted() };
+        // 別プロセス登録（`wezterm-gui` 等）はウィンドウ検索でしか使えないので、
+        // Accessibility 権限がある場合だけ候補に含める（無ければ従来の名前/bundle 一致のみ）。
+        let (apps, strict_count) = find_running(app_name, trusted);
+        let Some(app) = apps.first() else {
             return Ok(ActivateOutcome::NotFound);
         };
 
+        if window_mode {
+            if trusted {
+                return activate_window(
+                    &apps,
+                    strict_count,
+                    app_name,
+                    title,
+                    title_exclude,
+                    toggle,
+                );
+            }
+            log::warn!(
+                "macos_impl: \"{app_name}\" has window_title/window_title_exclude set but \
+                 Accessibility permission is not granted (System Settings > Privacy & Security > \
+                 Accessibility) — falling back to whole-app activate/toggle"
+            );
+        }
+
+        activate_whole_app(app, app_name, toggle)
+    }
+
+    /// アプリ単位の activate / toggle（`window_title` / `window_title_exclude` いずれも
+    /// 未指定、または Accessibility 権限が無い場合のフォールバック）。
+    fn activate_whole_app(
+        app: &NSRunningApplication,
+        app_name: &str,
+        toggle: bool,
+    ) -> Result<ActivateOutcome, String> {
         if toggle && app.isActive() {
             if !app.hide() {
                 log::warn!("macos_impl: NSRunningApplication::hide() failed for \"{app_name}\"");
             }
             return Ok(ActivateOutcome::Minimized);
         }
+        open_bundle(app, app_name);
+        Ok(ActivateOutcome::Activated)
+    }
 
+    /// ウィンドウ単位の activate / toggle（`window_title` / `window_title_exclude` 指定時、
+    /// Accessibility 経由）。条件に合うウィンドウを1つ探し（`title` はタイトルにこの文字列を
+    /// 含むことを要求、`title_exclude` は含まないことを要求 — どちらか一方だけの指定も可）、
+    /// toggle 時にそれが現在メイン & アプリがフォアグラウンドなら最小化、そうでなければ
+    /// `AXRaise` でアプリ内の最前面にしつつ `open <bundle path>` でアプリ自体も前面化する。
+    /// 一致するウィンドウが無ければ `NotFound`（呼び出し側で新規起動 = 新しいウィンドウを
+    /// 作る、が正しい挙動）。
+    fn activate_window(
+        apps: &[Retained<NSRunningApplication>],
+        strict_count: usize,
+        app_name: &str,
+        title: Option<&str>,
+        title_exclude: Option<&str>,
+        toggle: bool,
+    ) -> Result<ActivateOutcome, String> {
+        let title_lower = title.map(str::to_lowercase);
+        let exclude_lower = title_exclude.map(str::to_lowercase);
+        let describe = || format!("{:?}/exclude {:?}", title, title_exclude);
+
+        // 一致するアプリインスタンスが複数ある場合（別プロセスとして登録された子プロセス等）、
+        // 全インスタンスからウィンドウを集める。複数一致したときは、現在アクティブな
+        // インスタンスのウィンドウを優先する（toggle で前面側を最小化できるように）。
+        let mut enumeration_failed = false;
+        let mut found: Option<(&Retained<NSRunningApplication>, AxWindow)> = None;
+        for (i, app) in apps.iter().enumerate() {
+            let pid = app.processIdentifier();
+            match unsafe { find_window(pid, title_lower.as_deref(), exclude_lower.as_deref()) } {
+                Ok(Some(w)) => {
+                    if found.is_none() || (app.isActive() && !found.as_ref().unwrap().0.isActive())
+                    {
+                        found = Some((app, w));
+                    }
+                }
+                Ok(None) => {}
+                Err(()) => {
+                    // 名前/bundle 一致のインスタンスの失敗は「列挙失敗」。別プロセス候補は、
+                    // 通常の GUI アプリ（Regular）として登録されているものだけ列挙失敗として
+                    // 扱う（ウィンドウを持たない helper は常に失敗するので単なる不一致）。
+                    enumeration_failed |= i < strict_count
+                        || app.activationPolicy() == NSApplicationActivationPolicy::Regular;
+                }
+            }
+        }
+        let Some((app, window)) = found else {
+            if enumeration_failed {
+                // 実行中なのに AXWindows を取得できなかった: 「ウィンドウ無し」と区別する。
+                // NotFound を返すと起動フォールバックで重複プロセスが立つので、アプリ単位に倒す。
+                log::warn!(
+                    "macos_impl: AXWindows enumeration failed for \"{app_name}\" — falling back \
+                     to whole-app activate/toggle"
+                );
+                return activate_whole_app(&apps[0], app_name, toggle);
+            }
+            return Ok(ActivateOutcome::NotFound);
+        };
+
+        // `app.isActive()` を「現在フォアグラウンドか」の判定に使う。既知の制限: 別プロセス
+        // 登録（`wezterm-gui` を裸のサブプロセスとして起動した場合など）のウィンドウは、
+        // 実際に最前面になっていても `isActive()` / `AXFrontmostAttribute` /
+        // `NSWorkspace.frontmostApplication()` のいずれも true を返さないことを実機で確認した
+        // （AppKit のフォアグラウンド判定と window server の実際の最前面ウィンドウが食い違う —
+        // タイミングの問題ではなく、同じアプリバンドルから複数プロセスが起動している構成に
+        // 起因する恒常的な不一致）。この場合 toggle は常に「フォアグラウンドではない」と
+        // 判定し、常にアクティブ化のみを行う（最小化はしない）— 最小化に失敗するのではなく、
+        // 単に最小化する機会が来ない。ウィンドウを探して前面化する主機能には影響しない。
+        if toggle && app.isActive() && unsafe { ax_bool_attr(window.0, kAXMainAttribute) } {
+            let err = unsafe { ax_set_bool_attr(window.0, kAXMinimizedAttribute, true) };
+            if err != kAXErrorSuccess {
+                log::warn!(
+                    "macos_impl: AXMinimized=true failed for \"{app_name}\" window {} (err={err})",
+                    describe()
+                );
+            }
+            return Ok(ActivateOutcome::Minimized);
+        }
+
+        // 以前 toggle で最小化したウィンドウは AXRaise では復帰しないため、先に解除する。
+        if unsafe { ax_bool_attr(window.0, kAXMinimizedAttribute) } {
+            let err = unsafe { ax_set_bool_attr(window.0, kAXMinimizedAttribute, false) };
+            if err != kAXErrorSuccess {
+                log::warn!(
+                    "macos_impl: AXMinimized=false failed for \"{app_name}\" window {} (err={err})",
+                    describe()
+                );
+            }
+        }
+        let err = unsafe { ax_perform_action(window.0, kAXRaiseAction) };
+        if err != kAXErrorSuccess {
+            log::warn!(
+                "macos_impl: AXRaise failed for \"{app_name}\" window {} (err={err})",
+                describe()
+            );
+        }
+        open_bundle(app, app_name);
+        Ok(ActivateOutcome::Activated)
+    }
+
+    fn open_bundle(app: &NSRunningApplication, app_name: &str) {
         match app.bundleURL().and_then(|url| url.path()) {
             Some(path) => {
                 let path = path.to_string();
@@ -404,17 +607,60 @@ mod macos_impl {
                 }
             }
             None => {
-                log::warn!("macos_impl: could not resolve a bundle path for \"{app_name}\"");
+                // bundle を持たない別プロセス登録（例: `wezterm-gui`）は `open` できないので、
+                // NSRunningApplication 自体を前面化するしかない。`activateWithOptions()` の
+                // 戻り値は信用しない — PR #262 で実機確認済みの通り、shun の実行コンテキスト
+                // からだと `true` を返すのに実際には何も起きないことがある（原因不明、
+                // スレッド/権限とは無関係）。そのため戻り値に関わらず必ず AXFrontmost も試す。
+                let _ = app.activateWithOptions(NSApplicationActivationOptions::empty());
+                let ok = unsafe {
+                    AXIsProcessTrusted() && {
+                        let ax_app = AXUIElementCreateApplication(app.processIdentifier());
+                        let err = ax_set_bool_attr(ax_app, kAXFrontmostAttribute, true);
+                        CFRelease(ax_app as CFTypeRef);
+                        err == kAXErrorSuccess
+                    }
+                };
+                if !ok {
+                    log::warn!("macos_impl: could not activate \"{app_name}\" (no bundle path)");
+                }
             }
         }
-        Ok(ActivateOutcome::Activated)
     }
 
-    fn find_running(app_name: &str) -> Option<Retained<NSRunningApplication>> {
+    /// 一致する実行中アプリを全て返す。`include_subprocess` が true のときは、実行ファイル名が
+    /// `<app_name>-…`（例: `wezterm-gui`）の別プロセス登録も末尾に含める（ウィンドウ検索用）。
+    fn find_running(
+        app_name: &str,
+        include_subprocess: bool,
+    ) -> (Vec<Retained<NSRunningApplication>>, usize) {
         let running = NSWorkspace::sharedWorkspace().runningApplications();
-        (0..running.count())
+        let all: Vec<_> = (0..running.count())
             .map(|i| running.objectAtIndex(i))
-            .find(|app| matches(app, app_name))
+            .collect();
+        let (mut hits, rest): (Vec<_>, Vec<_>) =
+            all.into_iter().partition(|app| matches(app, app_name));
+        let strict_count = hits.len();
+        if include_subprocess {
+            hits.extend(rest.into_iter().filter(|app| is_subprocess(app, app_name)));
+        }
+        (hits, strict_count)
+    }
+
+    /// `app_name` に対する「バンドルを介さず別プロセスとして登録された同じアプリのインスタンス」
+    /// かどうかを判定する。`matches()` は `localizedName` / `bundleURL` の一致で判定するが、
+    /// bare サブプロセスの `bundleURL` がたまたま解決できない構成もあり得るため、実行ファイル名
+    /// の前方一致（`<app_name>-...`、例: `wezterm-gui`）もフォールバックとして見る。
+    /// 前方一致だけだと同じ接頭辞を持つ無関係な別アプリを拾う理論上の余地はあるが、
+    /// `matches()` で先に弾かれなかった（= 名前にもバンドルにも一致しない）ものだけが対象
+    /// になる時点で誤爆の実害は乏しく、`include_subprocess`（Accessibility 権限がある時だけ）
+    /// でさらに絞っている。
+    fn is_subprocess(app: &NSRunningApplication, app_name: &str) -> bool {
+        let prefix = format!("{}-", app_name.to_lowercase());
+        app.executableURL()
+            .and_then(|url| url.URLByDeletingPathExtension())
+            .and_then(|url| url.lastPathComponent())
+            .is_some_and(|stem| stem.to_string().to_lowercase().starts_with(&prefix))
     }
 
     fn matches(app: &NSRunningApplication, app_name: &str) -> bool {
@@ -428,6 +674,94 @@ mod macos_impl {
             .and_then(|url| url.URLByDeletingPathExtension())
             .and_then(|url| url.lastPathComponent())
             .is_some_and(|stem| stem.to_string().eq_ignore_ascii_case(app_name))
+    }
+
+    /// `CFRelease` が必要な、借用を離れて保持する `AXUIElementRef`（ウィンドウ）の RAII ラッパ。
+    struct AxWindow(AXUIElementRef);
+
+    impl Drop for AxWindow {
+        fn drop(&mut self) {
+            unsafe { CFRelease(self.0 as CFTypeRef) };
+        }
+    }
+
+    /// `pid` のアプリが持つウィンドウ (`AXWindows`) を列挙し、（指定があれば）タイトルに
+    /// `title_lower`（大文字小文字無視の部分一致）を含み、かつ（指定があれば）
+    /// `exclude_lower` を含まない最初の1つを返す。両方 `None` なら最初のウィンドウを返す。
+    unsafe fn find_window(
+        pid: i32,
+        title_lower: Option<&str>,
+        exclude_lower: Option<&str>,
+    ) -> Result<Option<AxWindow>, ()> {
+        let ax_app = AXUIElementCreateApplication(pid);
+        let windows_ref = ax_copy_attr(ax_app, kAXWindowsAttribute);
+        CFRelease(ax_app as CFTypeRef);
+        let Some(windows_ref) = windows_ref else {
+            return Err(());
+        };
+        let windows = windows_ref as CFArrayRef;
+        let count = CFArrayGetCount(windows);
+        let found = (0..count).find_map(|i| {
+            let win = CFArrayGetValueAtIndex(windows, i) as AXUIElementRef;
+            let title = if title_lower.is_some() || exclude_lower.is_some() {
+                let title = ax_copy_attr(win, kAXTitleAttribute).map(|t| {
+                    let s = cfstring_to_string(t);
+                    CFRelease(t);
+                    s
+                })?;
+                title.to_lowercase()
+            } else {
+                String::new()
+            };
+            if title_lower.is_some_and(|t| !title.contains(t)) {
+                return None;
+            }
+            if exclude_lower.is_some_and(|ex| title.contains(ex)) {
+                return None;
+            }
+            Some(win)
+        });
+        let result = found.map(|win| {
+            CFRetain(win as CFTypeRef);
+            AxWindow(win)
+        });
+        CFRelease(windows_ref);
+        Ok(result)
+    }
+
+    unsafe fn ax_copy_attr(element: AXUIElementRef, attr: &str) -> Option<CFTypeRef> {
+        let attr_str = NSString::from_str(attr);
+        let attr_ref = Retained::as_ptr(&attr_str) as *const _ as CFStringRef;
+        let mut value: CFTypeRef = std::ptr::null();
+        let err = AXUIElementCopyAttributeValue(element, attr_ref, &mut value);
+        (err == kAXErrorSuccess && !value.is_null()).then_some(value)
+    }
+
+    unsafe fn ax_bool_attr(element: AXUIElementRef, attr: &str) -> bool {
+        ax_copy_attr(element, attr)
+            .map(|v| {
+                let b = CFBooleanGetValue(v as CFBooleanRef);
+                CFRelease(v);
+                b
+            })
+            .unwrap_or(false)
+    }
+
+    unsafe fn ax_set_bool_attr(element: AXUIElementRef, attr: &str, val: bool) -> AXError {
+        let attr_str = NSString::from_str(attr);
+        let attr_ref = Retained::as_ptr(&attr_str) as *const _ as CFStringRef;
+        let b = if val { kCFBooleanTrue } else { kCFBooleanFalse };
+        AXUIElementSetAttributeValue(element, attr_ref, b as CFTypeRef)
+    }
+
+    unsafe fn ax_perform_action(element: AXUIElementRef, action: &str) -> AXError {
+        let action_str = NSString::from_str(action);
+        let action_ref = Retained::as_ptr(&action_str) as *const _ as CFStringRef;
+        AXUIElementPerformAction(element, action_ref)
+    }
+
+    unsafe fn cfstring_to_string(cf: CFTypeRef) -> String {
+        (*(cf as *const NSString)).to_string()
     }
 }
 

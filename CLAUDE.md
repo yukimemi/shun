@@ -178,13 +178,17 @@ Add per-repo extras (e.g. `cargo fetch`, `npm install`) by extending
   everything; called from both `setup()` and the `/reload` command right after
   `unregister_all()`, so the two paths can't drift
 - Match target for all OSes = `window_app` else the stem of `path` (never `name`), resolved by `app_window::resolve_window_app`; macOS checks "is running" first and returns NotFound so `path` is launched
-- `app_window::activate_or_launch(item, toggle)` implements `activate`/`toggle`: Windows uses
-  `EnumWindows` + exe-name matching (via the `windows` crate); macOS uses `NSWorkspace`/
-  `NSRunningApplication` (objc2-app-kit) directly — no subprocess, no Accessibility permission,
-  matches by localized display name or locale-independent `.app` file stem; Linux shells out to
-  `wmctrl`. Unsupported-platform/window-not-found falls back to `apps::launch()`; on macOS, a
-  found app whose `hide`/`activate` call itself fails does *not* fall back (would duplicate an
-  already-running app) — see the README's "Per-app global hotkeys" section for per-OS constraints
+- `app_window::activate_or_launch(item, window, toggle)` implements `activate`/`toggle`: Windows uses
+  `EnumWindows` + exe-name (+ optional `window_title` substring) matching (via the `windows` crate);
+  macOS uses `NSWorkspace`/`NSRunningApplication` (objc2-app-kit) directly for whole-app
+  activate/hide — no subprocess, no Accessibility permission — matching by localized display name
+  or locale-independent `.app` file stem; if `window_title` is set, macOS instead uses the
+  Accessibility API (`accessibility-sys`, raw `AXUIElement*` calls) to find/raise/minimize that one
+  specific window (falls back to whole-app behavior with a logged warning if Accessibility isn't
+  granted); Linux shells out to `wmctrl`. Unsupported-platform/window-not-found falls back to
+  `apps::launch()`; on macOS, a found app/window whose operation itself fails does *not* fall back
+  (would duplicate an already-running app) — see the README's "Per-app global hotkeys" section for
+  per-OS constraints
 
 ### Ghost text
 - Search mode: `searchGhostSuffix` — triggers when `candidate.path.startsWith(query)`

@@ -317,8 +317,8 @@ Each `[[apps]]` entry can register its own global hotkey, independent of `keybin
 | `hotkey` | string | Optional. A shortcut string parseable the same way as `keybindings.launch` (e.g. `"Ctrl+Alt+N"`). Omit to skip hotkey registration for this app |
 | `hotkey_mode` | string | `"launch"` (default) \| `"activate"` \| `"toggle"` |
 | `window_app` | string | Optional, all OSes. App/process name used to find the window for `activate` / `toggle`: executable name on Windows (without `.exe`), `.app` name on macOS (without `.app`), WM_CLASS on Linux. Case-insensitive on Windows/Linux. Defaults to the file name (stem) of `path`; `name` is never used. Needed when `path` is a launcher stub, e.g. `path = "wt"` → `window_app = "WindowsTerminal"` |
-| `window_title` | string | Optional, Windows only. Additionally require the window title to contain this string (case-insensitive) for `activate` / `toggle`. Distinguishes windows of the same executable, e.g. a dedicated yazi window in Windows Terminal |
-| `window_title_exclude` | string | Optional, Windows only. Skip windows whose title contains this string (case-insensitive) for `activate` / `toggle`. E.g. keep the F12 Windows Terminal hotkey from grabbing a dedicated yazi window |
+| `window_title` | string | Optional, Windows/macOS. Additionally require the window title to contain this string (case-insensitive) for `activate` / `toggle`. Distinguishes windows of the same app, e.g. a dedicated yazi window in Windows Terminal or WezTerm. On macOS this requires the Accessibility permission (falls back to whole-app activate/toggle with a logged warning if not granted) |
+| `window_title_exclude` | string | Optional, Windows/macOS. Skip windows whose title contains this string (case-insensitive) for `activate` / `toggle`. E.g. keep the F12 hotkey from grabbing a dedicated yazi window |
 
 - **`launch`** — starts a new process every time, same as pressing Enter on the item.
 - **`activate`** — brings the app's window to the foreground if it's already running; launches it otherwise.
@@ -341,12 +341,24 @@ still works and the key press is not passed on to the focused app.
 | Platform | Behavior |
 |---|---|
 | Windows | Full support. Matches the app's own top-level window by executable file name (case-insensitive). If the app has multiple windows, only the first one found is operated on. Foreground-lock restrictions imposed by Windows may occasionally prevent focus-stealing (the taskbar icon flashes instead); this is logged as a warning, not an error |
-| macOS | Uses `NSWorkspace`/`NSRunningApplication` (AppKit) directly — no `osascript`/AppleScript, no Accessibility permission needed. The target is `window_app`, or the file stem of `path` if unset (not `name`); matched against the app's localized display name **or** its `.app` file stem (locale-independent), so it works whether you write the English bundle name or it only matches your system's localized name. If the app is not running, shun launches `path` instead. `toggle`'s "already frontmost" case calls `hide()` (like ⌘H — hides the whole app's windows, but the app itself stays visible in the Dock/⌘Tab) rather than minimizing individual windows. Unlike Windows/Linux, a found-but-failed operation here does not fall back to launching (would duplicate an already-running app) |
+| macOS | Uses `NSWorkspace`/`NSRunningApplication` (AppKit) directly for whole-app activate/toggle — no `osascript`/AppleScript, no Accessibility permission needed for that path. The target is `window_app`, or the file stem of `path` if unset (not `name`); matched against the app's localized display name **or** its `.app` file stem (locale-independent), so it works whether you write the English bundle name or it only matches your system's localized name. If the app is not running, shun launches `path` instead. `toggle`'s "already frontmost" case (whole-app path) calls `hide()` (like ⌘H — hides the whole app's windows, but the app itself stays visible in the Dock/⌘Tab) rather than minimizing individual windows. If `window_title` is set, shun instead uses the Accessibility API (`AXUIElement`) to find and operate on that one specific window (`AXRaise` to bring it forward, the `AXMinimized` attribute to hide just it on toggle) without affecting the app's other windows — this requires granting shun the Accessibility permission (System Settings > Privacy & Security > Accessibility); if not granted, shun logs a warning and falls back to the whole-app behavior. Unlike Windows/Linux, a found-but-failed operation here does not fall back to launching (would duplicate an already-running app) |
 | Linux | Requires `wmctrl` to be installed; matches `window_app` (or the stem of `path`) against the window's WM_CLASS via `wmctrl -x -a` (substring, case-insensitive, so short names can match the wrong app); falls back to `launch` if it's missing. Only works under X11 — has no effect on Wayland. `toggle` behaves the same as `activate` (no reliable way to detect focus without extra tooling), i.e. it never minimizes |
 
 If a window can't be found or the platform is unsupported, shun falls back to launching a new
 instance rather than doing nothing (macOS: a found app whose `hide`/`activate` operation itself
 fails does *not* fall back to launching, to avoid spawning a duplicate of an app already running).
+
+**Known limitation (macOS, `window_title`)**: if an app is run more than once as separate OS
+processes sharing the same underlying binary (e.g. `wezterm-gui` invoked directly as a bare
+`path`/`args` command, rather than through its `.app` launch path, can sometimes register as a
+second, independent process instead of reusing the already-running one's mux/session) — the
+extra instance's window is still found and activated correctly, but macOS's own
+"is this app in the foreground" signals (`NSRunningApplication.isActive()`,
+`AXFrontmostAttribute`, even `NSWorkspace.frontmostApplication()`) can disagree with what's
+actually on screen for that instance specifically. `toggle` then always activates rather than
+minimizing on repeat presses for that one instance — a caveat, not a regression (finding and
+focusing the window keeps working every time; only the "press again to hide it" half of toggle
+doesn't fire in this specific case).
 
 ### Override files (`config.*.toml`)
 
@@ -466,7 +478,22 @@ hotkey_mode = "toggle"
 [[apps]]
 name        = "WezTerm"
 path        = "wezterm-gui"
+window_app  = "WezTerm"
+window_title_exclude = "yazi" # never grab the dedicated yazi window below
 hotkey      = "{% if os == \"macos\" %}F12{% endif %}"
+hotkey_mode = "toggle"
+
+# A dedicated yazi window in WezTerm: window_title picks it out from the
+# main terminal window above by title substring (yazi's own terminal title
+# contains "yazi"), so repeated presses reuse it instead of piling up new
+# windows, and toggling it never touches the main WezTerm window.
+[[apps]]
+name        = "yazi (WezTerm)"
+path        = "wezterm-gui"
+args        = ["start", "--", "yazi"]
+window_app  = "WezTerm"
+window_title = "yazi"
+hotkey      = "{% if os == \"macos\" %}Ctrl+F10{% endif %}"
 hotkey_mode = "toggle"
 ```
 
