@@ -185,7 +185,8 @@ Add per-repo extras (e.g. `cargo fetch`, `npm install`) by extending
   or locale-independent `.app` file stem; if `window_title` is set, macOS instead uses the
   Accessibility API (`accessibility-sys`, raw `AXUIElement*` calls) to find/raise/minimize that one
   specific window (falls back to whole-app behavior with a logged warning if Accessibility isn't
-  granted); Linux shells out to `wmctrl`. Unsupported-platform/window-not-found falls back to
+  granted); if `AXWindows` can't be read for a running app, `activate()` retries once after 150 ms, then
+  `ActivateOutcome::EnumerationFailed` → warn and do nothing (no launch, no whole-app activate); Linux shells out to `wmctrl`. Unsupported-platform/window-not-found falls back to
   `apps::launch()`; on macOS, a found app/window whose operation itself fails does *not* fall back
   (would duplicate an already-running app) — see the README's "Per-app global hotkeys" section for
   per-OS constraints
@@ -256,7 +257,7 @@ Auto-created at first launch:
 
 ## Testing
 
-### Rust tests (190 total)
+### Rust tests (195 total)
 Each module has a `#[cfg(test)]` block:
 - `config.rs` — defaults, TOML parsing, keybinding overrides, `hotkey`/`hotkey_mode` parsing
 - `search.rs` — fuzzy/exact/migemo filter
@@ -337,4 +338,4 @@ Real example: making `currentWidth` a `$state` caused `resizeForSearch` to track
 - Per-app global hotkeys: `[[apps]].hotkey` + `hotkey_mode` (`launch`/`activate`/`toggle`);
   Windows and macOS fully supported via `app_window.rs`, Linux is best-effort (wmctrl)
   and fall back to `launch` when unsupported — see README "Per-app global hotkeys"
-- Rust tests: 190 total / Frontend tests: 53 total
+- Rust tests: 195 total / Frontend tests: 53 total
