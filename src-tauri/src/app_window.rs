@@ -23,6 +23,45 @@ enum ActivateOutcome {
     NotFound,
     /// この OS / 環境では未対応 → 呼び出し側で起動する。
     Unsupported,
+    /// 実行中と分かっているアプリのウィンドウ一覧を取得できなかった（macOS の `AXWindows`
+    /// 失敗）。起動してはならない（重複プロセス）し、アプリ単位の前面化もしてはならない
+    /// （誤ったウィンドウを前面化して成功を装う）。何もせず警告ログだけ残し、ユーザーに
+    /// もう一度押してもらう。
+    EnumerationFailed,
+}
+
+/// Whether the caller must launch a new process for this outcome. `EnumerationFailed` is
+/// deliberately *not* a launch trigger: the app is known to be running, so launching would
+/// duplicate the process.
+fn falls_back_to_launch(outcome: &ActivateOutcome) -> bool {
+    matches!(
+        outcome,
+        ActivateOutcome::NotFound | ActivateOutcome::Unsupported
+    )
+}
+
+/// Maps an activation result to the final action. `launch` runs only when the outcome (or an
+/// error from the window operation) calls for a fresh launch.
+fn resolve_outcome(
+    result: Result<ActivateOutcome, String>,
+    app_name: &str,
+    launch: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    match result {
+        Ok(ActivateOutcome::EnumerationFailed) => {
+            log::warn!(
+                "activate_or_launch: could not enumerate windows of running \"{app_name}\" — \
+                 doing nothing (no launch, no whole-app activate); press the hotkey again"
+            );
+            Ok(())
+        }
+        Ok(o) if falls_back_to_launch(&o) => launch(),
+        Ok(_) => Ok(()),
+        Err(e) => {
+            log::warn!("activate_or_launch: window operation failed ({e}), launching instead");
+            launch()
+        }
+    }
 }
 
 /// `item` に対応するウィンドウをアクティブ化する。
@@ -54,14 +93,11 @@ pub fn activate_or_launch(
         macos_impl::activate_after_launch(item, window);
         Ok(())
     };
-    match try_activate(item, window, toggle) {
-        Ok(ActivateOutcome::Activated) | Ok(ActivateOutcome::Minimized) => Ok(()),
-        Ok(ActivateOutcome::NotFound) | Ok(ActivateOutcome::Unsupported) => launch_and_activate(),
-        Err(e) => {
-            log::warn!("activate_or_launch: window operation failed ({e}), launching instead");
-            launch_and_activate()
-        }
-    }
+    resolve_outcome(
+        try_activate(item, window, toggle),
+        &item.name,
+        launch_and_activate,
+    )
 }
 
 /// ウィンドウ照合条件（config から渡される）。`title` / `title_exclude` は Windows と macOS が
@@ -103,6 +139,17 @@ pub fn resolve_window_app(window_app: Option<&str>, path: &str) -> Option<String
     };
     let name = base[..cut].trim();
     (!name.is_empty()).then(|| name.to_string())
+}
+
+/// Delay before the single retry after an `EnumerationFailed` result.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const ENUMERATION_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// Whether a failed window enumeration should be retried: once only (`attempt` counts the
+/// retries already done).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn should_retry_enumeration(result: &Result<ActivateOutcome, String>, attempt: u32) -> bool {
+    attempt == 0 && matches!(result, Ok(ActivateOutcome::EnumerationFailed))
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
@@ -439,19 +486,30 @@ mod macos_impl {
         let title = window.title.map(str::to_string);
         let title_exclude = window.title_exclude.map(str::to_string);
         let window_mode = title.is_some() || title_exclude.is_some();
-        let mut result = None;
-        DispatchQueue::main().exec_sync(|| {
-            result = Some(activate_on_main_thread(
-                item_name,
-                app_name,
-                title.as_deref(),
-                title_exclude.as_deref(),
-                toggle,
-                false,
-            ));
-        });
-        let result = result
-            .expect("DispatchQueue::main().exec_sync always runs its closure before returning");
+        let mut attempt = 0;
+        let result = loop {
+            let mut result = None;
+            DispatchQueue::main().exec_sync(|| {
+                result = Some(activate_on_main_thread(
+                    item_name,
+                    app_name,
+                    title.as_deref(),
+                    title_exclude.as_deref(),
+                    toggle,
+                    false,
+                ));
+            });
+            let result = result
+                .expect("DispatchQueue::main().exec_sync always runs its closure before returning");
+            // Retry here, on the background thread, never inside the main-thread closure
+            // (sleeping there would freeze the app).
+            if super::should_retry_enumeration(&result, attempt) {
+                attempt += 1;
+                std::thread::sleep(super::ENUMERATION_RETRY_DELAY);
+                continue;
+            }
+            break result;
+        };
         // 設定待ちは window_title/window_title_exclude 使用時のみ — アプリ単位の `open`/`hide()`
         // 経路には元々このスレッド遅延の根拠となった AX 反映ラグはなく、無条件に付けると
         // 最も使われる（window_title 未指定の）ホットキーの応答を毎回無駄に遅らせてしまう。
@@ -694,19 +752,27 @@ mod macos_impl {
         }
         let Some((app, window)) = found else {
             if enumeration_failed {
-                // 起動直後: 列挙失敗は「まだ準備中」。アプリ単位に倒すと別インスタンスを
-                // 前面化して「成功」扱いになってしまう（`activate_after_launch` 参照）ので、
-                // NotFound でリトライさせる。
+                // Right after a launch an enumeration failure just means "not ready yet".
+                // Whole-app activation would raise a different pre-existing instance and be
+                // taken as success (see `activate_after_launch`), so report NotFound and let
+                // the post-launch loop retry.
                 if post_launch {
                     return Ok(ActivateOutcome::NotFound);
                 }
-                // 実行中なのに AXWindows を取得できなかった: 「ウィンドウ無し」と区別する。
-                // NotFound を返すと起動フォールバックで重複プロセスが立つので、アプリ単位に倒す。
-                log::warn!(
-                    "macos_impl: AXWindows enumeration failed for \"{app_name}\" — falling back \
-                     to whole-app activate/toggle"
-                );
-                return activate_whole_app(&apps[0], app_name, toggle);
+                // The app is running but AXWindows could not be read; that is not "no matching
+                // window". The two obvious fallbacks are both wrong:
+                // - NotFound -> launch: duplicates a process we know is running.
+                // - whole-app activate: raises whichever window the app had in front (e.g. the
+                //   wrong window of a second instance) yet reports Activated, so the failure
+                //   is invisible to the user.
+                // So report EnumerationFailed: no launch, no activation, a warning in the log,
+                // and the user presses again. `activate()` retries once after a short delay to
+                // absorb transient AX failures (kAXErrorCannotComplete, AX not ready yet)
+                // before giving up. Only a single short retry: unlike the post-launch wait,
+                // there is no evidence of how long a running instance takes to recover, and
+                // "press again" is cheap.
+                log::warn!("macos_impl: AXWindows enumeration failed for \"{app_name}\"");
+                return Ok(ActivateOutcome::EnumerationFailed);
             }
             return Ok(ActivateOutcome::NotFound);
         };
@@ -1051,6 +1117,7 @@ mod linux_impl {
 #[cfg(test)]
 mod tests {
     use super::resolve_window_app as r;
+    use super::{falls_back_to_launch, resolve_outcome, should_retry_enumeration, ActivateOutcome};
 
     #[test]
     fn explicit_app_wins() {
@@ -1086,5 +1153,60 @@ mod tests {
     fn empty_resolves_to_none() {
         assert_eq!(r(None, ""), None);
         assert_eq!(r(Some(".exe"), ""), None);
+    }
+
+    #[test]
+    fn only_not_found_and_unsupported_launch() {
+        assert!(falls_back_to_launch(&ActivateOutcome::NotFound));
+        assert!(falls_back_to_launch(&ActivateOutcome::Unsupported));
+        assert!(!falls_back_to_launch(&ActivateOutcome::Activated));
+        assert!(!falls_back_to_launch(&ActivateOutcome::Minimized));
+        assert!(!falls_back_to_launch(&ActivateOutcome::EnumerationFailed));
+    }
+
+    #[test]
+    fn enumeration_failure_never_launches() {
+        let mut launched = false;
+        let r = resolve_outcome(Ok(ActivateOutcome::EnumerationFailed), "app", || {
+            launched = true;
+            Ok(())
+        });
+        assert!(r.is_ok());
+        assert!(!launched);
+    }
+
+    #[test]
+    fn not_found_and_error_launch() {
+        for result in [
+            Ok(ActivateOutcome::NotFound),
+            Ok(ActivateOutcome::Unsupported),
+            Err("boom".to_string()),
+        ] {
+            let mut launched = false;
+            let _ = resolve_outcome(result, "app", || {
+                launched = true;
+                Ok(())
+            });
+            assert!(launched);
+        }
+    }
+
+    #[test]
+    fn activated_does_not_launch() {
+        let mut launched = false;
+        let _ = resolve_outcome(Ok(ActivateOutcome::Minimized), "app", || {
+            launched = true;
+            Ok(())
+        });
+        assert!(!launched);
+    }
+
+    #[test]
+    fn enumeration_retry_is_single() {
+        let failed = Ok(ActivateOutcome::EnumerationFailed);
+        assert!(should_retry_enumeration(&failed, 0));
+        assert!(!should_retry_enumeration(&failed, 1));
+        assert!(!should_retry_enumeration(&Ok(ActivateOutcome::NotFound), 0));
+        assert!(!should_retry_enumeration(&Err("x".into()), 0));
     }
 }
