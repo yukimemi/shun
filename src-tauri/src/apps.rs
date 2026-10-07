@@ -516,8 +516,18 @@ pub fn collect_items(config: &Config) -> Vec<LaunchItem> {
     items
 }
 
-fn is_url(s: &str) -> bool {
-    s.starts_with("http://") || s.starts_with("https://")
+/// Recognize protocol handlers while preserving drive paths and Windows shell folders.
+pub fn is_url(s: &str) -> bool {
+    let Some((scheme, _)) = s.split_once(':') else {
+        return false;
+    };
+    scheme.len() >= 2
+        && scheme.as_bytes()[0].is_ascii_alphabetic()
+        && scheme
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'+' | b'.' | b'-'))
+        && !scheme.eq_ignore_ascii_case("shell")
+        && !s.chars().any(char::is_whitespace)
 }
 
 fn is_path(s: &str) -> bool {
@@ -894,23 +904,49 @@ mod tests {
     // --- is_url ---
 
     #[test]
-    fn url_http() {
-        assert!(is_url("http://example.com"));
+    fn url_accepts_protocol_handlers() {
+        for input in [
+            "http://example.com",
+            "https://example.com/path?q=1",
+            "ms-excel:ofe|u|https://x",
+            "ms-teams:",
+            "mailto:a@b",
+            "slack://open",
+            "ftp://x",
+            "MS-TEAMS:",
+            "HTTPS://example.com",
+            "a+b.c-d:x",
+        ] {
+            assert!(is_url(input), "expected URL: {input:?}");
+        }
     }
 
     #[test]
-    fn url_https() {
-        assert!(is_url("https://example.com/path?q=1"));
-    }
-
-    #[test]
-    fn url_rejects_ftp() {
-        assert!(!is_url("ftp://example.com"));
-    }
-
-    #[test]
-    fn url_rejects_plain() {
-        assert!(!is_url("example.com"));
+    fn url_rejects_paths_and_search_terms() {
+        for input in [
+            r"C:\foo",
+            "C:/foo",
+            "C:relative",
+            "shell:Downloads",
+            "SHELL:x",
+            "shell:",
+            "example.com",
+            "foo bar:baz",
+            "todo: buy milk",
+            "slack://open\n",
+            "mailto:a\tb",
+            "mailto:a\u{3000}b",
+            "localhost",
+            "~/Documents",
+            "",
+            "1abc:x",
+            ":x",
+            "a:x",
+            "ab_cd:x",
+            "éx:x",
+        ] {
+            assert!(!is_url(input), "unexpected URL: {input:?}");
+        }
     }
 
     // --- is_path ---

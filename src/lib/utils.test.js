@@ -403,16 +403,44 @@ describe("makePathItem", () => {
 // --- isUrlQuery ---
 
 describe("isUrlQuery", () => {
-  it("returns true for http:// and https:// URLs", () => {
-    expect(isUrlQuery("http://example.com")).toBe(true);
-    expect(isUrlQuery("https://example.com")).toBe(true);
+  it.each([
+    "http://example.com",
+    "https://example.com/path?q=1",
+    "ms-excel:ofe|u|https://x",
+    "ms-teams:",
+    "mailto:a@b",
+    "slack://open",
+    "ftp://x",
+    "MS-TEAMS:",
+    "HTTPS://example.com",
+    "a+b.c-d:x",
+  ])("recognizes protocol URL %j", (input) => {
+    expect(isUrlQuery(input)).toBe(true);
   });
 
-  it("returns false for non-URL queries", () => {
-    expect(isUrlQuery("example.com")).toBe(false);
-    expect(isUrlQuery("~/Documents")).toBe(false);
-    expect(isUrlQuery("ftp://example.com")).toBe(false);
-    expect(isUrlQuery("")).toBe(false);
+  it.each([
+    "C:\\foo",
+    "C:/foo",
+    "C:relative",
+    "shell:Downloads",
+    "SHELL:x",
+    "shell:",
+    "example.com",
+    "foo bar:baz",
+    "todo: buy milk",
+    "slack://open\n",
+    "mailto:a\tb",
+    "mailto:a\u{3000}b",
+    "localhost",
+    "~/Documents",
+    "",
+    "1abc:x",
+    ":x",
+    "a:x",
+    "ab_cd:x",
+    "éx:x",
+  ])("rejects path or search query %j", (input) => {
+    expect(isUrlQuery(input)).toBe(false);
   });
 });
 
