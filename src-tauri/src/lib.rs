@@ -344,7 +344,8 @@ fn launch_item(
         item.path.clone()
     };
 
-    if path.starts_with("http://") || path.starts_with("https://") {
+    if apps::is_url(&path) {
+        // The Rust opener API uses OS handlers directly; URL scopes only apply to IPC calls.
         tauri_plugin_opener::open_url(&path, None::<&str>).map_err(|e| e.to_string())
     } else if matches!(item.source, apps::ItemSource::Path) && extra.is_empty() {
         // args なし → OS 関連付けで開く（フォルダ、ドキュメント等）

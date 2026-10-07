@@ -96,14 +96,14 @@ export function makePathItem(p) {
 }
 
 /**
- * Returns true if the query looks like an http(s) URL.
+ * Returns true for protocol URLs, excluding drive paths and Windows shell folders.
  */
 export function isUrlQuery(q) {
-  return q.startsWith("http://") || q.startsWith("https://");
+  return /^[a-z][a-z0-9+.-]+:/i.test(q) && !/^shell:/i.test(q) && !/\p{White_Space}/u.test(q);
 }
 
 /**
- * Returns a synthetic Url item for http(s) URL queries.
+ * Returns a synthetic Url item for protocol URL queries.
  */
 export function makeUrlItem(u) {
   return { name: u, path: u, args: [], workdir: null,

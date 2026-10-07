@@ -276,6 +276,11 @@ completion_command     = "git branch --format='%(refname:short)'"
 completion_search_mode = "exact"  # "fuzzy" | "exact" | "migemo" (overrides global)
 workdir                = "~/src/myproject"
 
+# Launch a registered custom protocol handler
+[[apps]]
+name = "Microsoft Teams"
+path = "ms-teams:"
+
 # Override completion for scan_dirs items
 [[overrides]]
 name            = "scoop"
@@ -614,8 +619,10 @@ All keybindings are configurable via `[keybindings]` in `config.toml`. Changes t
 
 | Input | Action |
 |---|---|
-| `https://...` | Open URL in default browser |
+| `scheme:...` (http/https/mailto/ms-excel, etc.) | Open with the OS default protocol handler |
 | `~/...`, `C:/...` | Browse filesystem, open in file manager |
+
+URL schemes must contain at least two characters, and URL input must not contain whitespace (encode spaces as `%20`). Windows drive paths and `shell:` folders remain filesystem inputs.
 
 </details>
 

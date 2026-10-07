@@ -158,7 +158,7 @@ Add per-repo extras (e.g. `cargo fetch`, `npm install`) by extending
 - `ItemSource::Apps` — `[[apps]]` entries in config.toml
 - `ItemSource::Scan` — discovered from `[[scan_dirs]]`
 - `ItemSource::History` — previous launches with extra args (`path\targs` key)
-- `ItemSource::Url` — `http://` / `https://` inputs
+- `ItemSource::Url` — protocol URL inputs (`https:`, `mailto:`, `ms-teams:`, etc.; excludes drive paths and `shell:`)
 - `ItemSource::Path` — filesystem paths (`~/...`, `C:/...`)
 
 ### Keybindings
@@ -257,7 +257,7 @@ Auto-created at first launch:
 
 ## Testing
 
-### Rust tests (195 total)
+### Rust tests (184 on macOS/Linux; 198 on Windows)
 Each module has a `#[cfg(test)]` block:
 - `config.rs` — defaults, TOML parsing, keybinding overrides, `hotkey`/`hotkey_mode` parsing
 - `search.rs` — fuzzy/exact/migemo filter
@@ -273,8 +273,8 @@ Each module has a `#[cfg(test)]` block:
   `NSWorkspace` / `wmctrl`) aren't practically unit-testable; verify `activate`/`toggle`
   manually per-OS
 
-### Frontend tests (53 total)
-`src/lib/utils.test.js` covers `firstSepIdx`, `isPathQuery`, `matchKey`, `shouldBypassTemplate`.
+### Frontend tests (142 total)
+`src/lib/utils.test.js` covers pure frontend helpers including `firstSepIdx`, `isPathQuery`, `isUrlQuery`, `matchKey`, and `shouldBypassTemplate`. URL detection shares protocol, drive-path, shell-folder, and whitespace cases with Rust.
 
 Do not mock these — they are pure functions with no Tauri dependencies.
 
@@ -338,4 +338,4 @@ Real example: making `currentWidth` a `$state` caused `resizeForSearch` to track
 - Per-app global hotkeys: `[[apps]].hotkey` + `hotkey_mode` (`launch`/`activate`/`toggle`);
   Windows and macOS fully supported via `app_window.rs`, Linux is best-effort (wmctrl)
   and fall back to `launch` when unsupported — see README "Per-app global hotkeys"
-- Rust tests: 195 total / Frontend tests: 53 total
+- Rust tests: 184 on macOS/Linux; 198 on Windows / Frontend tests: 142 total
