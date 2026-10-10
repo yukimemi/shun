@@ -15,6 +15,7 @@ mod app_window;
 mod apps;
 mod complete;
 mod config;
+mod diag;
 mod history;
 #[cfg(target_os = "windows")]
 mod kbhook;
@@ -841,6 +842,17 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                 // なっていた場合、子プロセスの PowerShell がその junction を掴んでしまい
                 // `scoop update shun` の `Remove-Item current` が「使用中」で失敗する。
                 let ps_cwd = std::env::temp_dir();
+                diag::log_update_spawn(
+                    "scoop",
+                    "powershell",
+                    &[
+                        "-NoProfile".into(),
+                        "-ExecutionPolicy".into(),
+                        "Bypass".into(),
+                        "-Command".into(),
+                        "<ps_cmd; see debug log>".into(),
+                    ],
+                );
                 let child = std::process::Command::new("powershell")
                     .args([
                         "-NoProfile",
@@ -857,6 +869,7 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                     "install_update(scoop): spawned powershell pid={}",
                     child.id()
                 );
+                diag::log_update_exit("scoop");
                 app.exit(0);
                 Ok(())
             }
@@ -879,13 +892,13 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
             );
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             // brew upgrade 完了後に shun を再起動する
+            let brew_script = "sleep 1 && HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INTERACTIVE=1 brew upgrade --cask shun && open -a shun";
+            diag::log_update_spawn("brew", "sh", &["-c".to_string(), brew_script.to_string()]);
             std::process::Command::new("sh")
-                .args([
-                    "-c",
-                    "sleep 1 && HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INTERACTIVE=1 brew upgrade --cask shun && open -a shun",
-                ])
+                .args(["-c", brew_script])
                 .spawn()
                 .map_err(|e| format!("failed to spawn brew upgrade: {e}"))?;
+            diag::log_update_exit("brew");
             app.exit(0);
             Ok(())
         }
@@ -916,7 +929,16 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
                     relaunch_after_update_macos(&app)?;
                 }
                 #[cfg(not(target_os = "macos"))]
-                app.restart();
+                {
+                    // app.restart() re-executes the current exe with the same args and env
+                    let exe = std::env::current_exe()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|e| format!("<unknown: {e}>"));
+                    let args: Vec<String> = std::env::args().skip(1).collect();
+                    diag::log_update_spawn("restart", &exe, &args);
+                    diag::log_update_exit("restart");
+                    app.restart();
+                }
             }
             Ok(())
         }
@@ -937,12 +959,18 @@ fn relaunch_after_update_macos(app: &tauri::AppHandle) -> Result<(), String> {
     let exe = std::env::current_exe()
         .map_err(|e| format!("relaunch_after_update: failed to resolve current exe: {e}"))?;
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    let args_log: Vec<String> = args
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    diag::log_update_spawn("relaunch_macos", &exe.display().to_string(), &args_log);
     std::process::Command::new(&exe).args(&args).spawn().map_err(|e| {
         format!(
             "relaunch_after_update: failed to spawn {}: {e} — keeping this instance running instead of exiting blindly",
             exe.display()
         )
     })?;
+    diag::log_update_exit("relaunch_macos");
     app.exit(0);
     Ok(())
 }
@@ -1100,9 +1128,11 @@ async fn install_update_portable(app: &tauri::AppHandle) -> Result<(), String> {
     std::fs::rename(&new_exe_path, &current_exe).map_err(|e| e.to_string())?;
 
     // 新 exe を起動して自分は終了
+    diag::log_update_spawn("portable", &current_exe.display().to_string(), &[]);
     std::process::Command::new(&current_exe)
         .spawn()
         .map_err(|e| e.to_string())?;
+    diag::log_update_exit("portable");
     app.exit(0);
     Ok(())
 }
@@ -1505,6 +1535,7 @@ fn build_scoop_ps_cmd(pid: u32, launch_str: &str, log_path_str: &str) -> String 
 type WarningsState = Arc<Mutex<Vec<(String, String)>>>;
 
 pub fn run() {
+    diag::capture_parent_info();
     let (config, _) = config::load_config();
     // WarningsState はランタイムエラー（keybinding 登録失敗など）のみ保持
     // config parse エラーは get_config_warnings() で毎回新鮮に取得する
@@ -1518,6 +1549,7 @@ pub fn run() {
     let log_level = log_cfg.to_level_filter();
     let log_rotation = log_cfg.to_rotation_strategy();
     let log_max_size = log_cfg.max_file_size_kb * 1024;
+    let log_retention_days = log_cfg.retention_days;
 
     tauri::Builder::default()
         .manage(cache)
@@ -1550,6 +1582,22 @@ pub fn run() {
             None,
         ))
         .setup(move |app| {
+            diag::log_startup_environment();
+            if log_retention_days > 0 {
+                if let Ok(dir) = app.path().app_log_dir() {
+                    let stem = app.package_info().name.clone();
+                    let n = diag::prune_old_logs(
+                        &dir,
+                        &stem,
+                        std::time::Duration::from_secs(log_retention_days * 86400),
+                    );
+                    if n > 0 {
+                        info!(
+                            "pruned {n} rotated log file(s) older than {log_retention_days} days"
+                        );
+                    }
+                }
+            }
             let window = app.get_webview_window("main").unwrap();
             window.hide().ok();
 
