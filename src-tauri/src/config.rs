@@ -215,13 +215,18 @@ fn default_true() -> bool {
     true
 }
 fn default_log_level() -> String {
-    "warn".to_string()
+    // info (not warn) so the startup/update environment records are kept by default
+    "info".to_string()
 }
 fn default_log_max_file_size_kb() -> u64 {
-    1024 // 1 MB
+    2048 // 2 MB
 }
 fn default_log_rotation() -> String {
-    "keep_one".to_string()
+    // 16 rotated generations + the active file: worst case 17 x 2 MB = 34 MB.
+    "16".to_string()
+}
+fn default_log_retention_days() -> u64 {
+    30
 }
 fn default_update_check_interval() -> u64 {
     3600
@@ -362,12 +367,15 @@ pub struct LogConfig {
     /// ログレベル: "debug" | "info" | "warn" | "error" | "off"
     #[serde(default = "default_log_level")]
     pub level: String,
-    /// ローテーション前の最大ファイルサイズ (KB, デフォルト: 1024 = 1MB)
+    /// ローテーション前の最大ファイルサイズ (KB, デフォルト: 2048 = 2MB)
     #[serde(default = "default_log_max_file_size_kb")]
     pub max_file_size_kb: u64,
-    /// ローテーション戦略: "keep_one" (デフォルト) | "keep_all" | 数値 (世代数)
+    /// ローテーション戦略: "keep_one" | "keep_all" | 数値 (世代数, デフォルト: 16)
     #[serde(default = "default_log_rotation")]
     pub rotation: String,
+    /// ローテーション済みログをこの日数より古ければ起動時に削除 (デフォルト: 30, 0 = 削除しない)
+    #[serde(default = "default_log_retention_days")]
+    pub retention_days: u64,
 }
 
 impl Default for LogConfig {
@@ -376,6 +384,7 @@ impl Default for LogConfig {
             level: default_log_level(),
             max_file_size_kb: default_log_max_file_size_kb(),
             rotation: default_log_rotation(),
+            retention_days: default_log_retention_days(),
         }
     }
 }
@@ -396,8 +405,9 @@ impl LogConfig {
         match self.rotation.to_lowercase().as_str() {
             "keep_all" => tauri_plugin_log::RotationStrategy::KeepAll,
             s => match s.parse::<usize>() {
-                Ok(n) => tauri_plugin_log::RotationStrategy::KeepSome(n),
-                Err(_) => tauri_plugin_log::RotationStrategy::KeepOne,
+                // KeepSome(0) would underflow inside the plugin's rotate()
+                Ok(n) if n >= 1 => tauri_plugin_log::RotationStrategy::KeepSome(n),
+                _ => tauri_plugin_log::RotationStrategy::KeepOne,
             },
         }
     }
@@ -752,6 +762,14 @@ preview_scroll_up   = "Ctrl+k"       # Scroll preview panel up
 # green   = "#a3be8c"
 # red     = "#bf616a"
 
+# Logging — rotated by size; files older than retention_days are pruned at startup
+# Defaults keep roughly a month: 2 MB x (16 rotated + 1 active) = 34 MB worst case
+# [log]
+# level            = "info"   # "debug" | "info" (default) | "warn" | "error" | "off"
+# max_file_size_kb = 2048
+# rotation         = "16"     # number of rotated files to keep | "keep_one" | "keep_all"
+# retention_days   = 30       # 0 = never prune by age
+
 # User-defined variables — reference with {{ vars.my_var }} in path/args
 # [vars]
 # src_dir  = "~/src/github.com/yourname"
@@ -805,6 +823,50 @@ fn merge_local_config(base: &mut Config, local_content: &str) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- [log] ---
+
+    #[test]
+    fn log_defaults_keep_about_a_month() {
+        let l = LogConfig::default();
+        assert_eq!(l.level, "info");
+        assert_eq!(l.max_file_size_kb, 2048);
+        assert_eq!(l.retention_days, 30);
+        assert!(matches!(
+            l.to_rotation_strategy(),
+            tauri_plugin_log::RotationStrategy::KeepSome(16)
+        ));
+    }
+
+    #[test]
+    fn log_existing_keys_still_parse() {
+        let c: Config = toml::from_str(
+            "[log]\nlevel = \"debug\"\nmax_file_size_kb = 512\nrotation = \"keep_one\"\n",
+        )
+        .unwrap();
+        assert_eq!(c.log.max_file_size_kb, 512);
+        assert_eq!(c.log.retention_days, 30);
+        assert!(matches!(
+            c.log.to_rotation_strategy(),
+            tauri_plugin_log::RotationStrategy::KeepOne
+        ));
+        let c: Config =
+            toml::from_str("[log]\nrotation = \"keep_all\"\nretention_days = 0\n").unwrap();
+        assert!(matches!(
+            c.log.to_rotation_strategy(),
+            tauri_plugin_log::RotationStrategy::KeepAll
+        ));
+        assert_eq!(c.log.retention_days, 0);
+    }
+
+    #[test]
+    fn log_rotation_zero_falls_back_to_keep_one() {
+        let c: Config = toml::from_str("[log]\nrotation = \"0\"\n").unwrap();
+        assert!(matches!(
+            c.log.to_rotation_strategy(),
+            tauri_plugin_log::RotationStrategy::KeepOne
+        ));
+    }
 
     // --- defaults ---
 

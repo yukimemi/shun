@@ -223,9 +223,14 @@ preview_scroll_up   = "Ctrl+k"      # Scroll preview panel up
 
 # Logging
 [log]
-level = "warn"            # "debug" | "info" | "warn" (default) | "error" | "off"
-max_file_size_kb = 1024
-rotation = "keep_one"     # "keep_one" (default) | "keep_all" | number
+level = "info"            # "debug" | "info" (default) | "warn" | "error" | "off"
+max_file_size_kb = 2048   # rotate when the active file passes this size (default: 2 MB)
+rotation = "16"           # number of rotated files to keep (default: 16) | "keep_one" | "keep_all"
+retention_days = 30       # delete rotated logs older than this at startup (default: 30, 0 = never)
+# Worst-case disk use with the defaults: 2 MB x (16 rotated + 1 active) = 34 MB.
+# Each startup logs one `startup:` line (pid, parent process, TTY state, and a fixed allowlist of
+# env vars: NO_COLOR, TERM, COLORTERM, XPC_SERVICE_NAME, SHELL, LANG) so you can tell how an
+# instance was started; the update path logs `update:` lines for what it spawns.
 
 # Theme
 [theme]
