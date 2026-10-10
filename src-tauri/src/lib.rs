@@ -1535,6 +1535,7 @@ fn build_scoop_ps_cmd(pid: u32, launch_str: &str, log_path_str: &str) -> String 
 type WarningsState = Arc<Mutex<Vec<(String, String)>>>;
 
 pub fn run() {
+    diag::capture_parent_info();
     let (config, _) = config::load_config();
     // WarningsState はランタイムエラー（keybinding 登録失敗など）のみ保持
     // config parse エラーは get_config_warnings() で毎回新鮮に取得する

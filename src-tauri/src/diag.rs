@@ -60,7 +60,7 @@ fn ps_field(field: &str, pid: u32) -> Option<String> {
 }
 
 /// Best effort: `(ppid, parent command line)`. Never fails.
-fn parent_info() -> (Option<u32>, Option<String>) {
+fn read_parent_info() -> (Option<u32>, Option<String>) {
     #[cfg(unix)]
     {
         let ppid = ps_field("ppid", std::process::id()).and_then(|s| s.parse::<u32>().ok());
@@ -69,16 +69,70 @@ fn parent_info() -> (Option<u32>, Option<String>) {
             .map(|s| truncate_cmdline(&s));
         (ppid, cmd)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        windows_parent_info()
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         (None, None)
     }
 }
 
+/// Toolhelp snapshot: parent pid and the parent's exe file name (the full command line is not
+/// cheaply available on Windows, so only the image name is recorded).
+#[cfg(windows)]
+fn windows_parent_info() -> (Option<u32>, Option<String>) {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+    let me = std::process::id();
+    let Ok(snap) = (unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }) else {
+        return (None, None);
+    };
+    let mut entry = PROCESSENTRY32W {
+        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
+    let mut procs: Vec<(u32, u32, String)> = Vec::new();
+    if unsafe { Process32FirstW(snap, &mut entry) }.is_ok() {
+        loop {
+            let len = entry
+                .szExeFile
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(entry.szExeFile.len());
+            procs.push((
+                entry.th32ProcessID,
+                entry.th32ParentProcessID,
+                String::from_utf16_lossy(&entry.szExeFile[..len]),
+            ));
+            if unsafe { Process32NextW(snap, &mut entry) }.is_err() {
+                break;
+            }
+        }
+    }
+    let _ = unsafe { CloseHandle(snap) };
+    let ppid = procs.iter().find(|p| p.0 == me).map(|p| p.1);
+    let name = ppid.and_then(|pp| procs.iter().find(|p| p.0 == pp).map(|p| p.2.clone()));
+    (ppid, name)
+}
+
+static PARENT_INFO: std::sync::OnceLock<(Option<u32>, Option<String>)> = std::sync::OnceLock::new();
+
+/// Capture parent info as early as possible (first thing in `run()`): a parent that exits
+/// right after spawning us (update relaunch) reparents us to init/launchd, after which the
+/// real parent can no longer be read. Still racy, but narrows the window.
+pub fn capture_parent_info() {
+    PARENT_INFO.get_or_init(read_parent_info);
+}
+
 /// One info line describing how this instance was started.
 pub fn log_startup_environment() {
     use std::io::IsTerminal;
-    let (ppid, parent_cmd) = parent_info();
+    let (ppid, parent_cmd) = PARENT_INFO.get_or_init(read_parent_info).clone();
     let exe = std::env::current_exe()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|e| format!("<unknown: {e}>"));
