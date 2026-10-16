@@ -6,7 +6,7 @@
   import { getVersion } from "@tauri-apps/api/app";
   import { debug, info } from "@tauri-apps/plugin-log";
   import { onMount, onDestroy, tick } from "svelte";
-  import { firstSepIdx, isPathQuery, isUrlQuery, matchKey, fuzzyMatch, shouldBypassTemplate, getEffectiveSearchMode, nextSearchMode, makePathItem, makeUrlItem, makeWarningItem, canHaveArgs, validateKeybindings, normalizeConfigFileName, completionMatches } from "$lib/utils.js";
+  import { firstSepIdx, isPathQuery, isUrlQuery, isImeKeydown, matchKey, fuzzyMatch, shouldBypassTemplate, getEffectiveSearchMode, nextSearchMode, makePathItem, makeUrlItem, makeWarningItem, canHaveArgs, validateKeybindings, normalizeConfigFileName, completionMatches } from "$lib/utils.js";
   import { highlight, shikiTheme } from "$lib/highlight.js";
   import SearchModeIcon from "$lib/SearchModeIcon.svelte";
   import SortOrderIcon from "$lib/SortOrderIcon.svelte";
@@ -720,6 +720,9 @@
   }
 
   async function onKeydown(e) {
+    // Do not preventDefault: conversion and candidate navigation belong to the IME.
+    if (isImeKeydown(e)) return;
+
     if (helpVisible) {
       e.preventDefault();
       helpVisible = false;
