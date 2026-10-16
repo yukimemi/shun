@@ -51,7 +51,7 @@ windows = { version = "0.62", features = [
 ] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-gtk = "0.18"
+gtk = "0.19"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Used by app_window.rs to activate/toggle app windows natively (NSWorkspace,
