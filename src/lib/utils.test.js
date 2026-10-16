@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { firstSepIdx, isPathQuery, isUrlQuery, matchKey, fuzzyMatch, shouldBypassTemplate, getEffectiveSearchMode, nextSearchMode, makePathItem, makeUrlItem, makeWarningItem, canHaveArgs, validateKeybindings, normalizeConfigFileName, completionMatches } from "./utils.js";
+import { firstSepIdx, isPathQuery, isUrlQuery, isImeKeydown, matchKey, fuzzyMatch, shouldBypassTemplate, getEffectiveSearchMode, nextSearchMode, makePathItem, makeUrlItem, makeWarningItem, canHaveArgs, validateKeybindings, normalizeConfigFileName, completionMatches } from "./utils.js";
 
 // --- firstSepIdx ---
 
@@ -668,5 +668,41 @@ describe("completionMatches", () => {
 
   it("defaults to fuzzy when completionMode is unrecognized", () => {
     expect(completionMatches("rnt", "rust-notes.md", "unknown")).toBe(true);
+  });
+});
+
+describe("isImeKeydown", () => {
+  it.each([
+    ["Windows-style confirmation", { isComposing: true, keyCode: 229 }],
+    ["standard composing confirmation", { isComposing: true, keyCode: 13 }],
+    ["macOS confirmation after compositionend", { isComposing: false, keyCode: 229 }],
+  ])("guards %s and allows an immediate subsequent Enter", (_, fields) => {
+    expect(isImeKeydown({ key: "Enter", ...fields })).toBe(true);
+    // No delay or intervening key is required before intentional submission.
+    expect(isImeKeydown({ key: "Enter", isComposing: false, keyCode: 13 })).toBe(false);
+    expect(isImeKeydown({ key: "a", isComposing: false, keyCode: 65 })).toBe(false);
+  });
+
+  it.each(["Enter", "Tab", "Escape", "ArrowDown", "n"])(
+    "leaves composing %s to the IME with either signal",
+    (key) => {
+      expect(isImeKeydown({ key, isComposing: true, keyCode: 13 })).toBe(true);
+      expect(isImeKeydown({ key, isComposing: false, keyCode: 229 })).toBe(true);
+    },
+  );
+
+  it.each([{}, { shiftKey: true }, { ctrlKey: true }, { metaKey: true }, { altKey: true }])(
+    "guards modified confirmation without changing ordinary shortcuts (%j)",
+    (modifiers) => {
+      expect(isImeKeydown({ ...evt("Enter", modifiers), isComposing: true })).toBe(true);
+      expect(isImeKeydown({ ...evt("Enter", modifiers), isComposing: false, keyCode: 229 })).toBe(true);
+      expect(isImeKeydown({ ...evt("Enter", modifiers), isComposing: false, keyCode: 13 })).toBe(false);
+    },
+  );
+
+  it("allows ordinary keys even when composition fields are absent", () => {
+    for (const key of ["Enter", "Tab", "Escape", "ArrowDown", "n"]) {
+      expect(isImeKeydown(evt(key))).toBe(false);
+    }
   });
 });

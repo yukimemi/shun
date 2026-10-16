@@ -202,6 +202,16 @@ export function completionMatches(query, target, completionMode, migemoInstance 
 }
 
 /**
+ * Returns true when the IME owns a keydown; launcher shortcuts must leave it alone.
+ * WebKit can end composition before dispatching the confirming keydown, making
+ * isComposing false, but still reports keyCode 229 for that IME-handled key.
+ * @param {Partial<KeyboardEvent>} e
+ */
+export function isImeKeydown(e) {
+  return e.isComposing === true || e.keyCode === 229;
+}
+
+/**
  * Returns true if the KeyboardEvent matches the binding string.
  * Binding format: "Ctrl+f", "Alt+Space", "Enter", "Ctrl+Shift+P", etc.
  */
