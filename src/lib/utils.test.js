@@ -672,6 +672,17 @@ describe("completionMatches", () => {
 });
 
 describe("isImeKeydown", () => {
+  it.each([
+    ["Windows-style confirmation", { isComposing: true, keyCode: 229 }],
+    ["standard composing confirmation", { isComposing: true, keyCode: 13 }],
+    ["macOS confirmation after compositionend", { isComposing: false, keyCode: 229 }],
+  ])("guards %s and allows an immediate subsequent Enter", (_, fields) => {
+    expect(isImeKeydown({ key: "Enter", ...fields })).toBe(true);
+    // No delay or intervening key is required before intentional submission.
+    expect(isImeKeydown({ key: "Enter", isComposing: false, keyCode: 13 })).toBe(false);
+    expect(isImeKeydown({ key: "a", isComposing: false, keyCode: 65 })).toBe(false);
+  });
+
   it.each(["Enter", "Tab", "Escape", "ArrowDown", "n"])(
     "leaves composing %s to the IME with either signal",
     (key) => {
