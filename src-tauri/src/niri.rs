@@ -260,7 +260,51 @@ fn validate(config: &Path) -> Result<(), String> {
 
 /// Whether `config` already has an uncommented `include "shun-binds.kdl"` line.
 fn has_include(config: &str) -> bool {
-    config.lines().any(|l| l.trim() == INCLUDE_LINE)
+    strip_block_comments(config)
+        .lines()
+        .any(|l| l.trim() == INCLUDE_LINE)
+}
+
+/// Blanks out KDL `/* ... */` comments (nestable), keeping newlines so line structure is
+/// preserved. Quoted strings are skipped so a `/*` inside one does not start a comment.
+fn strip_block_comments(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut chars = src.chars().peekable();
+    let (mut depth, mut in_str) = (0usize, false);
+    while let Some(c) = chars.next() {
+        if depth > 0 {
+            match (c, chars.peek()) {
+                ('*', Some('/')) => {
+                    chars.next();
+                    depth -= 1;
+                }
+                ('/', Some('*')) => {
+                    chars.next();
+                    depth += 1;
+                }
+                ('\n', _) => out.push('\n'),
+                _ => {}
+            }
+        } else if in_str {
+            out.push(c);
+            if c == '\\' {
+                if let Some(n) = chars.next() {
+                    out.push(n);
+                }
+            } else if c == '"' {
+                in_str = false;
+            }
+        } else if c == '"' {
+            in_str = true;
+            out.push(c);
+        } else if c == '/' && chars.peek() == Some(&'*') {
+            chars.next();
+            depth = 1;
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// Adds the `include` line to niri's `config.kdl` once. The file is appended to in place (a
@@ -427,6 +471,9 @@ pub enum Outcome {
     /// The target was focused, so focus went back to the previous window (toggle only).
     Hidden,
     NotFound,
+    /// The window was found but the niri action on it failed (e.g. it closed meanwhile).
+    /// The app is running, so the caller must not launch another instance.
+    ActionFailed(String),
 }
 
 fn niri_msg(args: &[&str]) -> Result<String, String> {
@@ -478,14 +525,16 @@ pub fn activate(
     let windows = parse_windows(&niri_msg(&["--json", "windows"])?)?;
     match choose(&windows, app, title, title_exclude, toggle) {
         None => Ok(Outcome::NotFound),
-        Some((_, true)) => {
-            niri_msg(&["action", "focus-window-previous"])?;
-            Ok(Outcome::Hidden)
-        }
-        Some((id, false)) => {
-            niri_msg(&["action", "focus-window", "--id", &id.to_string()])?;
-            Ok(Outcome::Activated)
-        }
+        Some((_, true)) => Ok(match niri_msg(&["action", "focus-window-previous"]) {
+            Ok(_) => Outcome::Hidden,
+            Err(e) => Outcome::ActionFailed(e),
+        }),
+        Some((id, false)) => Ok(
+            match niri_msg(&["action", "focus-window", "--id", &id.to_string()]) {
+                Ok(_) => Outcome::Activated,
+                Err(e) => Outcome::ActionFailed(e),
+            },
+        ),
     }
 }
 
@@ -548,6 +597,11 @@ mod tests {
         assert!(has_include("  include \"shun-binds.kdl\"  "));
         assert!(!has_include("// include \"shun-binds.kdl\"\n"));
         assert!(!has_include("include \"other.kdl\"\n"));
+        assert!(!has_include("/*\ninclude \"shun-binds.kdl\"\n*/\n"));
+        assert!(!has_include(
+            "/* a /* b */\ninclude \"shun-binds.kdl\"\n*/\n"
+        ));
+        assert!(has_include("/* x */\ninclude \"shun-binds.kdl\"\n"));
     }
 
     #[test]

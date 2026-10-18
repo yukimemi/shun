@@ -28,6 +28,9 @@ enum ActivateOutcome {
     /// （誤ったウィンドウを前面化して成功を装う）。何もせず警告ログだけ残し、ユーザーに
     /// もう一度押してもらう。
     EnumerationFailed,
+    /// 対象ウィンドウは見つかったが、それに対する操作自体が失敗した（niri の
+    /// `focus-window` 等）。実行中なので起動してはならない（重複プロセス）。警告だけ残す。
+    ActionFailed(String),
 }
 
 /// Whether the caller must launch a new process for this outcome. `EnumerationFailed` is
@@ -52,6 +55,13 @@ fn resolve_outcome(
             log::warn!(
                 "activate_or_launch: could not enumerate windows of running \"{app_name}\" — \
                  doing nothing (no launch, no whole-app activate); press the hotkey again"
+            );
+            Ok(())
+        }
+        Ok(ActivateOutcome::ActionFailed(e)) => {
+            log::warn!(
+                "activate_or_launch: window operation on running \"{app_name}\" failed ({e}) — \
+                 doing nothing (no launch)"
             );
             Ok(())
         }
@@ -1118,6 +1128,7 @@ mod linux_impl {
                     niri::Outcome::Activated => ActivateOutcome::Activated,
                     niri::Outcome::Hidden => ActivateOutcome::Minimized,
                     niri::Outcome::NotFound => ActivateOutcome::NotFound,
+                    niri::Outcome::ActionFailed(e) => ActivateOutcome::ActionFailed(e),
                 },
             );
         }
