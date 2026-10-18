@@ -23,7 +23,7 @@ src-tauri/
     apps.rs              # App discovery, LaunchItem, launch_with_extra
     app_window.rs        # OS window activate/toggle for per-app hotkeys (activate_or_launch)
     cli.rs               # `shun show|toggle|hotkey <KEY>|install-desktop` parsing (second instances are forwarded to the resident one)
-    niri.rs              # Linux/niri: generated `shun-binds.kdl` binds (+ one-time `include`), niri-IPC window activate/toggle
+    niri.rs              # Linux/niri: generated `shun-binds.kdl` binds (user adds the `include` line; shun never edits `config.kdl`), niri-IPC window activate/toggle
     desktop.rs           # Linux/AppImage: `.desktop` entry + icon self-install
     search.rs            # fuzzy/exact filter via nucleo-matcher
     complete.rs          # Path/list/command completion
