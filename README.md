@@ -399,9 +399,11 @@ focus. shun therefore integrates with the compositor instead of asking you to mi
   `config.kdl.before-shun`; nothing is appended unless `niri validate` accepts the result). Every
   update is checked with `niri validate`; if niri rejects it, the previous `shun-binds.kdl` is
   restored. niri reloads its config by itself, so **`config.toml` stays the only place the
-  keys are defined** — change a `hotkey`, `/reload`, done. Each bind runs `shun toggle` /
-  `shun hotkey <KEY>` directly. The single-instance plugin forwards the arguments to the running
-  instance, or a fresh instance handles them on startup. `shun-binds.kdl` is
+  keys are defined** — change a `hotkey`, `/reload`, done. Each bind calls the running
+  instance's single-instance D-Bus service with `shun toggle` / `shun hotkey <KEY>` via `busctl`
+  (~15 ms, no new process) and starts shun with those arguments if that fails (shun not running,
+  no `busctl`). Starting shun for every key press instead would cost ~1 s (AppImage mount + GTK
+  init), long enough for repeated presses to pile up and toggle the launcher back off. `shun-binds.kdl` is
   generated: don't edit it (and don't commit it if your niri config lives in a dotfiles repo; the
   `include` line may be committed).
 - **`desktop_integration = false`** disables desktop installation and clears existing generated binds on start or
