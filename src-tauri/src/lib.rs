@@ -713,7 +713,7 @@ fn register_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
         log::warn!("register_shortcuts: {w}");
     }
     #[cfg(target_os = "linux")]
-    sync_wm_binds(app, &config, &plan);
+    sync_wm_binds(&config, &plan);
 
     register_launch_handler(app, plan.launch)?;
 
@@ -739,8 +739,16 @@ fn register_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
 /// `shun toggle` / `shun hotkey <KEY>` を送る（`niri.rs` 参照）。ディスク I/O と `niri validate`
 /// を伴うので別スレッドで行う。
 #[cfg(target_os = "linux")]
-fn sync_wm_binds(app: &tauri::AppHandle, config: &config::Config, plan: &HotkeyPlan) {
-    if !config.desktop_integration || !niri::is_active() {
+fn sync_wm_binds(config: &config::Config, plan: &HotkeyPlan) {
+    if !niri::is_active() {
+        return;
+    }
+    if !config.desktop_integration {
+        std::thread::spawn(|| {
+            if let Err(e) = niri::clear_binds() {
+                log::warn!("niri binds: {e}");
+            }
+        });
         return;
     }
     let Some(exe) = desktop::exe_path() else {
@@ -765,9 +773,8 @@ fn sync_wm_binds(app: &tauri::AppHandle, config: &config::Config, plan: &HotkeyP
             args: vec!["hotkey".to_string(), raw.trim().to_string()],
         });
     }
-    let identifier = app.config().identifier.clone();
     let exe = exe.to_string_lossy().into_owned();
-    std::thread::spawn(move || match niri::sync_binds(&identifier, &exe, &binds) {
+    std::thread::spawn(move || match niri::sync_binds(&exe, &binds) {
         Ok(warnings) => {
             for w in warnings {
                 log::warn!("{w}");

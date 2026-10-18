@@ -1,7 +1,7 @@
 //! Command line of a running/starting shun.
 //!
 //! A second `shun ...` invocation is forwarded to the resident instance (single-instance
-//! plugin, which on Linux is a D-Bus call anyone can make with `busctl`), so these double as
+//! plugin), so these double as
 //! a way to trigger the global-hotkey actions from outside — e.g. from a compositor bind.
 //!
 //! ```text

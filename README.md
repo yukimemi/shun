@@ -396,14 +396,15 @@ focus. shun therefore integrates with the compositor instead of asking you to mi
 - **niri** — shun renders `keybindings.launch` and every `[[apps]].hotkey` into
   `~/.config/niri/shun-binds.kdl` (on start and on `/reload`) and adds a single
   `include "shun-binds.kdl"` line to niri's `config.kdl` the first time (a backup is kept as
-  `config.kdl.before-shun`, and the result is checked with `niri validate`; if niri rejects it the
-  file is restored). niri reloads its config by itself, so **`config.toml` stays the only place the
-  keys are defined** — change a `hotkey`, `/reload`, done. Each bind sends `shun toggle` /
-  `shun hotkey <KEY>` straight to the running instance over D-Bus (`busctl`, ~10 ms, no new
-  process) and starts shun with those arguments if it isn't running. `shun-binds.kdl` is
+  `config.kdl.before-shun`). Every update is checked with `niri validate`; if niri rejects it,
+  both files are restored. niri reloads its config by itself, so **`config.toml` stays the only place the
+  keys are defined** — change a `hotkey`, `/reload`, done. Each bind runs `shun toggle` /
+  `shun hotkey <KEY>` directly. The single-instance plugin forwards the arguments to the running
+  instance, or a fresh instance handles them on startup. `shun-binds.kdl` is
   generated: don't edit it (and don't commit it if your niri config lives in a dotfiles repo; the
   `include` line may be committed).
-- **`desktop_integration = false`** turns the generated binds and the `.desktop` entry off.
+- **`desktop_integration = false`** disables desktop installation and clears existing generated binds on start or
+  `/reload`, leaving an empty include file so niri's config remains valid.
 - **Other compositors** — bind `shun toggle` / `shun hotkey <KEY>` in the compositor's own config.
 
 **Desktop entry (AppImage)** — the AppImage ships no `.desktop` file, so app launchers don't list
