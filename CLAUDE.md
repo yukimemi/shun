@@ -195,7 +195,7 @@ Add per-repo extras (e.g. `cargo fetch`, `npm install`) by extending
   per-OS constraints
 - Wayland has no global key grabs (the global-shortcut plugin is X11-only on Linux). Under niri,
   `register_shortcuts()` → `sync_wm_binds()` renders the launch key + app hotkeys into niri's
-  `shun-binds.kdl` (`niri::sync_binds`); each bind spawns shun itself (forwarded to the resident instance by the single-instance plugin) with
+  `shun-binds.kdl` (`niri::sync_binds`); each bind runs `niri::spawn_script`: a `busctl` call into the single-instance plugin's D-Bus service (`niri::bus_target` mirrors the plugin's name/path — re-check it if that plugin or the app identifier changes), falling back to starting shun itself (spawning shun for every key costs ~1 s on an AppImage) with
   `shun toggle` / `shun hotkey <KEY>` (`cli.rs`, handled by `execute_command` in `lib.rs`).
   `find_hotkey_target()` resolves `<KEY>` through `plan_hotkey_registrations()` so CLI and OS-level
   hotkeys can't drift. Syncs are validated with `niri validate` and rolled back on failure; `desktop_integration = false` empties the generated binds.
