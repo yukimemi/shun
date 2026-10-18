@@ -76,6 +76,10 @@ pub struct Config {
     pub hide_on_blur: bool,
     #[serde(default = "default_true")]
     pub auto_start: bool,
+    /// Linux only: keep shun's desktop integration in place — the `.desktop` entry/icon
+    /// (AppImage) and, under niri, the compositor binds generated from the hotkeys.
+    #[serde(default = "default_true")]
+    pub desktop_integration: bool,
     #[serde(default = "default_update_check_interval")]
     pub update_check_interval: u64,
     #[serde(default = "default_window_width")]
@@ -421,6 +425,7 @@ impl Default for Config {
             sort_order: SortOrder::default(),
             hide_on_blur: false,
             auto_start: default_true(),
+            desktop_integration: default_true(),
             update_check_interval: default_update_check_interval(),
             window_width: default_window_width(),
             max_items: default_max_items(),
@@ -685,6 +690,10 @@ hide_on_blur = false
 
 # Start automatically at login (default: true); set to false to disable
 auto_start = true
+
+# Linux only: write shun's .desktop entry (AppImage) and, under niri, generate the compositor
+# binds for `keybindings.launch` and every [[apps]] hotkey (default: true)
+desktop_integration = true
 
 # Update check interval in seconds (0 to disable)
 update_check_interval = 3600
