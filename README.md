@@ -145,7 +145,9 @@ search_mode = "fuzzy"
 # Sort order: "count_first" (default) | "recent_first"
 sort_order = "count_first"
 
-# Auto-hide when the launcher loses focus
+# Auto-hide when the launcher loses focus. (niri: niri focuses every new window, so a launcher
+# opened while the app you just launched is still starting would be hidden at once; for 3 s after
+# it is shown, shun takes focus back once instead of hiding.)
 hide_on_blur = false
 
 # Start automatically at login (default: true); set to false to disable
