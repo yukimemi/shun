@@ -258,68 +258,170 @@ fn validate(config: &Path) -> Result<(), String> {
     }
 }
 
-/// Whether `config` already has an uncommented `include "shun-binds.kdl"` line.
-fn has_include(config: &str) -> bool {
-    strip_block_comments(config)
-        .lines()
-        .any(|l| l.trim() == INCLUDE_LINE)
+/// Whether a top-level, active KDL node includes the generated binds.
+/// Scan tokens rather than matching lines: comments are whitespace, and semicolons
+/// and newlines both terminate nodes. Strings must stay opaque to this scan.
+fn has_include(mut src: &str) -> bool {
+    let (mut depth, mut position, mut disabled) = (0usize, 0usize, false);
+    let mut include = false;
+    let mut skip_entry = false;
+    while !src.is_empty() {
+        if src.starts_with("//") {
+            src = src.find('\n').map_or("", |end| &src[end..]);
+            continue;
+        }
+        if let Some(rest) = src.strip_prefix("/*") {
+            src = rest;
+            let mut comments = 1;
+            while !src.is_empty() && comments > 0 {
+                if let Some(rest) = src.strip_prefix("/*") {
+                    comments += 1;
+                    src = rest;
+                } else if let Some(rest) = src.strip_prefix("*/") {
+                    comments -= 1;
+                    src = rest;
+                } else {
+                    src = &src[src.chars().next().unwrap().len_utf8()..];
+                }
+            }
+            continue;
+        }
+        let c = src.chars().next().unwrap();
+        match c {
+            '\n' | '\r' | ';' if depth == 0 => {
+                position = 0;
+                disabled = false;
+                include = false;
+            }
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    position = 0;
+                    disabled = false;
+                    include = false;
+                }
+            }
+            c if c.is_whitespace() => {}
+            _ => {
+                if src.starts_with("/-") {
+                    if position == 0 {
+                        disabled = true;
+                    } else {
+                        skip_entry = true;
+                    }
+                    src = &src[2..];
+                    continue;
+                }
+                // A KDL line continuation does not terminate the current node.
+                if c == '\\' {
+                    src = src[1..].trim_start_matches([' ', '\t']);
+                    if src.starts_with("//") {
+                        src = src.find('\n').map_or("", |end| &src[end..]);
+                    }
+                    src = src
+                        .strip_prefix("\r\n")
+                        .or_else(|| src.strip_prefix(['\n', '\r']))
+                        .unwrap_or(src);
+                    continue;
+                }
+                let (token, rest) = kdl_token(src);
+                src = rest;
+                if skip_entry {
+                    skip_entry = false;
+                    continue;
+                }
+                if depth == 0 && !disabled {
+                    if position == 0 {
+                        include = token == "include";
+                    } else if position == 1 && include && token == BINDS_FILE {
+                        return true;
+                    }
+                    position += 1;
+                }
+                continue;
+            }
+        }
+        src = &src[c.len_utf8()..];
+    }
+    false
 }
 
-/// Blanks out KDL `/* ... */` comments (nestable), keeping newlines so line structure is
-/// preserved. Quoted strings are skipped so a `/*` inside one does not start a comment.
-fn strip_block_comments(src: &str) -> String {
-    let mut out = String::with_capacity(src.len());
-    let mut chars = src.chars().peekable();
-    let (mut depth, mut in_str) = (0usize, false);
-    while let Some(c) = chars.next() {
-        if depth > 0 {
-            match (c, chars.peek()) {
-                ('*', Some('/')) => {
-                    chars.next();
-                    depth -= 1;
-                }
-                ('/', Some('*')) => {
-                    chars.next();
-                    depth += 1;
-                }
-                ('\n', _) => out.push('\n'),
-                _ => {}
-            }
-        } else if in_str {
-            out.push(c);
-            if c == '\\' {
-                if let Some(n) = chars.next() {
-                    out.push(n);
-                }
-            } else if c == '"' {
-                in_str = false;
-            }
-        } else if c == '"' {
-            in_str = true;
-            out.push(c);
-        } else if c == '/' && chars.peek() == Some(&'*') {
-            chars.next();
-            depth = 1;
-        } else {
-            out.push(c);
+/// Consume a KDL v1 quoted/raw string or bare token. Keeping whole strings opaque
+/// prevents apparent nodes or comment markers inside a string from being interpreted.
+fn kdl_token(src: &str) -> (String, &str) {
+    let hashes = src
+        .strip_prefix('r')
+        .map(|s| s.bytes().take_while(|b| *b == b'#').count());
+    if let Some(hashes) = hashes {
+        let start = 1 + hashes;
+        if src[start..].starts_with('"') {
+            let end_marker = format!("\"{}", "#".repeat(hashes));
+            let value = &src[start + 1..];
+            return match value.find(&end_marker) {
+                Some(end) => (value[..end].into(), &value[end + end_marker.len()..]),
+                None => (String::new(), ""),
+            };
         }
     }
-    out
+    if let Some(mut rest) = src.strip_prefix('"') {
+        let mut value = String::new();
+        while let Some(c) = rest.chars().next() {
+            rest = &rest[c.len_utf8()..];
+            match c {
+                '"' => return (value, rest),
+                '\\' => {
+                    let Some(escaped) = rest.chars().next() else {
+                        break;
+                    };
+                    rest = &rest[escaped.len_utf8()..];
+                    if escaped == 'u' && rest.starts_with('{') {
+                        if let Some(end) = rest.find('}') {
+                            if let Some(c) = u32::from_str_radix(&rest[1..end], 16)
+                                .ok()
+                                .and_then(char::from_u32)
+                            {
+                                value.push(c);
+                            }
+                            rest = &rest[end + 1..];
+                        }
+                    } else {
+                        value.push(match escaped {
+                            'n' => '\n',
+                            'r' => '\r',
+                            't' => '\t',
+                            'b' => '\u{8}',
+                            'f' => '\u{c}',
+                            c => c,
+                        });
+                    }
+                }
+                c => value.push(c),
+            }
+        }
+        return (String::new(), "");
+    }
+    let end = src
+        .char_indices()
+        .find_map(|(i, c)| {
+            (c.is_whitespace() || matches!(c, ';' | '{' | '}' | '/' | '=')).then_some(i)
+        })
+        .unwrap_or(src.len())
+        .max(src.chars().next().unwrap().len_utf8());
+    (src[..end].into(), &src[end..])
 }
 
 /// Adds the `include` line to niri's `config.kdl` once. The file is appended to in place (a
 /// symlinked/managed config keeps its link) and a one-time backup is kept.
-/// The caller validates and rolls back both files together.
-fn ensure_include(config: &Path) -> Result<(), String> {
+/// Validate a temporary candidate before appending; never restore a user-owned file.
+fn ensure_include(
+    config: &Path,
+    validate: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<(), String> {
     let original =
         std::fs::read_to_string(config).map_err(|e| format!("read {}: {e}", config.display()))?;
     if has_include(&original) {
-        return Ok(());
-    }
-    let backup = config.with_file_name(BACKUP_FILE);
-    if !backup.exists() {
-        std::fs::write(&backup, &original)
-            .map_err(|e| format!("write backup {}: {e}", backup.display()))?;
+        return validate(config);
     }
     let mut updated = original.clone();
     if !updated.ends_with('\n') && !updated.is_empty() {
@@ -328,11 +430,34 @@ fn ensure_include(config: &Path) -> Result<(), String> {
     updated.push_str("// shun global hotkeys (generated by shun, see shun-binds.kdl)\n");
     updated.push_str(INCLUDE_LINE);
     updated.push('\n');
-    std::fs::write(config, &updated).map_err(|e| format!("write {}: {e}", config.display()))?;
+    // Validate a sibling so relative includes resolve normally. Never roll back
+    // config.kdl: an editor may save user changes while validation is running.
+    let staged = tempfile::Builder::new()
+        .prefix(".shun-validate-")
+        .suffix(".kdl")
+        .tempfile_in(config.parent().unwrap_or(Path::new(".")))
+        .map_err(|e| format!("stage niri config: {e}"))?;
+    std::fs::write(staged.path(), &updated).map_err(|e| format!("stage niri config: {e}"))?;
+    validate(staged.path())?;
+    if std::fs::read_to_string(config).map_err(|e| format!("read niri config: {e}"))? != original {
+        return Err("niri config changed during validation; retry sync".into());
+    }
+    let backup = config.with_file_name(BACKUP_FILE);
+    if !backup.exists() {
+        std::fs::write(&backup, &original)
+            .map_err(|e| format!("write backup {}: {e}", backup.display()))?;
+    }
+    // Append only our suffix; do not truncate an editor's concurrent save.
+    use std::io::Write;
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(config)
+        .and_then(|mut file| file.write_all(&updated.as_bytes()[original.len()..]))
+        .map_err(|e| format!("append {}: {e}", config.display()))?;
     Ok(())
 }
 
-/// Updates both files as one transaction, validating even when the include already exists.
+/// Validate every sync and restore generated binds on failure.
 /// Serialize background syncs so another update cannot race validation or rollback.
 fn sync_at(
     config: &Path,
@@ -354,22 +479,16 @@ fn sync_at(
     if !enabled && previous.is_none() {
         return Ok(());
     }
-    let original = std::fs::read(config).map_err(|e| format!("read {}: {e}", config.display()))?;
     let result = (|| {
         write_if_changed(&target, contents)?;
         if enabled {
-            ensure_include(config)?;
+            ensure_include(config, validate)
+        } else {
+            validate(config)
         }
-        validate(config)
     })();
     if let Err(error) = result {
         let mut failures = Vec::new();
-        // Preserve managed config symlinks and avoid a reload if it was unchanged.
-        if !std::fs::read(config).is_ok_and(|bytes| bytes == original) {
-            if let Err(e) = std::fs::write(config, &original) {
-                failures.push(format!("restore config: {e}"));
-            }
-        }
         let restored = match previous {
             Some(bytes) => std::fs::write(&target, bytes),
             None => match std::fs::remove_file(&target) {
@@ -381,7 +500,9 @@ fn sync_at(
             failures.push(format!("restore binds: {e}"));
         }
         return if failures.is_empty() {
-            Err(format!("niri sync rejected, files restored: {error}"))
+            Err(format!(
+                "niri sync rejected, generated binds restored: {error}"
+            ))
         } else {
             Err(format!(
                 "niri sync failed: {error}; {}",
@@ -605,6 +726,116 @@ mod tests {
     }
 
     #[test]
+    fn include_detection_accepts_kdl_syntax_and_stays_idempotent() {
+        for syntax in [
+            "include \"shun-binds.kdl\";",
+            "include \"shun-binds.kdl\" // hotkeys\n",
+            "include \"shun-binds.kdl\"; // hotkeys\n",
+            "include /* comment */ \"shun-binds.kdl\" /* trailing */;",
+            "include\t\"shun-binds.kdl\";",
+            "include /- \"unused.kdl\" \"shun-binds.kdl\";",
+            "include \\\n \"shun-binds.kdl\";",
+            "other; include \"shun-binds.kdl\"; other",
+            "\"include\" r#\"shun-binds.kdl\"#;",
+            "include \"shun\\u{2d}binds.kdl\";",
+            "// \" /*\ninclude \"shun-binds.kdl\";",
+        ] {
+            assert!(has_include(syntax), "{syntax}");
+            let dir = tempfile::tempdir().unwrap();
+            let config = dir.path().join("config.kdl");
+            std::fs::write(&config, syntax).unwrap();
+            for _ in 0..2 {
+                sync_at(&config, "binds {}", true, |_| Ok(())).unwrap();
+                assert_eq!(std::fs::read_to_string(&config).unwrap(), syntax);
+            }
+            assert!(!dir.path().join(BACKUP_FILE).exists());
+        }
+        for syntax in [
+            "/- include \"shun-binds.kdl\";",
+            "other { include \"shun-binds.kdl\"; }",
+            "value r#\"\ninclude \"shun-binds.kdl\"\n\"#;",
+            "value \"\ninclude \\\"shun-binds.kdl\\\"\n\";",
+        ] {
+            assert!(!has_include(syntax), "{syntax}");
+        }
+    }
+
+    #[test]
+    fn sync_preserves_edits_during_validation() {
+        for installed in [false, true] {
+            for valid in [false, true] {
+                let dir = tempfile::tempdir().unwrap();
+                let config = dir.path().join("config.kdl");
+                let target = dir.path().join(BINDS_FILE);
+                let initial = if installed {
+                    INCLUDE_LINE
+                } else {
+                    "// user config\n"
+                };
+                std::fs::write(&config, initial).unwrap();
+                std::fs::write(&target, "old binds").unwrap();
+                let edited = format!("{initial}\n// saved during validation\n");
+                let result = sync_at(&config, "new binds", true, |_| {
+                    std::fs::write(&config, &edited).unwrap();
+                    if valid {
+                        Ok(())
+                    } else {
+                        Err("invalid".into())
+                    }
+                });
+                assert_eq!(std::fs::read_to_string(&config).unwrap(), edited);
+                if installed && valid {
+                    result.unwrap();
+                } else {
+                    assert!(result.is_err());
+                    assert_eq!(std::fs::read_to_string(&target).unwrap(), "old binds");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sync_preserves_config_replaced_by_editor_during_validation() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.kdl");
+        std::fs::write(&config, "// original\n").unwrap();
+        assert!(sync_at(&config, "bad binds", true, |_| {
+            let saved = dir.path().join("saved.kdl");
+            std::fs::write(&saved, "// editor replacement\n").unwrap();
+            std::fs::rename(saved, &config).unwrap();
+            Err("invalid".into())
+        })
+        .is_err());
+        assert_eq!(
+            std::fs::read_to_string(&config).unwrap(),
+            "// editor replacement\n"
+        );
+        assert!(!dir.path().join(BINDS_FILE).exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn first_install_preserves_config_symlink_and_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        let managed = dir.path().join("managed.kdl");
+        let config = dir.path().join("config.kdl");
+        let original = "// managed config without trailing newline";
+        std::fs::write(&managed, original).unwrap();
+        std::os::unix::fs::symlink(&managed, &config).unwrap();
+        sync_at(&config, "binds {}", true, |_| Ok(())).unwrap();
+        sync_at(&config, "binds {}", true, |_| Ok(())).unwrap();
+        assert!(config.is_symlink());
+        let installed = std::fs::read_to_string(managed).unwrap();
+        assert!(installed.starts_with(original));
+        assert_eq!(installed.matches(INCLUDE_LINE).count(), 1);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(BACKUP_FILE)).unwrap(),
+            original
+        );
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 4);
+    }
+
+    #[test]
     fn render_spawns_executable_and_arguments_without_shell() {
         let (out, _) = render_binds(
             "/opt/my apps/it's \"shun\"",
@@ -632,7 +863,7 @@ mod tests {
             );
             Err("duplicate bind".into())
         });
-        assert!(result.unwrap_err().contains("files restored"));
+        assert!(result.unwrap_err().contains("generated binds restored"));
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "binds {}\n");
         assert_eq!(std::fs::read_to_string(&config).unwrap(), INCLUDE_LINE);
         sync_at(&config, "new binds", true, |_| Ok(())).unwrap();
@@ -640,7 +871,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_restores_config_and_target_after_first_install_fails() {
+    fn failed_first_install_leaves_config_untouched_and_restores_target() {
         for existing in [None, Some("previous binds")] {
             let dir = tempfile::tempdir().unwrap();
             let config = dir.path().join("config.kdl");
@@ -651,6 +882,10 @@ mod tests {
             }
             assert!(sync_at(&config, "bad binds", true, |path| {
                 assert!(has_include(&std::fs::read_to_string(path).unwrap()));
+                assert_eq!(
+                    std::fs::read_to_string(&config).unwrap(),
+                    "// user config\n"
+                );
                 Err("invalid".into())
             })
             .is_err());
@@ -719,6 +954,34 @@ mod tests {
         sync_at(&config, &empty, false, validate).unwrap();
         assert_eq!(std::fs::read_to_string(&target).unwrap(), empty);
         validate(&config).unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires the niri executable"]
+    fn existing_include_syntax_with_real_niri_validator() {
+        for include in [
+            "include \"shun-binds.kdl\";",
+            "include \"shun-binds.kdl\" // hotkeys\n",
+            "include /* hotkeys */ \"shun-binds.kdl\"; // trailing\n",
+            "include r#\"shun-binds.kdl\"#;",
+            "include /- \"unused.kdl\" \"shun-binds.kdl\";",
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let config = dir.path().join("config.kdl");
+            std::fs::write(&config, include).unwrap();
+            let (binds, _) = render_binds(
+                "shun",
+                &[Bind {
+                    shortcut: sc("F10"),
+                    title: "test".into(),
+                    args: vec!["toggle".into()],
+                }],
+            );
+            for _ in 0..2 {
+                sync_at(&config, &binds, true, validate).unwrap();
+                assert_eq!(std::fs::read_to_string(&config).unwrap(), include);
+            }
+        }
     }
 
     fn win(id: u64, app_id: &str, title: &str, focused: bool, t: Option<(u64, u64)>) -> Window {
