@@ -551,9 +551,59 @@ fn show_launcher(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let cfg = config::load_config().0;
         position_window(&window, &cfg, cfg.window_width as f64);
+        #[cfg(target_os = "linux")]
+        mark_launcher_shown();
         window.show().ok();
         window.set_focus().ok();
         window.emit("show-launcher", ()).ok();
+    }
+}
+
+/// niri focuses every window the moment it maps. Launch an app, press the launcher key again
+/// before that app's window appears, and the launcher is shown, loses focus to the late window
+/// and `hide_on_blur` hides it again right away. So for a short time after the launcher is
+/// shown, a blur is answered by taking focus back (once) instead of hiding.
+#[cfg(target_os = "linux")]
+static LAUNCHER_SHOWN_AT_MS: AtomicU64 = AtomicU64::new(0);
+#[cfg(target_os = "linux")]
+static REFOCUS_LEFT: AtomicBool = AtomicBool::new(false);
+/// How long after being shown the launcher defends its focus.
+#[cfg(target_os = "linux")]
+const REFOCUS_WINDOW_MS: u64 = 3000;
+
+#[cfg(target_os = "linux")]
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
+#[cfg(target_os = "linux")]
+fn mark_launcher_shown() {
+    LAUNCHER_SHOWN_AT_MS.store(now_ms(), Ordering::Release);
+    REFOCUS_LEFT.store(true, Ordering::Release);
+}
+
+/// Under niri, takes focus back for the launcher if it was shown moments ago and has not
+/// defended its focus yet. Returns whether focus was reclaimed (the caller then must not hide).
+#[cfg(target_os = "linux")]
+fn reclaim_focus_after_steal() -> bool {
+    if !niri::is_active() {
+        return false;
+    }
+    let age = now_ms().saturating_sub(LAUNCHER_SHOWN_AT_MS.load(Ordering::Acquire));
+    if age > REFOCUS_WINDOW_MS || !REFOCUS_LEFT.swap(false, Ordering::AcqRel) {
+        return false;
+    }
+    match niri::focus_pid(std::process::id()) {
+        Ok(found) => {
+            debug!("blur {age} ms after show: reclaimed focus = {found}");
+            found
+        }
+        Err(e) => {
+            log::warn!("reclaim focus: {e}");
+            false
+        }
     }
 }
 
@@ -1784,6 +1834,10 @@ pub fn run() {
                             }
                             if window_check.is_focused().unwrap_or(false) {
                                 return; // フォーカスが戻った → ドラッグによる一時的な blur
+                            }
+                            #[cfg(target_os = "linux")]
+                            if reclaim_focus_after_steal() {
+                                return;
                             }
                             window_check.hide().ok();
                             refresh_cache_bg(cache_check);

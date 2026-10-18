@@ -418,6 +418,8 @@ pub fn clear_binds() -> Result<(), String> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Window {
     pub id: u64,
+    /// Process id of the client, if niri reports one.
+    pub pid: Option<u32>,
     pub app_id: String,
     pub title: String,
     pub focused: bool,
@@ -433,6 +435,10 @@ fn parse_windows(json: &str) -> Result<Vec<Window>, String> {
         .filter_map(|w| {
             Some(Window {
                 id: w.get("id")?.as_u64()?,
+                pid: w
+                    .get("pid")
+                    .and_then(Value::as_u64)
+                    .and_then(|p| u32::try_from(p).ok()),
                 app_id: w
                     .get("app_id")
                     .and_then(Value::as_str)
@@ -537,6 +543,21 @@ pub fn activate(
             },
         ),
     }
+}
+
+/// The id of the window owned by process `pid`.
+fn window_of_pid(windows: &[Window], pid: u32) -> Option<u64> {
+    windows.iter().find(|w| w.pid == Some(pid)).map(|w| w.id)
+}
+
+/// Focuses the window of process `pid` (shun's own launcher). Returns whether one was found.
+pub fn focus_pid(pid: u32) -> Result<bool, String> {
+    let windows = parse_windows(&niri_msg(&["--json", "windows"])?)?;
+    let Some(id) = window_of_pid(&windows, pid) else {
+        return Ok(false);
+    };
+    niri_msg(&["action", "focus-window", "--id", &id.to_string()])?;
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -767,11 +788,23 @@ mod tests {
     fn win(id: u64, app_id: &str, title: &str, focused: bool, t: Option<(u64, u64)>) -> Window {
         Window {
             id,
+            pid: None,
             app_id: app_id.into(),
             title: title.into(),
             focused,
             focus_time: t,
         }
+    }
+
+    #[test]
+    fn parse_windows_reads_pid_and_window_of_pid_finds_it() {
+        let w = parse_windows(
+            r#"[{"id":3,"pid":100,"is_focused":false},{"id":9,"pid":4242,"is_focused":true},{"id":4}]"#,
+        )
+        .unwrap();
+        assert_eq!(w[2].pid, None);
+        assert_eq!(window_of_pid(&w, 4242), Some(9));
+        assert_eq!(window_of_pid(&w, 7), None);
     }
 
     #[test]
