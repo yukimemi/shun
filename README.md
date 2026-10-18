@@ -151,6 +151,10 @@ hide_on_blur = false
 # Start automatically at login (default: true); set to false to disable
 auto_start = true
 
+# Linux only: write shun's .desktop entry + icon (AppImage) and, under niri, generate
+# compositor binds for the global hotkeys (default: true). See "Command line & Linux / Wayland".
+desktop_integration = true
+
 # Update check interval in seconds (0 to disable)
 update_check_interval = 3600
 
@@ -328,9 +332,9 @@ Each `[[apps]]` entry can register its own global hotkey, independent of `keybin
 |---|---|---|
 | `hotkey` | string | Optional. A shortcut string parseable the same way as `keybindings.launch` (e.g. `"Ctrl+Alt+N"`). Omit to skip hotkey registration for this app |
 | `hotkey_mode` | string | `"launch"` (default) \| `"activate"` \| `"toggle"` |
-| `window_app` | string | Optional, all OSes. App/process name used to find the window for `activate` / `toggle`: executable name on Windows (without `.exe`), `.app` name on macOS (without `.app`), WM_CLASS on Linux. Case-insensitive on Windows/Linux. Defaults to the file name (stem) of `path`; `name` is never used. Needed when `path` is a launcher stub, e.g. `path = "wt"` → `window_app = "WindowsTerminal"` |
-| `window_title` | string | Optional, Windows/macOS. Additionally require the window title to contain this string (case-insensitive) for `activate` / `toggle`. Distinguishes windows of the same app, e.g. a dedicated yazi window in Windows Terminal or WezTerm. On macOS this requires the Accessibility permission — shun shows the standard system prompt once (the first time a `window_title` hotkey fires, if not already granted); falls back to whole-app activate/toggle with a logged warning if it's denied or dismissed |
-| `window_title_exclude` | string | Optional, Windows/macOS. Skip windows whose title contains this string (case-insensitive) for `activate` / `toggle`. E.g. keep the F12 hotkey from grabbing a dedicated yazi window |
+| `window_app` | string | Optional, all OSes. App/process name used to find the window for `activate` / `toggle`: executable name on Windows (without `.exe`), `.app` name on macOS (without `.app`), WM_CLASS on X11 / `app_id` on niri. Case-insensitive on Windows/Linux. Defaults to the file name (stem) of `path`; `name` is never used. Needed when `path` is a launcher stub, e.g. `path = "wt"` → `window_app = "WindowsTerminal"` |
+| `window_title` | string | Optional, Windows/macOS/niri. Additionally require the window title to contain this string (case-insensitive) for `activate` / `toggle`. Distinguishes windows of the same app, e.g. a dedicated yazi window in Windows Terminal or WezTerm. On macOS this requires the Accessibility permission — shun shows the standard system prompt once (the first time a `window_title` hotkey fires, if not already granted); falls back to whole-app activate/toggle with a logged warning if it's denied or dismissed |
+| `window_title_exclude` | string | Optional, Windows/macOS/niri. Skip windows whose title contains this string (case-insensitive) for `activate` / `toggle`. E.g. keep the F12 hotkey from grabbing a dedicated yazi window |
 
 - **`launch`** — starts a new process every time, same as pressing Enter on the item.
 - **`activate`** — brings the app's window to the foreground if it's already running; launches it otherwise.
@@ -354,7 +358,9 @@ still works and the key press is not passed on to the focused app.
 |---|---|
 | Windows | Full support. Matches the app's own top-level window by executable file name (case-insensitive). If the app has multiple windows, only the first one found is operated on. Foreground-lock restrictions imposed by Windows may occasionally prevent focus-stealing (the taskbar icon flashes instead); this is logged as a warning, not an error |
 | macOS | Uses `NSWorkspace`/`NSRunningApplication` (AppKit) directly for whole-app activate/toggle — no `osascript`/AppleScript, no Accessibility permission needed for that path. The target is `window_app`, or the file stem of `path` if unset (not `name`); matched against the app's localized display name **or** its `.app` file stem (locale-independent), so it works whether you write the English bundle name or it only matches your system's localized name. If the app is not running, shun launches `path` instead. `toggle`'s "already frontmost" case (whole-app path) calls `hide()` (like ⌘H — hides the whole app's windows, but the app itself stays visible in the Dock/⌘Tab) rather than minimizing individual windows. If `window_title` is set, shun instead uses the Accessibility API (`AXUIElement`) to find and operate on that one specific window (`AXRaise` to bring it forward, the `AXMinimized` attribute to hide just it on toggle) without affecting the app's other windows. The first time such a hotkey fires without the Accessibility permission already granted, shun shows the standard system prompt (once per run — it won't nag on every press); denied or dismissed, it logs a warning and falls back to the whole-app behavior. Unlike Windows/Linux, a found-but-failed operation here does not fall back to launching (would duplicate an already-running app). Likewise, if the app is running but its window list cannot be read via Accessibility, shun retries once after ~150 ms and then does nothing (warning in the log; press the hotkey again) — it neither launches nor activates the whole app, since that would raise the wrong window while reporting success. This also applies to `window_title_exclude`-only entries, and an app whose Accessibility API never returns windows will do nothing for its `window_title` hotkey |
-| Linux | Requires `wmctrl` to be installed; matches `window_app` (or the stem of `path`) against the window's WM_CLASS via `wmctrl -x -a` (substring, case-insensitive, so short names can match the wrong app); falls back to `launch` if it's missing. Only works under X11 — has no effect on Wayland. `toggle` behaves the same as `activate` (no reliable way to detect focus without extra tooling), i.e. it never minimizes |
+| Linux (niri) | Uses niri's IPC (`niri msg`): matches `window_app` (or the stem of `path`) as a case-insensitive substring of the window's `app_id`, plus `window_title` / `window_title_exclude`, and focuses the most recently focused match. `toggle` really toggles: if the target is already focused, focus returns to the previously focused window (niri has no minimize). The keys themselves come from the generated niri binds — see "Command line & Linux / Wayland" |
+| Linux (X11) | Requires `wmctrl` to be installed; matches `window_app` (or the stem of `path`) against the window's WM_CLASS via `wmctrl -x -a` (substring, case-insensitive, so short names can match the wrong app); falls back to `launch` if it's missing. `toggle` behaves the same as `activate` (no reliable way to detect focus without extra tooling), i.e. it never minimizes |
+| Linux (other Wayland compositors) | Not supported: the global hotkeys can't be grabbed and windows can't be found, so `activate` / `toggle` fall back to launching. `shun toggle` / `shun hotkey <KEY>` (below) can be bound from the compositor's own config |
 
 If a window can't be found or the platform is unsupported, shun falls back to launching a new
 instance rather than doing nothing (macOS: a found app whose `hide`/`activate` operation itself
@@ -371,6 +377,39 @@ actually on screen for that instance specifically. `toggle` then always activate
 minimizing on repeat presses for that one instance — a caveat, not a regression (finding and
 focusing the window keeps working every time; only the "press again to hide it" half of toggle
 doesn't fire in this specific case).
+
+### Command line & Linux / Wayland
+
+A second `shun ...` invocation is handed to the running instance (single-instance), so the hotkey
+actions can be triggered from outside — from a compositor bind, a script, or a launcher:
+
+| Command | Action |
+|---|---|
+| `shun` / `shun show` | Show the launcher (`show` also opens it when shun starts fresh) |
+| `shun toggle` | Show / hide the launcher — what `keybindings.launch` does |
+| `shun hotkey <KEY>` | Run the `[[apps]]` entry whose `hotkey` is `<KEY>` (as written in `config.toml`, e.g. `shun hotkey F10`); `<KEY>` equal to `keybindings.launch` toggles the launcher |
+| `shun install-desktop` | Linux: write the `.desktop` entry and icon, then exit |
+
+**Wayland has no global key grabs**, so on Linux the hotkeys above only fire while an X11 window has
+focus. shun therefore integrates with the compositor instead of asking you to mirror every key:
+
+- **niri** — shun renders `keybindings.launch` and every `[[apps]].hotkey` into
+  `~/.config/niri/shun-binds.kdl` (on start and on `/reload`) and adds a single
+  `include "shun-binds.kdl"` line to niri's `config.kdl` the first time (a backup is kept as
+  `config.kdl.before-shun`, and the result is checked with `niri validate`; if niri rejects it the
+  file is restored). niri reloads its config by itself, so **`config.toml` stays the only place the
+  keys are defined** — change a `hotkey`, `/reload`, done. Each bind sends `shun toggle` /
+  `shun hotkey <KEY>` straight to the running instance over D-Bus (`busctl`, ~10 ms, no new
+  process) and starts shun with those arguments if it isn't running. `shun-binds.kdl` is
+  generated: don't edit it (and don't commit it if your niri config lives in a dotfiles repo; the
+  `include` line may be committed).
+- **`desktop_integration = false`** turns the generated binds and the `.desktop` entry off.
+- **Other compositors** — bind `shun toggle` / `shun hotkey <KEY>` in the compositor's own config.
+
+**Desktop entry (AppImage)** — the AppImage ships no `.desktop` file, so app launchers don't list
+it. On start shun writes `~/.local/share/applications/shun.desktop` (running `<AppImage> show`) and
+an icon, and keeps its `Exec` path current if you move the AppImage. An entry you edited by hand
+(remove the `# Generated by shun` line) is never touched.
 
 ### Override files (`config.*.toml`)
 

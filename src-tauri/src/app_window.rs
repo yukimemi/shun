@@ -100,11 +100,14 @@ pub fn activate_or_launch(
     )
 }
 
-/// ウィンドウ照合条件（config から渡される）。`title` / `title_exclude` は Windows と macOS が
-/// 参照する（Windows: `EnumWindows` のタイトル文字列、macOS: `AXTitle`）。Linux (`wmctrl`) は
-/// プロセス単位の照合しかできないため未参照。
+/// ウィンドウ照合条件（config から渡される）。`title` / `title_exclude` は Windows・macOS・
+/// Linux (niri) が参照する（Windows: `EnumWindows` のタイトル文字列、macOS: `AXTitle`、
+/// niri: IPC のウィンドウタイトル）。Linux の `wmctrl` はプロセス単位の照合しかできないため未参照。
 #[derive(Clone, Copy)]
-#[cfg_attr(not(any(target_os = "windows", target_os = "macos")), allow(dead_code))]
+#[cfg_attr(
+    not(any(target_os = "windows", target_os = "macos", target_os = "linux")),
+    allow(dead_code)
+)]
 pub struct WindowMatch<'a> {
     /// 照合するアプリ/プロセス名 (`[[apps]].window_app`)。`None` なら `item.path` の file stem。
     pub app: Option<&'a str>,
@@ -166,7 +169,7 @@ fn try_activate(
     #[cfg(target_os = "macos")]
     return macos_impl::activate(&item.name, &app, window, toggle);
     #[cfg(target_os = "linux")]
-    return linux_impl::activate(&app, toggle);
+    return linux_impl::activate(&app, window, toggle);
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
@@ -1086,19 +1089,38 @@ mod macos_impl {
     }
 }
 
-/// Linux: `wmctrl` があれば `-x -a <app>` でアクティブ化する。`-x` により WM_CLASS
-/// (`instance.class`) と部分一致・大文字小文字無視で照合する（タイトルではない）。
-/// 部分一致のため短い名前は別アプリに誤マッチし得る。`wmctrl` が無い、または X11 以外
-/// （Wayland など）で動作しない環境では `Unsupported` を返し、呼び出し側が起動にフォールバックする。
+/// Linux:
 ///
-/// 制約: `wmctrl` には「現在フォーカスされているウィンドウか」を安定して判定する手段が
-/// ない（追加で `xdotool` 等を要求すると依存が増える）。そのため `toggle` は `activate` と
-/// 同じ動作（フォーカスするだけで最小化はしない）にフォールバックする。
+/// - **niri**（`NIRI_SOCKET` あり）: `niri msg --json windows` で `app_id`（部分一致・大文字小文字
+///   無視）と `window_title` / `window_title_exclude` で照合し、`focus-window --id` で前面化する。
+///   `toggle` は対象が既にフォーカスされていれば `focus-window-previous` で直前のウィンドウへ
+///   戻す（niri に最小化はない）。Wayland で動き、フォーカス状態も取れる。
+/// - **X11**: `wmctrl` があれば `-x -a <app>` でアクティブ化する。`-x` により WM_CLASS
+///   (`instance.class`) と部分一致・大文字小文字無視で照合する（タイトルではない）。
+///   部分一致のため短い名前は別アプリに誤マッチし得る。`wmctrl` には「現在フォーカスされている
+///   ウィンドウか」を安定して判定する手段がないため、`toggle` は `activate` と同じ動作
+///   （フォーカスするだけで最小化はしない）にフォールバックする。
+/// - それ以外（`wmctrl` なし・他の Wayland コンポジタ）: `Unsupported` を返し、呼び出し側が
+///   起動にフォールバックする。
 #[cfg(target_os = "linux")]
 mod linux_impl {
-    use super::ActivateOutcome;
+    use super::{ActivateOutcome, WindowMatch};
+    use crate::niri;
 
-    pub(super) fn activate(app_name: &str, _toggle: bool) -> Result<ActivateOutcome, String> {
+    pub(super) fn activate(
+        app_name: &str,
+        window: WindowMatch,
+        toggle: bool,
+    ) -> Result<ActivateOutcome, String> {
+        if niri::is_active() {
+            return Ok(
+                match niri::activate(app_name, window.title, window.title_exclude, toggle)? {
+                    niri::Outcome::Activated => ActivateOutcome::Activated,
+                    niri::Outcome::Hidden => ActivateOutcome::Minimized,
+                    niri::Outcome::NotFound => ActivateOutcome::NotFound,
+                },
+            );
+        }
         let output = match std::process::Command::new("wmctrl")
             .args(["-x", "-a", app_name])
             .output()

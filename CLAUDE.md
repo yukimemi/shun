@@ -22,6 +22,9 @@ src-tauri/
     config.rs            # Config struct, TOML parsing, defaults
     apps.rs              # App discovery, LaunchItem, launch_with_extra
     app_window.rs        # OS window activate/toggle for per-app hotkeys (activate_or_launch)
+    cli.rs               # `shun show|toggle|hotkey <KEY>|install-desktop` parsing (second instances are forwarded to the resident one)
+    niri.rs              # Linux/niri: generated `shun-binds.kdl` binds (+ one-time `include`), niri-IPC window activate/toggle
+    desktop.rs           # Linux/AppImage: `.desktop` entry + icon self-install
     search.rs            # fuzzy/exact filter via nucleo-matcher
     complete.rs          # Path/list/command completion
     history.rs           # Frecency history (count + last_used)
@@ -186,10 +189,17 @@ Add per-repo extras (e.g. `cargo fetch`, `npm install`) by extending
   Accessibility API (`accessibility-sys`, raw `AXUIElement*` calls) to find/raise/minimize that one
   specific window (falls back to whole-app behavior with a logged warning if Accessibility isn't
   granted); if `AXWindows` can't be read for a running app, `activate()` retries once after 150 ms, then
-  `ActivateOutcome::EnumerationFailed` → warn and do nothing (no launch, no whole-app activate); Linux shells out to `wmctrl`. Unsupported-platform/window-not-found falls back to
+  `ActivateOutcome::EnumerationFailed` → warn and do nothing (no launch, no whole-app activate); Linux uses niri's IPC (`niri.rs`, `NIRI_SOCKET`) and otherwise shells out to `wmctrl` (X11 only). Unsupported-platform/window-not-found falls back to
   `apps::launch()`; on macOS, a found app/window whose operation itself fails does *not* fall back
   (would duplicate an already-running app) — see the README's "Per-app global hotkeys" section for
   per-OS constraints
+- Wayland has no global key grabs (the global-shortcut plugin is X11-only on Linux). Under niri,
+  `register_shortcuts()` → `sync_wm_binds()` renders the launch key + app hotkeys into niri's
+  `shun-binds.kdl` (`niri::sync_binds`); each bind calls the single-instance D-Bus service with
+  `shun toggle` / `shun hotkey <KEY>` (`cli.rs`, handled by `execute_command` in `lib.rs`).
+  `find_hotkey_target()` resolves `<KEY>` through `plan_hotkey_registrations()` so CLI and OS-level
+  hotkeys can't drift. The D-Bus name/path mirror tauri-plugin-single-instance (`niri::bus_target`) —
+  re-check if that plugin or the app identifier changes
 
 ### Ghost text
 - Search mode: `searchGhostSuffix` — triggers when `candidate.path.startsWith(query)`

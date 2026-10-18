@@ -13,13 +13,18 @@ use tauri_plugin_updater::UpdaterExt;
 
 mod app_window;
 mod apps;
+mod cli;
 mod complete;
 mod config;
+#[cfg(target_os = "linux")]
+mod desktop;
 mod diag;
 mod history;
 #[cfg(target_os = "windows")]
 mod kbhook;
 mod migemo;
+#[cfg(target_os = "linux")]
+mod niri;
 mod search;
 mod utils;
 
@@ -534,17 +539,73 @@ fn on_launch_hotkey(app: &tauri::AppHandle) {
             refresh_cache_bg(cache);
         } else {
             debug!("shortcut: window hidden → show");
-            // /save position・/reset position などフロント側からの hide ではキャッシュが
-            // 更新されないため、表示位置は毎回ディスクから読み直す。
-            // このハンドラは register_launch_handler で別スレッドに逃がしてあるので、
-            // ここでのディスク I/O が main thread をブロックすることはない。
-            let cfg = config::load_config().0;
-            position_window(&window, &cfg, cfg.window_width as f64);
-            window.show().ok();
-            window.set_focus().ok();
-            window.emit("show-launcher", ()).ok();
+            show_launcher(app);
         }
     }
+}
+
+/// ランチャーウィンドウを表示する。表示位置は /save position・/reset position などフロント側
+/// からの変更を拾うため毎回ディスクから読み直す。呼び出し元は main thread で呼ばないこと
+/// （ディスク I/O を行う）。
+fn show_launcher(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let cfg = config::load_config().0;
+        position_window(&window, &cfg, cfg.window_width as f64);
+        window.show().ok();
+        window.set_focus().ok();
+        window.emit("show-launcher", ()).ok();
+    }
+}
+
+/// `hotkey <KEY>` が指す動作。
+#[derive(Debug, PartialEq)]
+enum HotkeyTarget {
+    /// launch キー（ランチャーの表示/非表示）
+    Launch,
+    /// `config.apps[index]` の hotkey
+    App(usize, config::AppHotkeyMode),
+}
+
+/// `key`（config に書かれた hotkey 文字列）に対応する動作を、実際に登録される
+/// ホットキー集合（`plan_hotkey_registrations`）から探す。無効な文字列・未登録なら `None`。
+fn find_hotkey_target(config: &config::Config, key: &str) -> Option<HotkeyTarget> {
+    let wanted = key.parse::<Shortcut>().ok()?;
+    let plan = plan_hotkey_registrations(config);
+    if wanted == plan.launch {
+        return Some(HotkeyTarget::Launch);
+    }
+    plan.apps
+        .into_iter()
+        .find(|a| a.shortcut == wanted)
+        .map(|a| HotkeyTarget::App(a.entry_index, a.mode))
+}
+
+/// CLI コマンド（2個目の起動・コンポジタの bind・自プロセスの引数）を実行する。
+/// ブロックし得るので、呼び出し側のスレッド（D-Bus / main）で直接呼ばないこと。
+fn execute_command(app: &tauri::AppHandle, cmd: cli::Command) {
+    match cmd {
+        cli::Command::Show => show_launcher(app),
+        cli::Command::Toggle => on_launch_hotkey(app),
+        cli::Command::Hotkey(key) => {
+            let config = config::load_config().0;
+            match find_hotkey_target(&config, &key) {
+                Some(HotkeyTarget::Launch) => on_launch_hotkey(app),
+                Some(HotkeyTarget::App(index, mode)) => match config.apps.get(index) {
+                    Some(entry) => on_app_hotkey(entry, &mode),
+                    None => log::warn!("hotkey command: apps[{index}] vanished"),
+                },
+                None => log::warn!("hotkey command: \"{key}\" is not a registered hotkey"),
+            }
+        }
+        // run() が Tauri 起動前に処理して終了する。
+        cli::Command::InstallDesktop => {}
+    }
+}
+
+/// `execute_command` を別スレッドで実行する。
+fn run_command(app: &tauri::AppHandle, cmd: cli::Command) {
+    let app = app.clone();
+    std::thread::spawn(move || execute_command(&app, cmd));
 }
 
 /// `[[apps]].hotkey` の処理（launch / activate / toggle）。
@@ -651,6 +712,8 @@ fn register_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
     for w in &plan.warnings {
         log::warn!("register_shortcuts: {w}");
     }
+    #[cfg(target_os = "linux")]
+    sync_wm_binds(app, &config, &plan);
 
     register_launch_handler(app, plan.launch)?;
 
@@ -669,6 +732,50 @@ fn register_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// Wayland ではグローバルショートカットを OS 経由で grab できないため、niri 上では launch キーと
+/// `[[apps]].hotkey` を niri の bind (`shun-binds.kdl`) として書き出す。各 bind は常駐中の shun に
+/// `shun toggle` / `shun hotkey <KEY>` を送る（`niri.rs` 参照）。ディスク I/O と `niri validate`
+/// を伴うので別スレッドで行う。
+#[cfg(target_os = "linux")]
+fn sync_wm_binds(app: &tauri::AppHandle, config: &config::Config, plan: &HotkeyPlan) {
+    if !config.desktop_integration || !niri::is_active() {
+        return;
+    }
+    let Some(exe) = desktop::exe_path() else {
+        log::warn!("niri binds: cannot resolve the shun executable path");
+        return;
+    };
+    let mut binds = vec![niri::Bind {
+        shortcut: plan.launch,
+        title: "shun: launcher".to_string(),
+        args: vec!["toggle".to_string()],
+    }];
+    for a in &plan.apps {
+        let Some(entry) = config.apps.get(a.entry_index) else {
+            continue;
+        };
+        let Some(raw) = entry.hotkey.as_deref() else {
+            continue;
+        };
+        binds.push(niri::Bind {
+            shortcut: a.shortcut,
+            title: format!("shun: {}", entry.name),
+            args: vec!["hotkey".to_string(), raw.trim().to_string()],
+        });
+    }
+    let identifier = app.config().identifier.clone();
+    let exe = exe.to_string_lossy().into_owned();
+    std::thread::spawn(move || match niri::sync_binds(&identifier, &exe, &binds) {
+        Ok(warnings) => {
+            for w in warnings {
+                log::warn!("{w}");
+            }
+            debug!("niri binds: {} bind(s) in sync", binds.len());
+        }
+        Err(e) => log::warn!("niri binds: {e}"),
+    });
 }
 
 #[tauri::command]
@@ -1535,6 +1642,23 @@ fn build_scoop_ps_cmd(pid: u32, launch_str: &str, log_path_str: &str) -> String 
 type WarningsState = Arc<Mutex<Vec<(String, String)>>>;
 
 pub fn run() {
+    // `shun install-desktop`: GUI なしで .desktop エントリを書いて終了する（Linux）。
+    #[cfg(target_os = "linux")]
+    {
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        if cli::parse(&args) == Some(cli::Command::InstallDesktop) {
+            std::process::exit(match desktop::install() {
+                Ok((status, path)) => {
+                    println!("{status:?}: {}", path.display());
+                    0
+                }
+                Err(e) => {
+                    eprintln!("install-desktop: {e}");
+                    1
+                }
+            });
+        }
+    }
     diag::capture_parent_info();
     let (config, _) = config::load_config();
     // WarningsState はランタイムエラー（keybinding 登録失敗など）のみ保持
@@ -1567,12 +1691,11 @@ pub fn run() {
                 ])
                 .build(),
         )
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // 2個目の起動を検知 → 既存ウィンドウを前面に表示
-            if let Some(window) = app.get_webview_window("main") {
-                window.show().ok();
-                window.set_focus().ok();
-            }
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // 2個目の起動を検知 → 引数があればそのコマンド（toggle / hotkey <KEY> ...）、
+            // なければ既存ウィンドウを前面に表示。args[0] はプログラム名。
+            let cmd = cli::parse(args.get(1..).unwrap_or(&[])).unwrap_or(cli::Command::Show);
+            run_command(app, cmd);
         }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
@@ -1718,13 +1841,8 @@ pub fn run() {
                 .tooltip("shun")
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
-                        if let Some(win) = app.get_webview_window("main") {
-                            let cfg = config::load_config().0;
-                            position_window(&win, &cfg, cfg.window_width as f64);
-                            win.show().ok();
-                            win.set_focus().ok();
-                            win.emit("show-launcher", ()).ok();
-                        }
+                        let app = app.clone();
+                        std::thread::spawn(move || show_launcher(&app));
                     }
                     "config" => {
                         let path = config::config_path();
@@ -1749,6 +1867,31 @@ pub fn run() {
 
             // auto_start 設定に応じてログイン時自動起動を登録/解除
             apply_autostart(app.handle(), config.auto_start);
+
+            // AppImage にはない .desktop エントリ/アイコンを用意する（ランチャーに出すため）。
+            // 自分が書いたエントリ以外は触らない。
+            #[cfg(target_os = "linux")]
+            if config.desktop_integration && desktop::is_appimage() {
+                std::thread::spawn(|| match desktop::install() {
+                    Ok((desktop::Installed::Created | desktop::Installed::Updated, path)) => {
+                        info!("desktop entry written: {}", path.display());
+                    }
+                    Ok(_) => {}
+                    Err(e) => log::warn!("desktop entry: {e}"),
+                });
+            }
+
+            // 自分自身の起動引数（`shun toggle` / `shun hotkey <KEY>` / `shun show`）。
+            // 常駐中の別インスタンスがなく、新規に起動された場合の処理。ウィンドウ側の
+            // 初期化完了を待ってから実行する。
+            let args: Vec<String> = std::env::args().skip(1).collect();
+            if let Some(cmd) = cli::parse(&args) {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    execute_command(&handle, cmd);
+                });
+            }
 
             // Config にエラーがある場合は起動時にウィンドウを表示して警告を見せる
             // （launch shortcut が変わっていてウィンドウを開けなくなる問題を防ぐ）
@@ -2000,6 +2143,52 @@ mod hotkey_plan_tests {
         );
         // launch 自体の警告は get_config_and_warnings() 側が動的に出すのでここには積まない
         assert!(plan.warnings.is_empty());
+    }
+
+    #[test]
+    fn hotkey_command_resolves_launch_and_app_keys() {
+        use super::{find_hotkey_target, HotkeyTarget};
+        let mut config = Config::default();
+        config.keybindings.launch = "Ctrl+Space".to_string();
+        config
+            .apps
+            .push(app_with_hotkey("A", Some("F10"), AppHotkeyMode::Toggle));
+        config.apps.push(app_with_hotkey(
+            "B",
+            Some("Ctrl+Alt+N"),
+            AppHotkeyMode::Activate,
+        ));
+
+        assert_eq!(
+            find_hotkey_target(&config, "ctrl+space"),
+            Some(HotkeyTarget::Launch)
+        );
+        assert_eq!(
+            find_hotkey_target(&config, "F10"),
+            Some(HotkeyTarget::App(0, AppHotkeyMode::Toggle))
+        );
+        // Matching goes through parsed shortcuts, so spelling differences don't matter.
+        assert_eq!(
+            find_hotkey_target(&config, "alt+ctrl+n"),
+            Some(HotkeyTarget::App(1, AppHotkeyMode::Activate))
+        );
+        assert_eq!(find_hotkey_target(&config, "F11"), None);
+        assert_eq!(find_hotkey_target(&config, "not a key"), None);
+    }
+
+    #[test]
+    fn hotkey_command_ignores_losing_duplicate_hotkeys() {
+        use super::{find_hotkey_target, HotkeyTarget};
+        let mut config = Config::default();
+        config.keybindings.launch = "F10".to_string();
+        config
+            .apps
+            .push(app_with_hotkey("Loser", Some("F10"), AppHotkeyMode::Launch));
+        // launch always wins over an app claiming the same key
+        assert_eq!(
+            find_hotkey_target(&config, "F10"),
+            Some(HotkeyTarget::Launch)
+        );
     }
 }
 
