@@ -145,17 +145,17 @@ search_mode = "fuzzy"
 # Sort order: "count_first" (default) | "recent_first"
 sort_order = "count_first"
 
-# Auto-hide when the launcher loses focus. (niri: niri focuses every new window, so a launcher
-# opened while the app you just launched is still starting would be hidden at once; for 3 s after
-# it is shown, shun takes focus back once instead of hiding.)
+# Auto-hide when the launcher loses focus
 hide_on_blur = false
 
 # Start automatically at login (default: true); set to false to disable
 auto_start = true
 
-# Linux only: write shun's .desktop entry + icon (AppImage) and, under niri, generate
-# compositor binds for the global hotkeys (default: true). See "Command line & Linux / Wayland".
+# Linux only: write shun's .desktop entry + icon for AppImage (default: true).
 desktop_integration = true
+
+# Linux/niri only: opt in to shun-binds.kdl synchronization (default: false).
+niri = false
 
 # Update check interval in seconds (0 to disable)
 update_check_interval = 3600
@@ -360,7 +360,7 @@ still works and the key press is not passed on to the focused app.
 |---|---|
 | Windows | Full support. Matches the app's own top-level window by executable file name (case-insensitive). If the app has multiple windows, only the first one found is operated on. Foreground-lock restrictions imposed by Windows may occasionally prevent focus-stealing (the taskbar icon flashes instead); this is logged as a warning, not an error |
 | macOS | Uses `NSWorkspace`/`NSRunningApplication` (AppKit) directly for whole-app activate/toggle — no `osascript`/AppleScript, no Accessibility permission needed for that path. The target is `window_app`, or the file stem of `path` if unset (not `name`); matched against the app's localized display name **or** its `.app` file stem (locale-independent), so it works whether you write the English bundle name or it only matches your system's localized name. If the app is not running, shun launches `path` instead. `toggle`'s "already frontmost" case (whole-app path) calls `hide()` (like ⌘H — hides the whole app's windows, but the app itself stays visible in the Dock/⌘Tab) rather than minimizing individual windows. If `window_title` is set, shun instead uses the Accessibility API (`AXUIElement`) to find and operate on that one specific window (`AXRaise` to bring it forward, the `AXMinimized` attribute to hide just it on toggle) without affecting the app's other windows. The first time such a hotkey fires without the Accessibility permission already granted, shun shows the standard system prompt (once per run — it won't nag on every press); denied or dismissed, it logs a warning and falls back to the whole-app behavior. Unlike Windows/Linux, a found-but-failed operation here does not fall back to launching (would duplicate an already-running app). Likewise, if the app is running but its window list cannot be read via Accessibility, shun retries once after ~150 ms and then does nothing (warning in the log; press the hotkey again) — it neither launches nor activates the whole app, since that would raise the wrong window while reporting success. This also applies to `window_title_exclude`-only entries, and an app whose Accessibility API never returns windows will do nothing for its `window_title` hotkey |
-| Linux (niri) | Uses niri's IPC (`niri msg`): matches `window_app` (or the stem of `path`) as a case-insensitive substring of the window's `app_id`, plus `window_title` / `window_title_exclude`, and focuses the most recently focused match. `toggle` really toggles: if the target is already focused, focus returns to the previously focused window (niri has no minimize). The keys themselves come from the generated niri binds — see "Command line & Linux / Wayland" |
+| Linux (niri) | Uses niri's IPC (`niri msg`): matches `window_app` (or the stem of `path`) as a case-insensitive substring of the window's `app_id`, plus `window_title` / `window_title_exclude`, and focuses the most recently focused match. `toggle` really toggles: if the target is already focused, focus returns to the previously focused window (niri has no minimize). Configure the keys in niri's own config — see "Command line & Linux / Wayland" |
 | Linux (X11) | Requires `wmctrl` to be installed; matches `window_app` (or the stem of `path`) against the window's WM_CLASS via `wmctrl -x -a` (substring, case-insensitive, so short names can match the wrong app); falls back to `launch` if it's missing. `toggle` behaves the same as `activate` (no reliable way to detect focus without extra tooling), i.e. it never minimizes |
 | Linux (other Wayland compositors) | Not supported: the global hotkeys can't be grabbed and windows can't be found, so `activate` / `toggle` fall back to launching. `shun toggle` / `shun hotkey <KEY>` (below) can be bound from the compositor's own config |
 
@@ -392,30 +392,77 @@ actions can be triggered from outside — from a compositor bind, a script, or a
 | `shun hotkey <KEY>` | Run the `[[apps]]` entry whose `hotkey` is `<KEY>` (as written in `config.toml`, e.g. `shun hotkey F10`); `<KEY>` equal to `keybindings.launch` toggles the launcher |
 | `shun install-desktop` | Linux: write the `.desktop` entry and icon, then exit |
 
-**Wayland has no global key grabs**, so on Linux the hotkeys above only fire while an X11 window has
-focus. shun therefore integrates with the compositor instead of asking you to mirror every key:
+**On Wayland, global keys belong to the compositor.** shun does not initialize the X11
+global-shortcut backend in a Wayland session, call the single-instance plugin's private D-Bus
+API directly, or reclaim focus after a blur. Compositor config is untouched by default;
+optional niri synchronization is described below. Windows, macOS, and native X11 continue
+to register shortcuts normally.
 
-- **niri** — shun renders `keybindings.launch` and every `[[apps]].hotkey` into
-  `~/.config/niri/shun-binds.kdl` (on start and on `/reload`). The first time it also
-  appends a single `include "shun-binds.kdl"` line to niri's `config.kdl` (a backup is kept as
-  `config.kdl.before-shun`; nothing is appended unless `niri validate` accepts the result). Every
-  update is checked with `niri validate`; if niri rejects it, the previous `shun-binds.kdl` is
-  restored. niri reloads its config by itself, so **`config.toml` stays the only place the
-  keys are defined** — change a `hotkey`, `/reload`, done. Each bind calls the running
-  instance's single-instance D-Bus service with `shun toggle` / `shun hotkey <KEY>` via `busctl`
-  (~15 ms, no new process) and starts shun with those arguments if that fails (shun not running,
-  no `busctl`). Starting shun for every key press instead would cost ~1 s (AppImage mount + GTK
-  init), long enough for repeated presses to pile up and toggle the launcher back off. `shun-binds.kdl` is
-  generated: don't edit it (and don't commit it if your niri config lives in a dotfiles repo; the
-  `include` line may be committed).
-- **`desktop_integration = false`** disables desktop installation and clears existing generated binds on start or
-  `/reload`, leaving an empty include file so niri's config remains valid.
-- **Other compositors** — bind `shun toggle` / `shun hotkey <KEY>` in the compositor's own config.
+For example, add these to niri's `config.kdl` (replace the executable path with your installed
+shun path, and the app hotkeys with those defined in `config.toml`):
+
+```kdl
+binds {
+    Ctrl+Return repeat=false { spawn "/home/you/.local/bin/shun" "toggle"; }
+    F11 repeat=false { spawn "/home/you/.local/bin/shun" "hotkey" "F11"; }
+    F12 repeat=false { spawn "/home/you/.local/bin/shun" "hotkey" "F12"; }
+}
+```
+
+The normal single-instance plugin forwards these CLI commands to the resident shun.
+This also starts shun if it is not running. AppImage invocations have startup overhead; this
+deliberately uses the normal CLI rather than maintaining a separate fast-path transport.
+For other Wayland compositors, bind the same commands using their native configuration syntax.
+By default, `/reload` reloads shun's config, not the compositor's keys.
+
+**Optional niri synchronization (off by default)**
+
+To derive the niri keys from shun's config, set this at the **top level** of shun's `config.toml`:
+
+```toml
+niri = true
+```
+
+Keep the existing top-level include in niri's `config.kdl`, or add it once if it is absent:
+
+```kdl
+include "shun-binds.kdl"
+```
+
+No begin/end markers are needed. On startup and `/reload`, shun replaces only the dedicated
+`shun-binds.kdl` file beside that config with bindings derived from `keybindings.launch` and
+the valid `[[apps]].hotkey` entries. The main `config.kdl` and its include line are never edited.
+Changing an app's hotkey in shun and running `/reload` therefore updates niri's key too.
+The generated actions invoke the normal `shun toggle` / `shun hotkey <KEY>` CLI directly,
+without a shell. niri live-reloads the updated include.
+
+- The main config is `$NIRI_CONFIG`, or the XDG config directory's `niri/config.kdl`
+  (normally `~/.config/niri/config.kdl`). Synchronization only runs in a niri session.
+- Exactly one active top-level `include "shun-binds.kdl"` is required. Missing or duplicate
+  includes, invalid config, or unsupported key mappings cause a log warning and no write.
+  shun never adds include lines automatically.
+- `shun-binds.kdl` is entirely generated: keep hand-written bindings in the main config or
+  another include. If the dedicated file is missing, shun creates it after validation.
+- Before replacing the binds file, shun stages both the new bindings and a temporary main-config
+  copy pointing at them, then runs `niri validate`. Validation failure or detected edits to
+  either live file leave the existing files untouched; no invalid intermediate binds are installed.
+- Config symlinks and existing binds-file permissions are preserved. Unchanged generated
+  content does not rewrite the file. Cross-file binding overrides follow niri's own include
+  precedence rather than a separate shun conflict policy.
+- `niri = false` stops synchronization without changing existing binds. To remove synchronized
+  shortcuts, remove the include line yourself before deleting its file.
+  `desktop_integration` is independent of this setting.
+
+**Existing generated niri binds:** if an older shun already added
+`include "shun-binds.kdl"`, keep it and set `niri = true` to regenerate that same dedicated file
+using the normal CLI path. No markers or main-config migration are required. Alternatively,
+keep synchronization off and manage the included file yourself.
 
 **Desktop entry (AppImage)** — the AppImage ships no `.desktop` file, so app launchers don't list
 it. On start shun writes `~/.local/share/applications/shun.desktop` (running `<AppImage> show`) and
 an icon, and keeps its `Exec` path current if you move the AppImage. An entry you edited by hand
-(remove the `# Generated by shun` line) is never touched.
+(remove the `# Generated by shun` line) is never touched. `desktop_integration = false` disables
+this automatic desktop entry/icon installation; it does not control compositor shortcuts.
 
 ### Override files (`config.*.toml`)
 

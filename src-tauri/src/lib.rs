@@ -25,6 +25,8 @@ mod kbhook;
 mod migemo;
 #[cfg(target_os = "linux")]
 mod niri;
+#[cfg(target_os = "linux")]
+mod niri_binds;
 mod search;
 mod utils;
 
@@ -551,59 +553,9 @@ fn show_launcher(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let cfg = config::load_config().0;
         position_window(&window, &cfg, cfg.window_width as f64);
-        #[cfg(target_os = "linux")]
-        mark_launcher_shown();
         window.show().ok();
         window.set_focus().ok();
         window.emit("show-launcher", ()).ok();
-    }
-}
-
-/// niri focuses every window the moment it maps. Launch an app, press the launcher key again
-/// before that app's window appears, and the launcher is shown, loses focus to the late window
-/// and `hide_on_blur` hides it again right away. So for a short time after the launcher is
-/// shown, a blur is answered by taking focus back (once) instead of hiding.
-#[cfg(target_os = "linux")]
-static LAUNCHER_SHOWN_AT_MS: AtomicU64 = AtomicU64::new(0);
-#[cfg(target_os = "linux")]
-static REFOCUS_LEFT: AtomicBool = AtomicBool::new(false);
-/// How long after being shown the launcher defends its focus.
-#[cfg(target_os = "linux")]
-const REFOCUS_WINDOW_MS: u64 = 3000;
-
-#[cfg(target_os = "linux")]
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
-}
-
-#[cfg(target_os = "linux")]
-fn mark_launcher_shown() {
-    LAUNCHER_SHOWN_AT_MS.store(now_ms(), Ordering::Release);
-    REFOCUS_LEFT.store(true, Ordering::Release);
-}
-
-/// Under niri, takes focus back for the launcher if it was shown moments ago and has not
-/// defended its focus yet. Returns whether focus was reclaimed (the caller then must not hide).
-#[cfg(target_os = "linux")]
-fn reclaim_focus_after_steal() -> bool {
-    if !niri::is_active() {
-        return false;
-    }
-    let age = now_ms().saturating_sub(LAUNCHER_SHOWN_AT_MS.load(Ordering::Acquire));
-    if age > REFOCUS_WINDOW_MS || !REFOCUS_LEFT.swap(false, Ordering::AcqRel) {
-        return false;
-    }
-    match niri::focus_pid(std::process::id()) {
-        Ok(found) => {
-            debug!("blur {age} ms after show: reclaimed focus = {found}");
-            found
-        }
-        Err(e) => {
-            log::warn!("reclaim focus: {e}");
-            false
-        }
     }
 }
 
@@ -749,21 +701,44 @@ fn register_app_hotkey_handler(
     )
 }
 
+/// The Linux shortcut plugin uses X11, not Wayland. Compositor binds use the CLI instead.
+fn native_shortcuts_available() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty())
+            || std::env::var("XDG_SESSION_TYPE").is_ok_and(|v| v.eq_ignore_ascii_case("wayland"));
+        !wayland
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        true
+    }
+}
+
 /// launch キー + 全 `[[apps]].hotkey` を登録する。呼び出し元 (`setup` / `reload`) は
 /// `unregister_all()` 直後にこの関数を呼べば、常に config と一致した状態になる。
 ///
 /// launch キーの登録が OS レベルで失敗した場合のみ `Err` を返す（既存の挙動を維持）。
 /// app hotkey の登録失敗はログ警告のみに留め、他のホットキー登録をブロックしない。
 fn register_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
+    let config = config::load_config().0;
+    #[cfg(target_os = "linux")]
+    if config.niri && niri::is_active() {
+        std::thread::spawn(|| {
+            if let Err(e) = niri_binds::sync() {
+                log::warn!("niri binds: {e}");
+            }
+        });
+    }
+    if !native_shortcuts_available() {
+        return Ok(());
+    }
     #[cfg(target_os = "windows")]
     kbhook::clear();
-    let config = config::load_config().0;
     let plan = plan_hotkey_registrations(&config);
     for w in &plan.warnings {
         log::warn!("register_shortcuts: {w}");
     }
-    #[cfg(target_os = "linux")]
-    sync_wm_binds(app, &config, &plan);
 
     register_launch_handler(app, plan.launch)?;
 
@@ -784,58 +759,6 @@ fn register_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Wayland ではグローバルショートカットを OS 経由で grab できないため、niri 上では launch キーと
-/// `[[apps]].hotkey` を niri の bind (`shun-binds.kdl`) として書き出す。各 bind は常駐中の shun に
-/// `shun toggle` / `shun hotkey <KEY>` を送る（`niri.rs` 参照）。ディスク I/O と `niri validate`
-/// を伴うので別スレッドで行う。
-#[cfg(target_os = "linux")]
-fn sync_wm_binds(app: &tauri::AppHandle, config: &config::Config, plan: &HotkeyPlan) {
-    if !niri::is_active() {
-        return;
-    }
-    if !config.desktop_integration {
-        std::thread::spawn(|| {
-            if let Err(e) = niri::clear_binds() {
-                log::warn!("niri binds: {e}");
-            }
-        });
-        return;
-    }
-    let Some(exe) = desktop::exe_path() else {
-        log::warn!("niri binds: cannot resolve the shun executable path");
-        return;
-    };
-    let mut binds = vec![niri::Bind {
-        shortcut: plan.launch,
-        title: "shun: launcher".to_string(),
-        args: vec!["toggle".to_string()],
-    }];
-    for a in &plan.apps {
-        let Some(entry) = config.apps.get(a.entry_index) else {
-            continue;
-        };
-        let Some(raw) = entry.hotkey.as_deref() else {
-            continue;
-        };
-        binds.push(niri::Bind {
-            shortcut: a.shortcut,
-            title: format!("shun: {}", entry.name),
-            args: vec!["hotkey".to_string(), raw.trim().to_string()],
-        });
-    }
-    let exe = exe.to_string_lossy().into_owned();
-    let identifier = app.config().identifier.clone();
-    std::thread::spawn(move || match niri::sync_binds(&identifier, &exe, &binds) {
-        Ok(warnings) => {
-            for w in warnings {
-                log::warn!("{w}");
-            }
-            debug!("niri binds: {} bind(s) in sync", binds.len());
-        }
-        Err(e) => log::warn!("niri binds: {e}"),
-    });
-}
-
 #[tauri::command]
 fn reload(
     app: tauri::AppHandle,
@@ -843,9 +766,11 @@ fn reload(
     warnings_state: tauri::State<WarningsState>,
 ) -> Result<(), String> {
     let (cfg, _) = config::load_config();
-    app.global_shortcut()
-        .unregister_all()
-        .map_err(|e| e.to_string())?;
+    if native_shortcuts_available() {
+        app.global_shortcut()
+            .unregister_all()
+            .map_err(|e| e.to_string())?;
+    }
 
     // launch key 警告は get_config_and_warnings() で動的生成するので WarningsState は空にリセット
     // launch キー登録が完全に失敗した場合のみ Err を返す（呼び出し元がエラー表示する）
@@ -1733,7 +1658,7 @@ pub fn run() {
     let log_max_size = log_cfg.max_file_size_kb * 1024;
     let log_retention_days = log_cfg.retention_days;
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(cache)
         .manage(warnings_state)
         .plugin(
@@ -1754,8 +1679,13 @@ pub fn run() {
             // なければ既存ウィンドウを前面に表示。args[0] はプログラム名。
             let cmd = cli::parse(args.get(1..).unwrap_or(&[])).unwrap_or(cli::Command::Show);
             run_command(app, cmd);
-        }))
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        }));
+    let builder = if native_shortcuts_available() {
+        builder.plugin(tauri_plugin_global_shortcut::Builder::new().build())
+    } else {
+        builder
+    };
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
@@ -1834,10 +1764,6 @@ pub fn run() {
                             }
                             if window_check.is_focused().unwrap_or(false) {
                                 return; // フォーカスが戻った → ドラッグによる一時的な blur
-                            }
-                            #[cfg(target_os = "linux")]
-                            if reclaim_focus_after_steal() {
-                                return;
                             }
                             window_check.hide().ok();
                             refresh_cache_bg(cache_check);
