@@ -439,7 +439,9 @@ without a shell. niri live-reloads the updated include.
 - The main config is `$NIRI_CONFIG`, or the XDG config directory's `niri/config.kdl`
   (normally `~/.config/niri/config.kdl`). Synchronization only runs in a niri session.
 - Exactly one active top-level `include "shun-binds.kdl"` is required. Missing or duplicate
-  includes, invalid config, or unsupported key mappings cause a log warning and no write.
+  includes, invalid config, or an unsupported `keybindings.launch` key mapping cause a log
+  warning and no write. An unsupported `[[apps]].hotkey` key mapping is skipped with a warning;
+  the launcher binding and other valid app bindings are still synchronized.
   shun never adds include lines automatically.
 - `shun-binds.kdl` is entirely generated: keep hand-written bindings in the main config or
   another include. If the dedicated file is missing, shun creates it after validation.

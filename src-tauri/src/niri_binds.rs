@@ -288,7 +288,8 @@ fn sync_at(
     let mut staged_binds = tempfile::Builder::new()
         .prefix(".shun-binds-")
         .suffix(".kdl")
-        .tempfile_in(parent)
+        // Atomic persist must rename within the resolved output's filesystem.
+        .tempfile_in(target.parent().ok_or("binds target has no parent")?)
         .map_err(|e| format!("stage binds: {e}"))?;
     staged_binds
         .write_all(body.as_bytes())
@@ -556,6 +557,82 @@ mod tests {
         assert_eq!(metadata.permissions().mode() & 0o777, 0o640);
         assert!(!sync_at(&path, "binds {}\n", |_| panic!("unchanged")).unwrap());
         assert_eq!(std::fs::metadata(&binds).unwrap().ino(), metadata.ino());
+    }
+
+    #[test]
+    #[ignore = "requires writable /dev/shm on a different filesystem from the workspace"]
+    fn syncs_binds_symlink_across_filesystems() {
+        use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
+        let dir = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
+        let output_dir = tempfile::tempdir_in("/dev/shm").unwrap();
+        assert_ne!(
+            std::fs::metadata(dir.path()).unwrap().dev(),
+            std::fs::metadata(output_dir.path()).unwrap().dev(),
+            "this regression requires two different filesystems"
+        );
+        let path = dir.path().join("config.kdl");
+        let binds = dir.path().join(BINDS_FILE);
+        let target = output_dir.path().join("binds.kdl");
+        std::fs::write(&path, CONFIG).unwrap();
+        std::fs::write(&target, "old binds").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o640)).unwrap();
+        symlink(&target, &binds).unwrap();
+        assert!(sync_at(&path, "binds {}\n", |staged| {
+            assert_eq!(staged.parent().unwrap(), dir.path());
+            let doc: kdl::KdlDocument = std::fs::read_to_string(staged).unwrap().parse().unwrap();
+            let include = Path::new(
+                doc.get("include")
+                    .unwrap()
+                    .get(0)
+                    .unwrap()
+                    .value()
+                    .as_string()
+                    .unwrap(),
+            );
+            assert_eq!(include.parent().unwrap(), output_dir.path());
+            assert_eq!(std::fs::read_to_string(include).unwrap(), "binds {}\n");
+            assert_eq!(std::fs::read_to_string(&target).unwrap(), "old binds");
+            Ok(())
+        })
+        .unwrap());
+        assert_eq!(std::fs::read_link(&binds).unwrap(), target);
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "binds {}\n");
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), CONFIG);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
+        assert_eq!(std::fs::read_dir(output_dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    #[ignore = "requires the niri executable"]
+    fn staged_config_validates_with_real_niri_and_preserves_relative_includes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.kdl");
+        let binds = dir.path().join(BINDS_FILE);
+        let other = dir.path().join("other.kdl");
+        let original =
+            "// preserve main config\ninclude \"other.kdl\"\ninclude \"shun-binds.kdl\"\n";
+        std::fs::write(&path, original).unwrap();
+        std::fs::write(&other, "binds { F9 { spawn \"other-app\"; }; }\n").unwrap();
+        // A successful sync must validate the redirected staged file, not these old contents.
+        std::fs::write(&binds, "invalid-niri-node\n").unwrap();
+        let cfg: config::Config =
+            toml::from_str("[[apps]]\nname = \"app\"\npath = \"app\"\nhotkey = \"F10\"\n").unwrap();
+        let valid = render(&cfg, "/opt/my apps/it's \"shun\"").unwrap();
+        assert!(sync_at(&path, &valid, validate).unwrap());
+        validate(&path).unwrap();
+        // Invalid staged binds must be rejected even though the installed binds are valid.
+        assert!(sync_at(&path, "invalid-niri-node\n", validate).is_err());
+        assert_eq!(std::fs::read_to_string(&binds).unwrap(), valid);
+        // The other relative include must still be read during staged validation.
+        std::fs::write(&other, "invalid-niri-node\n").unwrap();
+        assert!(sync_at(&path, "binds {}\n", validate).is_err());
+        assert_eq!(std::fs::read_to_string(&binds).unwrap(), valid);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 3);
     }
 
     #[test]
