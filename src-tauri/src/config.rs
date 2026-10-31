@@ -76,10 +76,12 @@ pub struct Config {
     pub hide_on_blur: bool,
     #[serde(default = "default_true")]
     pub auto_start: bool,
-    /// Linux only: keep shun's desktop integration in place — the `.desktop` entry/icon
-    /// (AppImage) and, under niri, the compositor binds generated from the hotkeys.
+    /// Linux only: keep the AppImage's `.desktop` entry and icon in place.
     #[serde(default = "default_true")]
     pub desktop_integration: bool,
+    /// Linux/niri only: sync the included shun-binds.kdl file (opt-in).
+    #[serde(default)]
+    pub niri: bool,
     #[serde(default = "default_update_check_interval")]
     pub update_check_interval: u64,
     #[serde(default = "default_window_width")]
@@ -426,6 +428,7 @@ impl Default for Config {
             hide_on_blur: false,
             auto_start: default_true(),
             desktop_integration: default_true(),
+            niri: false,
             update_check_interval: default_update_check_interval(),
             window_width: default_window_width(),
             max_items: default_max_items(),
@@ -691,9 +694,12 @@ hide_on_blur = false
 # Start automatically at login (default: true); set to false to disable
 auto_start = true
 
-# Linux only: write shun's .desktop entry (AppImage) and, under niri, generate the compositor
-# binds for `keybindings.launch` and every [[apps]] hotkey (default: true)
+# Linux only: write shun's .desktop entry and icon for AppImage (default: true)
 desktop_integration = true
+
+# Linux/niri only: sync shun-binds.kdl (requires an existing include in niri config)
+# Disabled by default; niri's main config is never modified
+niri = false
 
 # Update check interval in seconds (0 to disable)
 update_check_interval = 3600

@@ -23,7 +23,8 @@ src-tauri/
     apps.rs              # App discovery, LaunchItem, launch_with_extra
     app_window.rs        # OS window activate/toggle for per-app hotkeys (activate_or_launch)
     cli.rs               # `shun show|toggle|hotkey <KEY>|install-desktop` parsing (second instances are forwarded to the resident one)
-    niri.rs              # Linux/niri: generated `shun-binds.kdl` binds (+ one-time appended `include`), niri-IPC window activate/toggle
+    niri.rs              # Linux/niri: explicit app-window activate/toggle via niri IPC
+    niri_binds.rs        # Opt-in niri=true: validated, atomic synchronization of included shun-binds.kdl
     desktop.rs           # Linux/AppImage: `.desktop` entry + icon self-install
     search.rs            # fuzzy/exact filter via nucleo-matcher
     complete.rs          # Path/list/command completion
@@ -193,12 +194,21 @@ Add per-repo extras (e.g. `cargo fetch`, `npm install`) by extending
   `apps::launch()`; on macOS, a found app/window whose operation itself fails does *not* fall back
   (would duplicate an already-running app) — see the README's "Per-app global hotkeys" section for
   per-OS constraints
-- Wayland has no global key grabs (the global-shortcut plugin is X11-only on Linux). Under niri,
-  `register_shortcuts()` → `sync_wm_binds()` renders the launch key + app hotkeys into niri's
-  `shun-binds.kdl` (`niri::sync_binds`); each bind runs `niri::spawn_script`: a `busctl` call into the single-instance plugin's D-Bus service (`niri::bus_target` mirrors the plugin's name/path — re-check it if that plugin or the app identifier changes), falling back to starting shun itself (spawning shun for every key costs ~1 s on an AppImage) with
-  `shun toggle` / `shun hotkey <KEY>` (`cli.rs`, handled by `execute_command` in `lib.rs`).
-  `find_hotkey_target()` resolves `<KEY>` through `plan_hotkey_registrations()` so CLI and OS-level
-  hotkeys can't drift. Syncs are validated with `niri validate` and rolled back on failure; `desktop_integration = false` empties the generated binds.
+- Wayland uses compositor binds invoking `shun toggle` / `shun hotkey <KEY>`
+  (`cli.rs`, handled by `execute_command` in `lib.rs`). By default config is untouched.
+  Top-level `niri = true` opts into `niri_binds` synchronization on startup and `/reload`.
+  Require one existing top-level `include "shun-binds.kdl"`; replace only that dedicated file.
+  Never rewrite the main config or insert include lines/region markers.
+  Parse KDL to redirect that include in a temporary sibling main-config copy to staged binds,
+  validate the whole config with `niri validate`, check both live files for concurrent edits,
+  then atomically replace the resolved binds target (preserve symlinks/permissions).
+  Missing/duplicate includes or validation failure must not change either live file.
+  `niri = false` stops syncing and does not clear existing bindings.
+  Never call the single-instance plugin's private D-Bus API directly or reclaim focus on blur.
+  `native_shortcuts_available()` skips the X11 global-shortcut plugin and registration/reload
+  calls in Wayland sessions. Windows/macOS/native X11 retain native shortcut registration.
+  `find_hotkey_target()` and niri generation share `plan_hotkey_registrations()` precedence.
+  `desktop_integration` controls only AppImage desktop entry/icon installation.
 
 ### Ghost text
 - Search mode: `searchGhostSuffix` — triggers when `candidate.path.startsWith(query)`
