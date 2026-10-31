@@ -168,11 +168,23 @@ fn render(cfg: &config::Config, exe: &str) -> Result<String, String> {
         chord(&plan.launch)?
     );
     for app in plan.apps {
-        let raw = cfg.apps[app.entry_index].hotkey.as_deref().unwrap().trim();
+        let entry = &cfg.apps[app.entry_index];
+        let raw = entry.hotkey.as_deref().unwrap().trim();
+        let chord = match chord(&app.shortcut) {
+            Ok(chord) => chord,
+            Err(error) => {
+                log::warn!(
+                    "niri binds: apps[{}] {:?} hotkey {raw:?}: {error}, skipping",
+                    app.entry_index,
+                    entry.name
+                );
+                continue;
+            }
+        };
         writeln!(
             out,
             "    {} repeat=false {{ spawn {exe} \"hotkey\" {}; }}",
-            chord(&app.shortcut)?,
+            chord,
             kdl_string(raw)
         )
         .unwrap();
@@ -351,6 +363,94 @@ mod tests {
     use super::*;
 
     const CONFIG: &str = "// 日本語\r\ninclude optional=true \"./shun-binds.kdl\"\r\n// keep this";
+
+    #[test]
+    fn chord_maps_modifiers_and_key_names() {
+        for (input, expected) in [
+            ("F10", "F10"),
+            ("Ctrl+Space", "Ctrl+Space"),
+            ("Ctrl+Enter", "Ctrl+Return"),
+            ("Super+Shift+A", "Shift+Super+A"),
+            ("Alt+PageUp", "Alt+Page_Up"),
+            ("Ctrl+Alt+Shift+`", "Ctrl+Alt+Shift+grave"),
+            ("Cmd+1", "Super+1"),
+            ("Ctrl+CapsLock", "Ctrl+Caps_Lock"),
+        ] {
+            assert_eq!(chord(&input.parse().unwrap()).unwrap(), expected);
+        }
+        assert!(chord(&Shortcut::new(None, Code::Convert)).is_err());
+    }
+
+    #[test]
+    fn render_skips_unmappable_app_and_keeps_launch_and_other_apps() {
+        let cfg: config::Config = toml::from_str(
+            r#"
+            [keybindings]
+            launch = "Ctrl+Space"
+            [[apps]]
+            name = "first"
+            path = "first"
+            hotkey = "F9"
+            [[apps]]
+            name = "unmappable"
+            path = "unmappable"
+            hotkey = "AudioVolumeUp"
+            [[apps]]
+            name = "last"
+            path = "last"
+            hotkey = "Ctrl+CapsLock"
+            "#,
+        )
+        .unwrap();
+        let out = render(&cfg, "/opt/shun").unwrap();
+        assert!(out.contains(r#"Ctrl+Space repeat=false { spawn "/opt/shun" "toggle"; }"#));
+        assert!(out.contains(r#"F9 repeat=false { spawn "/opt/shun" "hotkey" "F9"; }"#));
+        assert!(out.contains(
+            r#"Ctrl+Caps_Lock repeat=false { spawn "/opt/shun" "hotkey" "Ctrl+CapsLock"; }"#
+        ));
+        assert!(!out.contains("AudioVolumeUp"));
+        let doc: kdl::KdlDocument = out.parse().unwrap();
+        assert_eq!(
+            doc.get("binds").unwrap().children().unwrap().nodes().len(),
+            3
+        );
+    }
+
+    #[test]
+    fn render_escapes_executable_and_preserves_cli_arguments() {
+        let cfg: config::Config = toml::from_str(
+            r#"[[apps]]
+            name = "app"
+            path = "app"
+            hotkey = "Ctrl+F9"
+            "#,
+        )
+        .unwrap();
+        let exe = "/opt/my apps/it's \"shun\"\\bin\n\r\t\u{1}";
+        let doc: kdl::KdlDocument = render(&cfg, exe).unwrap().parse().unwrap();
+        let binds = doc.get("binds").unwrap().children().unwrap().nodes();
+        for (bind, args) in binds
+            .iter()
+            .zip([vec![exe, "toggle"], vec![exe, "hotkey", "Ctrl+F9"]])
+        {
+            let spawn = bind.children().unwrap().get("spawn").unwrap();
+            let actual: Vec<_> = spawn
+                .entries()
+                .iter()
+                .map(|e| e.value().as_string().unwrap())
+                .collect();
+            assert_eq!(actual, args);
+        }
+    }
+
+    #[test]
+    fn render_rejects_unmappable_launch_shortcut() {
+        let cfg: config::Config =
+            toml::from_str("[keybindings]\nlaunch = \"AudioVolumeUp\"").unwrap();
+        assert!(render(&cfg, "/opt/shun")
+            .unwrap_err()
+            .contains("AudioVolumeUp"));
+    }
 
     #[test]
     fn validates_staged_binds_without_changing_either_live_file() {
