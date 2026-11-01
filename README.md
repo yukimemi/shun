@@ -385,7 +385,9 @@ doesn't fire in this specific case).
 A second `shun ...` invocation is handed to the running instance, so actions can be
 triggered from a script, compositor bind, or launcher. On Linux, forwarding to the public
 resident D-Bus API happens before config/cache/GTK initialization; the single-instance
-plugin remains the process-ownership guard. Other platforms retain plugin forwarding.
+plugin remains the process-ownership guard. If the session bus or control API is
+unavailable before command delivery, shun warns and continues normal startup. Errors
+after attempted delivery never replay the action. Other platforms retain plugin forwarding.
 
 | Command | Action |
 |---|---|

@@ -203,8 +203,10 @@ Add per-repo extras (e.g. `cargo fetch`, `npm install`) by extending
   Methods serialize operations through the common `execute_command` in `lib.rs` and report
   invalid/unregistered keys or failed operations as D-Bus errors, without retries/debounce.
   Early Linux CLI forwarding checks name ownership without activation before config/cache/GTK
-  initialization. Only definite absence permits normal GUI startup; ambiguous call errors
-  must not replay an action. The single-instance plugin remains the process-ownership guard.
+  initialization. An absent owner or a failure before command delivery permits normal GUI startup;
+  errors after attempted delivery must not replay an action. Control API registration
+  failures warn and leave the command worker available. The single-instance plugin remains
+  the process-ownership guard.
   By default compositor config is untouched.
   Top-level `niri = true` opts into `niri_binds` synchronization on startup and `/reload`.
   Require one existing top-level `include "shun-binds.kdl"`; replace only that dedicated file.

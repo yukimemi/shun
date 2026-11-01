@@ -1720,7 +1720,10 @@ pub fn run() {
         match control::try_forward(&command) {
             Ok(true) => return,
             Ok(false) => {}
-            Err(error) => {
+            Err(control::ForwardError::Unavailable(error)) => {
+                eprintln!("shun: {error}; continuing with normal startup");
+            }
+            Err(control::ForwardError::Failed(error)) => {
                 eprintln!("shun: {error}");
                 std::process::exit(1);
             }

@@ -140,6 +140,13 @@ pub(crate) fn start(app: &tauri::AppHandle) -> Result<(), String> {
     let queue = app.state::<CommandQueue>();
     let handle = app.clone();
     queue.start(move |command| crate::execute_command(&handle, command))?;
+    if let Err(error) = start_api(app, &queue) {
+        log::warn!("{error}; continuing without the resident control API");
+    }
+    Ok(())
+}
+
+fn start_api(app: &tauri::AppHandle, queue: &CommandQueue) -> Result<(), String> {
     let connection = Builder::session()
         .and_then(|builder| {
             builder.serve_at(
@@ -160,23 +167,45 @@ pub(crate) fn start(app: &tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Distinguish an unavailable control API from an operation that must not be replayed.
+#[derive(Debug)]
+pub(crate) enum ForwardError {
+    Unavailable(String),
+    Failed(String),
+}
+
 /// Probe without activation, then address the unique owner so a disappearing resident
-/// cannot accidentally activate a replacement. Only definite absence permits GUI startup.
-pub(crate) fn try_forward(command: &Command) -> Result<bool, String> {
+/// cannot accidentally activate a replacement. Probe failures permit the normal
+/// single-instance startup path; errors after attempted delivery must never replay.
+pub(crate) fn try_forward(command: &Command) -> Result<bool, ForwardError> {
     if matches!(command, Command::InstallDesktop) {
-        return Err("install-desktop is a local command".into());
+        return Err(ForwardError::Failed(
+            "install-desktop is a local command".into(),
+        ));
     }
-    let connection = Connection::session().map_err(|e| format!("connect resident control: {e}"))?;
+    forward_with_connection(Connection::session(), command)
+}
+
+fn forward_with_connection(
+    connection: zbus::Result<Connection>,
+    command: &Command,
+) -> Result<bool, ForwardError> {
+    let connection = connection
+        .map_err(|e| ForwardError::Unavailable(format!("connect resident control: {e}")))?;
     forward_on(&connection, command)
 }
 
-fn forward_on(connection: &Connection, command: &Command) -> Result<bool, String> {
+fn forward_on(connection: &Connection, command: &Command) -> Result<bool, ForwardError> {
     let bus = zbus::blocking::fdo::DBusProxy::new(connection)
-        .map_err(|e| format!("query resident control: {e}"))?;
+        .map_err(|e| ForwardError::Unavailable(format!("query resident control: {e}")))?;
     let owner = match bus.get_name_owner(BUS_NAME.try_into().expect("valid control bus name")) {
         Ok(owner) => owner,
         Err(zbus::fdo::Error::NameHasNoOwner(_)) => return Ok(false),
-        Err(e) => return Err(format!("query resident control owner: {e}")),
+        Err(e) => {
+            return Err(ForwardError::Unavailable(format!(
+                "query resident control owner: {e}"
+            )))
+        }
     };
     let result = match command {
         Command::Show => connection.call_method(
@@ -200,22 +229,27 @@ fn forward_on(connection: &Connection, command: &Command) -> Result<bool, String
             "Hotkey",
             &(key.as_str(),),
         ),
-        Command::InstallDesktop => return Err("install-desktop is a local command".into()),
+        Command::InstallDesktop => {
+            return Err(ForwardError::Failed(
+                "install-desktop is a local command".into(),
+            ))
+        }
         Command::Resident => return Ok(true),
     };
     match result {
         Ok(reply) => {
-            reply
-                .body()
-                .deserialize::<()>()
-                .map_err(|e| format!("invalid resident control reply (not replayed): {e}"))?;
+            reply.body().deserialize::<()>().map_err(|e| {
+                ForwardError::Failed(format!(
+                    "invalid resident control reply (not replayed): {e}"
+                ))
+            })?;
             Ok(true)
         }
         // Once delivery is attempted, every error is terminal: even an application
         // returning a standard absence error must not trigger a replay.
-        Err(e) => Err(format!(
+        Err(e) => Err(ForwardError::Failed(format!(
             "resident control command failed (not replayed): {e}"
-        )),
+        ))),
     }
 }
 
@@ -310,6 +344,38 @@ mod tests {
     }
 
     #[test]
+    fn connection_failure_allows_normal_startup() {
+        let directory = tempfile::tempdir().unwrap();
+        let address = format!("unix:path={}/missing-bus", directory.path().display());
+        for command in [
+            Command::Show,
+            Command::Toggle,
+            Command::Hotkey("F10".into()),
+            Command::Resident,
+        ] {
+            let connection = Builder::address(address.as_str()).unwrap().build();
+            assert!(
+                matches!(
+                    forward_with_connection(connection, &command),
+                    Err(ForwardError::Unavailable(_))
+                ),
+                "{command:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn owner_probe_failure_allows_normal_startup() {
+        let bus = TestBus::new();
+        let connection = bus.connect();
+        connection.clone().close().unwrap();
+        assert!(matches!(
+            forward_on(&connection, &Command::Show),
+            Err(ForwardError::Unavailable(_))
+        ));
+    }
+
+    #[test]
     fn absent_owner_does_not_activate_an_available_service() {
         let bus = TestBus::new();
         // An activation attempt would execute /bin/false and return an error, not false.
@@ -372,7 +438,10 @@ mod tests {
             Command::Toggle,
             Command::InstallDesktop,
         ] {
-            assert!(forward_on(&client, &command).is_err(), "{command:?}");
+            assert!(
+                matches!(forward_on(&client, &command), Err(ForwardError::Failed(_))),
+                "{command:?}"
+            );
         }
         assert_eq!(count.load(Ordering::SeqCst), 1);
     }
@@ -452,7 +521,10 @@ mod tests {
         accepted.recv().unwrap();
         resident.close().unwrap();
         release.send(()).unwrap();
-        assert!(forwarding.join().unwrap().is_err());
+        assert!(matches!(
+            forwarding.join().unwrap(),
+            Err(ForwardError::Failed(_))
+        ));
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
