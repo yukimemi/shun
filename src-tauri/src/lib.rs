@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use futures_util::StreamExt;
 use log::{debug, info};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(not(target_os = "linux"))]
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
@@ -16,6 +18,10 @@ mod apps;
 mod cli;
 mod complete;
 mod config;
+#[cfg(target_os = "linux")]
+mod control;
+#[cfg(target_os = "linux")]
+mod control_activation;
 #[cfg(target_os = "linux")]
 mod desktop;
 mod diag;
@@ -532,31 +538,33 @@ fn register_hotkey(
 }
 
 /// launch キーの処理（ランチャーウィンドウの表示/非表示トグル）。
-fn on_launch_hotkey(app: &tauri::AppHandle) {
-    let cache = Arc::clone(app.state::<CacheState>().inner());
-    if let Some(window) = app.get_webview_window("main") {
-        if window.is_visible().unwrap_or(false) {
-            debug!("shortcut: window visible → hide");
-            window.hide().ok();
-            refresh_cache_bg(cache);
-        } else {
-            debug!("shortcut: window hidden → show");
-            show_launcher(app);
-        }
+fn on_launch_hotkey(app: &tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window is unavailable".to_string())?;
+    if window.is_visible().map_err(|e| e.to_string())? {
+        debug!("shortcut: window visible → hide");
+        window.hide().map_err(|e| e.to_string())?;
+        refresh_cache_bg(Arc::clone(app.state::<CacheState>().inner()));
+        Ok(())
+    } else {
+        debug!("shortcut: window hidden → show");
+        show_launcher(app)
     }
 }
 
 /// ランチャーウィンドウを表示する。表示位置は /save position・/reset position などフロント側
 /// からの変更を拾うため毎回ディスクから読み直す。呼び出し元は main thread で呼ばないこと
 /// （ディスク I/O を行う）。
-fn show_launcher(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let cfg = config::load_config().0;
-        position_window(&window, &cfg, cfg.window_width as f64);
-        window.show().ok();
-        window.set_focus().ok();
-        window.emit("show-launcher", ()).ok();
-    }
+fn show_launcher(app: &tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window is unavailable".to_string())?;
+    let cfg = config::load_config().0;
+    position_window(&window, &cfg, cfg.window_width as f64);
+    window.show().map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())?;
+    window.emit("show-launcher", ()).map_err(|e| e.to_string())
 }
 
 /// `hotkey <KEY>` が指す動作。
@@ -582,60 +590,121 @@ fn find_hotkey_target(config: &config::Config, key: &str) -> Option<HotkeyTarget
         .map(|a| HotkeyTarget::App(a.entry_index, a.mode))
 }
 
-/// CLI コマンド（2個目の起動・コンポジタの bind・自プロセスの引数）を実行する。
-/// ブロックし得るので、呼び出し側のスレッド（D-Bus / main）で直接呼ばないこと。
-fn execute_command(app: &tauri::AppHandle, cmd: cli::Command) {
+/// Execute once on a worker, never the GUI thread. All callers observe or log failures.
+fn execute_command(app: &tauri::AppHandle, cmd: cli::Command) -> Result<(), String> {
     match cmd {
         cli::Command::Show => show_launcher(app),
         cli::Command::Toggle => on_launch_hotkey(app),
         cli::Command::Hotkey(key) => {
             let config = config::load_config().0;
-            match find_hotkey_target(&config, &key) {
-                Some(HotkeyTarget::Launch) => on_launch_hotkey(app),
-                Some(HotkeyTarget::App(index, mode)) => match config.apps.get(index) {
-                    Some(entry) => on_app_hotkey(entry, &mode),
-                    None => log::warn!("hotkey command: apps[{index}] vanished"),
-                },
-                None => log::warn!("hotkey command: \"{key}\" is not a registered hotkey"),
-            }
+            execute_hotkey(&config, &key, || on_launch_hotkey(app))
         }
-        // run() が Tauri 起動前に処理して終了する。
-        cli::Command::InstallDesktop => {}
+        cli::Command::InstallDesktop => Err("install-desktop is a local command".into()),
+        #[cfg(target_os = "linux")]
+        cli::Command::Resident => Err("resident bootstrap is not an application operation".into()),
     }
 }
 
-/// `execute_command` を別スレッドで実行する。
-fn run_command(app: &tauri::AppHandle, cmd: cli::Command) {
-    let app = app.clone();
-    std::thread::spawn(move || execute_command(&app, cmd));
+fn execute_hotkey(
+    config: &config::Config,
+    key: &str,
+    launch: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    match find_hotkey_target(config, key) {
+        Some(HotkeyTarget::Launch) => launch(),
+        Some(HotkeyTarget::App(index, mode)) => {
+            let entry = config
+                .apps
+                .get(index)
+                .ok_or_else(|| format!("hotkey command: apps[{index}] vanished"))?;
+            execute_app_hotkey(entry, &mode, config)
+        }
+        None => Err(format!(
+            "hotkey command: \"{key}\" is not a registered hotkey"
+        )),
+    }
 }
 
+/// Linux external requests share the resident FIFO, including ownership-race callbacks.
+fn run_command(app: &tauri::AppHandle, cmd: cli::Command) {
+    #[cfg(target_os = "linux")]
+    if let Err(error) = app.state::<control::CommandQueue>().submit(cmd) {
+        log::warn!("resident command: {error}");
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            if let Err(error) = execute_command(&app, cmd) {
+                log::warn!("resident command: {error}");
+            }
+        });
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
 /// `[[apps]].hotkey` の処理（launch / activate / toggle）。
-fn on_app_hotkey(entry: &config::AppEntry, mode: &config::AppHotkeyMode) {
-    // 登録時にキャプチャした entry に、押下時点の [[overrides]] を適用する
-    // （hotkey 自体の変更は /reload が必要だが、override の変更は即時反映される）
-    let cfg = config::load_config().0;
+fn on_app_hotkey(entry: &config::AppEntry, mode: &config::AppHotkeyMode) -> Result<(), String> {
+    // Native callbacks retain their registered entry, but apply current overrides.
+    execute_app_hotkey(entry, mode, &config::load_config().0)
+}
+
+fn execute_app_hotkey(
+    entry: &config::AppEntry,
+    mode: &config::AppHotkeyMode,
+    cfg: &config::Config,
+) -> Result<(), String> {
     let mut item = apps::launch_item_from_entry(entry);
     apps::apply_overrides(&mut item, &cfg.overrides);
-    let vars = cfg.vars;
+    let vars = &cfg.vars;
     let window = app_window::WindowMatch {
         app: entry.window_app.as_deref(),
         title: entry.window_title.as_deref(),
         title_exclude: entry.window_title_exclude.as_deref(),
     };
-    let result = match mode {
-        config::AppHotkeyMode::Launch => apps::launch_with_extra(&item, Vec::new(), &vars),
+    match mode {
+        config::AppHotkeyMode::Launch => apps::launch_with_extra(&item, Vec::new(), vars),
         config::AppHotkeyMode::Activate => {
-            app_window::activate_or_launch(&item, window, false, &vars)
+            app_window::activate_or_launch(&item, window, false, vars)
         }
-        config::AppHotkeyMode::Toggle => app_window::activate_or_launch(&item, window, true, &vars),
-    };
-    if let Err(e) = result {
-        log::warn!(
+        config::AppHotkeyMode::Toggle => app_window::activate_or_launch(&item, window, true, vars),
+    }
+    .map_err(|e| {
+        format!(
             "app hotkey: failed to launch/activate \"{}\": {e}",
             item.name
-        );
-    }
+        )
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn register_launch_handler(app: &tauri::AppHandle, shortcut: Shortcut) -> Result<(), String> {
+    let handle = app.clone();
+    register_hotkey(
+        app,
+        shortcut,
+        Arc::new(move || run_command(&handle, cli::Command::Toggle)),
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn register_app_hotkey_handler(
+    app: &tauri::AppHandle,
+    shortcut: Shortcut,
+    entry: config::AppEntry,
+    _mode: config::AppHotkeyMode,
+) -> Result<(), String> {
+    let key = entry
+        .hotkey
+        .ok_or_else(|| "registered app has no hotkey".to_string())?;
+    let handle = app.clone();
+    register_hotkey(
+        app,
+        shortcut,
+        Arc::new(move || {
+            run_command(&handle, cli::Command::Hotkey(key.clone()));
+        }),
+    )
 }
 
 /// launch キーを登録する。
@@ -643,6 +712,7 @@ fn on_app_hotkey(entry: &config::AppEntry, mode: &config::AppHotkeyMode) {
 /// ハンドラ本体は Carbon のホットキーコールバック（macOS では main thread で実行される）
 /// を config 読み込みなどのディスク I/O でブロックしないよう、別スレッドに逃がして実行する。
 /// `in_flight` は前回分の処理が終わる前の連打で背景スレッドが積み上がらないようにするガード。
+#[cfg(not(target_os = "linux"))]
 fn register_launch_handler(app: &tauri::AppHandle, shortcut: Shortcut) -> Result<(), String> {
     let handle = app.clone();
     let in_flight = Arc::new(AtomicBool::new(false));
@@ -657,7 +727,9 @@ fn register_launch_handler(app: &tauri::AppHandle, shortcut: Shortcut) -> Result
             let handle = handle.clone();
             let in_flight = Arc::clone(&in_flight);
             std::thread::spawn(move || {
-                on_launch_hotkey(&handle);
+                if let Err(error) = on_launch_hotkey(&handle) {
+                    log::warn!("launch hotkey: {error}");
+                }
                 in_flight.store(false, Ordering::Release);
             });
         }),
@@ -672,6 +744,7 @@ fn register_launch_handler(app: &tauri::AppHandle, shortcut: Shortcut) -> Result
 ///
 /// launch キーと同様、ハンドラ本体（config 再読み込みを含む）は main thread を
 /// ブロックしないよう別スレッドで実行する。
+#[cfg(not(target_os = "linux"))]
 fn register_app_hotkey_handler(
     app: &tauri::AppHandle,
     shortcut: Shortcut,
@@ -694,14 +767,16 @@ fn register_app_hotkey_handler(
             let mode = mode.clone();
             let in_flight = Arc::clone(&in_flight);
             std::thread::spawn(move || {
-                on_app_hotkey(&entry, &mode);
+                if let Err(error) = on_app_hotkey(&entry, &mode) {
+                    log::warn!("app hotkey: {error}");
+                }
                 in_flight.store(false, Ordering::Release);
             });
         }),
     )
 }
 
-/// The Linux shortcut plugin uses X11, not Wayland. Compositor binds use the CLI instead.
+/// The Linux shortcut plugin uses X11, not Wayland. Compositor binds use resident control.
 fn native_shortcuts_available() -> bool {
     #[cfg(target_os = "linux")]
     {
@@ -1641,6 +1716,15 @@ pub fn run() {
                 }
             });
         }
+        let command = cli::parse(&args).unwrap_or(cli::Command::Show);
+        match control::try_forward(&command) {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(error) => {
+                eprintln!("shun: {error}");
+                std::process::exit(1);
+            }
+        }
     }
     diag::capture_parent_info();
     let (config, _) = config::load_config();
@@ -1677,9 +1761,13 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // 2個目の起動を検知 → 引数があればそのコマンド（toggle / hotkey <KEY> ...）、
             // なければ既存ウィンドウを前面に表示。args[0] はプログラム名。
-            let cmd = cli::parse(args.get(1..).unwrap_or(&[])).unwrap_or(cli::Command::Show);
-            run_command(app, cmd);
+            // Activation bootstrap must not synthesize Show while the owner initializes.
+            if let Some(cmd) = cli::secondary_command(args.get(1..).unwrap_or(&[])) {
+                run_command(app, cmd);
+            }
         }));
+    #[cfg(target_os = "linux")]
+    let builder = builder.manage(control::CommandQueue::default());
     let builder = if native_shortcuts_available() {
         builder.plugin(tauri_plugin_global_shortcut::Builder::new().build())
     } else {
@@ -1828,10 +1916,7 @@ pub fn run() {
                 .menu(&tray_menu)
                 .tooltip("shun")
                 .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => {
-                        let app = app.clone();
-                        std::thread::spawn(move || show_launcher(&app));
-                    }
+                    "show" => run_command(app, cli::Command::Show),
                     "config" => {
                         let path = config::config_path();
                         if let Err(e) = open_with_editor(path) {
@@ -1869,16 +1954,25 @@ pub fn run() {
                 });
             }
 
-            // 自分自身の起動引数（`shun toggle` / `shun hotkey <KEY>` / `shun show`）。
-            // 常駐中の別インスタンスがなく、新規に起動された場合の処理。ウィンドウ側の
-            // 初期化完了を待ってから実行する。
+            // State and the hidden main window are ready. Start control before accepting
+            // startup commands; D-Bus activation has no CLI action to duplicate.
+            #[cfg(target_os = "linux")]
+            control::start(app.handle())?;
             let args: Vec<String> = std::env::args().skip(1).collect();
-            if let Some(cmd) = cli::parse(&args) {
-                let handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                    execute_command(&handle, cmd);
-                });
+            if let Some(cmd) = cli::startup_command(&args) {
+                #[cfg(target_os = "linux")]
+                run_command(app.handle(), cmd);
+                #[cfg(not(target_os = "linux"))]
+                {
+                    // Retain the existing frontend startup behavior on other platforms.
+                    let handle = app.handle().clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        if let Err(error) = execute_command(&handle, cmd) {
+                            log::warn!("startup command: {error}");
+                        }
+                    });
+                }
             }
 
             // Config にエラーがある場合は起動時にウィンドウを表示して警告を見せる
@@ -1890,6 +1984,9 @@ pub fn run() {
                 .parse::<Shortcut>()
                 .is_err();
             let has_warnings = !startup_warnings.is_empty() || launch_is_invalid;
+            // Service bootstrapping itself never performs a launcher operation.
+            #[cfg(target_os = "linux")]
+            let has_warnings = has_warnings && !(args.len() == 1 && args[0] == cli::RESIDENT_ARG);
             if has_warnings {
                 log::warn!("Config has errors at startup — showing window immediately");
                 let window_warn = window.clone();
@@ -2177,6 +2274,49 @@ mod hotkey_plan_tests {
             find_hotkey_target(&config, "F10"),
             Some(HotkeyTarget::Launch)
         );
+    }
+
+    #[test]
+    fn executing_invalid_or_unregistered_hotkeys_reports_an_error_without_action() {
+        let config = Config::default();
+        for key in ["not a shortcut !!!", "F11"] {
+            let result = super::execute_hotkey(&config, key, || {
+                panic!("invalid/unregistered hotkey must not run an operation")
+            });
+            assert!(result.unwrap_err().contains("not a registered hotkey"));
+        }
+    }
+
+    #[test]
+    fn executing_launch_hotkey_once_preserves_the_operation_error() {
+        let config = Config::default();
+        let mut calls = 0;
+        let result = super::execute_hotkey(&config, &config.keybindings.launch, || {
+            calls += 1;
+            Err("window operation failed".into())
+        });
+        assert_eq!(calls, 1);
+        assert_eq!(result.unwrap_err(), "window operation failed");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn executing_app_hotkey_returns_the_actual_launch_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut config = Config::default();
+        let mut entry = app_with_hotkey("Missing target", Some("F11"), AppHotkeyMode::Launch);
+        entry.path = directory
+            .path()
+            .join("does-not-exist")
+            .to_string_lossy()
+            .into_owned();
+        config.apps.push(entry);
+        let error = super::execute_hotkey(&config, "F11", || {
+            panic!("app key must not execute the launcher action")
+        })
+        .unwrap_err();
+        assert!(error.contains("failed to launch/activate"));
+        assert!(error.contains("Missing target"));
     }
 }
 

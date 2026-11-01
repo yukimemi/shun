@@ -154,7 +154,7 @@ auto_start = true
 # Linux only: write shun's .desktop entry + icon for AppImage (default: true).
 desktop_integration = true
 
-# Linux/niri only: opt in to shun-binds.kdl synchronization (default: false).
+# Linux/niri only: opt in to shun-binds.kdl + D-Bus activation (default: false).
 niri = false
 
 # Update check interval in seconds (0 to disable)
@@ -382,12 +382,14 @@ doesn't fire in this specific case).
 
 ### Command line & Linux / Wayland
 
-A second `shun ...` invocation is handed to the running instance (single-instance), so the hotkey
-actions can be triggered from outside — from a compositor bind, a script, or a launcher:
+A second `shun ...` invocation is handed to the running instance, so actions can be
+triggered from a script, compositor bind, or launcher. On Linux, forwarding to the public
+resident D-Bus API happens before config/cache/GTK initialization; the single-instance
+plugin remains the process-ownership guard. Other platforms retain plugin forwarding.
 
 | Command | Action |
 |---|---|
-| `shun` / `shun show` | Show the launcher (`show` also opens it when shun starts fresh) |
+| `shun` / `shun show` | Show the resident launcher (`show` also opens it when shun starts fresh; a fresh no-argument start stays hidden) |
 | `shun toggle` | Show / hide the launcher — what `keybindings.launch` does |
 | `shun hotkey <KEY>` | Run the `[[apps]]` entry whose `hotkey` is `<KEY>` (as written in `config.toml`, e.g. `shun hotkey F10`); `<KEY>` equal to `keybindings.launch` toggles the launcher |
 | `shun install-desktop` | Linux: write the `.desktop` entry and icon, then exit |
@@ -398,22 +400,31 @@ API directly, or reclaim focus after a blur. Compositor config is untouched by d
 optional niri synchronization is described below. Windows, macOS, and native X11 continue
 to register shortcuts normally.
 
-For example, add these to niri's `config.kdl` (replace the executable path with your installed
-shun path, and the app hotkeys with those defined in `config.toml`):
+For low-overhead niri bindings, call shun's **public session-bus API** with `busctl`
+(provided by systemd, including on Arch). These actions spawn only the lightweight D-Bus
+client when shun is resident, not the AppImage or another GTK process:
 
 ```kdl
 binds {
-    Ctrl+Return repeat=false { spawn "/home/you/.local/bin/shun" "toggle"; }
-    F11 repeat=false { spawn "/home/you/.local/bin/shun" "hotkey" "F11"; }
-    F12 repeat=false { spawn "/home/you/.local/bin/shun" "hotkey" "F12"; }
+    Ctrl+Return repeat=false { spawn "busctl" "--user" "--quiet" "call" "com.yukimemi.shun.Control" "/com/yukimemi/shun/Control" "com.yukimemi.shun.Control1" "Toggle"; }
+    F11 repeat=false { spawn "busctl" "--user" "--quiet" "call" "com.yukimemi.shun.Control" "/com/yukimemi/shun/Control" "com.yukimemi.shun.Control1" "Hotkey" "s" "F11"; }
+    F12 repeat=false { spawn "busctl" "--user" "--quiet" "call" "com.yukimemi.shun.Control" "/com/yukimemi/shun/Control" "com.yukimemi.shun.Control1" "Hotkey" "s" "F12"; }
 }
 ```
 
-The normal single-instance plugin forwards these CLI commands to the resident shun.
-This also starts shun if it is not running. AppImage invocations have startup overhead; this
-deliberately uses the normal CLI rather than maintaining a separate fast-path transport.
-For other Wayland compositors, bind the same commands using their native configuration syntax.
-By default, `/reload` reloads shun's config, not the compositor's keys.
+The bus name is `com.yukimemi.shun.Control`, object path `/com/yukimemi/shun/Control`,
+and interface `com.yukimemi.shun.Control1`. Its methods are `Show()`, `Toggle()`, and
+`Hotkey(key: string)` (the `s` above is the D-Bus string signature). Each returns an empty
+reply on success and a D-Bus error on failure, including invalid or unregistered hotkeys.
+Accepted operations use the resident's common command execution path and are serialized;
+there is no private plugin protocol, shell fallback, or debounce/cooldown policy.
+
+Manual bus bindings require a resident shun or the activation descriptor installed by
+the opt-in synchronization below. With that descriptor, D-Bus starts shun if needed and
+delivers the queued method once it owns the name. Other Wayland compositors can use the
+same public API in their native bind syntax, or the ordinary `shun toggle` /
+`shun hotkey <KEY>` CLI (which also starts shun if absent, but incurs AppImage startup
+overhead). By default, `/reload` reloads shun's config, not compositor keys.
 
 **Optional niri synchronization (off by default)**
 
@@ -433,14 +444,14 @@ No begin/end markers are needed. On startup and `/reload`, shun replaces only th
 `shun-binds.kdl` file beside that config with bindings derived from `keybindings.launch` and
 the valid `[[apps]].hotkey` entries. The main `config.kdl` and its include line are never edited.
 Changing an app's hotkey in shun and running `/reload` therefore updates niri's key too.
-The generated actions invoke the normal `shun toggle` / `shun hotkey <KEY>` CLI directly,
-without a shell. niri live-reloads the updated include.
+The generated actions use the direct, typed `busctl` calls shown above; `busctl` must be
+available in the compositor's `PATH`. niri live-reloads the updated include.
 
 - The main config is `$NIRI_CONFIG`, or the XDG config directory's `niri/config.kdl`
   (normally `~/.config/niri/config.kdl`). Synchronization only runs in a niri session.
 - Exactly one active top-level `include "shun-binds.kdl"` is required. Missing or duplicate
   includes, invalid config, or an unsupported `keybindings.launch` key mapping cause a log
-  warning and no write. An unsupported `[[apps]].hotkey` key mapping is skipped with a warning;
+  warning and no bindings write. An unsupported `[[apps]].hotkey` key mapping is skipped with a warning;
   the launcher binding and other valid app bindings are still synchronized.
   shun never adds include lines automatically.
 - `shun-binds.kdl` is entirely generated: keep hand-written bindings in the main config or
@@ -451,13 +462,26 @@ without a shell. niri live-reloads the updated include.
 - Config symlinks and existing binds-file permissions are preserved. Unchanged generated
   content does not rewrite the file. Cross-file binding overrides follow niri's own include
   precedence rather than a separate shun conflict policy.
-- `niri = false` stops synchronization without changing existing binds. To remove synchronized
-  shortcuts, remove the include line yourself before deleting its file.
+- While opted in, shun also installs
+  `$XDG_DATA_HOME/dbus-1/services/com.yukimemi.shun.Control.service`
+  (normally `~/.local/share/dbus-1/services/com.yukimemi.shun.Control.service`).
+  `Name` matches the public bus name; `Exec` invokes the stable AppImage path (`$APPIMAGE`,
+  otherwise the current executable) with only the bootstrap flag **`--resident`**, never a
+  Show/Toggle/Hotkey argument. This mode starts a hidden resident and does nothing if
+  another shun is already starting, so only the queued D-Bus method performs an action.
+  Paths with spaces, quotes, apostrophes, or
+  backslashes are escaped for D-Bus service-file and argument parsing, not shell execution.
+  The descriptor is atomically updated when shun's path changes, preserving symlinks and
+  existing permissions. A descriptor without shun's generated marker is user-maintained
+  and never overwritten; remove the marker before customizing it.
+- `niri = false` stops synchronization without changing existing binds or activation
+  descriptors. To remove synchronized shortcuts, remove the include line yourself before
+  deleting its file; delete the activation descriptor yourself if no longer wanted.
   `desktop_integration` is independent of this setting.
 
 **Existing generated niri binds:** if an older shun already added
 `include "shun-binds.kdl"`, keep it and set `niri = true` to regenerate that same dedicated file
-using the normal CLI path. No markers or main-config migration are required. Alternatively,
+using the public resident D-Bus API and install cold activation. No markers or main-config migration are required. Alternatively,
 keep synchronization off and manage the included file yourself.
 
 **Desktop entry (AppImage)** — the AppImage ships no `.desktop` file, so app launchers don't list
