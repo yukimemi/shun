@@ -389,6 +389,15 @@ plugin remains the process-ownership guard. If the session bus or control API is
 unavailable before command delivery, shun warns and continues normal startup. Errors
 after attempted delivery never replay the action. Other platforms retain plugin forwarding.
 
+Native hotkeys on Windows, macOS, and X11 retain their registered app entry and mode
+until `/reload`, while applying current overrides when pressed. Linux native callbacks
+share the resident command queue; repeated native presses coalesce only while that
+registration's operation is in flight.
+
+On a cold start, Show/Toggle notifications wait for the frontend's listener readiness
+handshake. If the window has since been hidden, the deferred notification is discarded.
+App hotkey and `--resident` startup do not open the launcher to display config warnings.
+
 | Command | Action |
 |---|---|
 | `shun` / `shun show` | Show the resident launcher (`show` also opens it when shun starts fresh; a fresh no-argument start stays hidden) |

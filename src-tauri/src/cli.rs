@@ -53,6 +53,16 @@ pub(crate) fn secondary_command<S: AsRef<str>>(args: &[S]) -> Option<Command> {
     operation(Some(parse(args).unwrap_or(Command::Show)))
 }
 
+/// App actions and activation bootstrap must not open a warning window on startup.
+pub(crate) fn allows_startup_warning<S: AsRef<str>>(args: &[S]) -> bool {
+    match parse(args) {
+        Some(Command::Hotkey(_)) => false,
+        #[cfg(target_os = "linux")]
+        Some(Command::Resident) => false,
+        _ => true,
+    }
+}
+
 fn operation(command: Option<Command>) -> Option<Command> {
     match command {
         #[cfg(target_os = "linux")]
@@ -64,6 +74,16 @@ fn operation(command: Option<Command>) -> Option<Command> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_warning_visibility_follows_shared_parser() {
+        assert!(!allows_startup_warning(&["hotkey", "F11"]));
+        #[cfg(target_os = "linux")]
+        assert!(!allows_startup_warning(&[RESIDENT_ARG]));
+        assert!(allows_startup_warning(&["show"]));
+        assert!(allows_startup_warning(&["toggle"]));
+        assert!(allows_startup_warning::<&str>(&[]));
+    }
 
     #[test]
     fn parses_known_commands() {

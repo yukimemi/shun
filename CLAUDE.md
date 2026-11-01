@@ -228,6 +228,13 @@ Add per-repo extras (e.g. `cargo fetch`, `npm install`) by extending
   Never call the single-instance plugin's private D-Bus API directly or reclaim focus on blur.
   `native_shortcuts_available()` skips the X11 global-shortcut plugin and registration/reload
   calls in Wayland sessions. Windows/macOS/native X11 retain native shortcut registration.
+  Native callbacks share one handler with an owned operation and an in-flight guard;
+  Linux queues that operation through the resident FIFO. Captured app entries/modes
+  survive config edits until `/reload`; execution still applies current overrides.
+- `frontend_delivery.rs` retains show notifications until `frontend_ready`, invoked only
+  after the frontend registers `show-launcher`. Readiness only delivers UI state when
+  the window is visible; it never shows/focuses a native window. Startup needs no sleep.
+  Hotkey/bootstrap startup suppresses automatic config-warning windows.
   `find_hotkey_target()` and niri generation share `plan_hotkey_registrations()` precedence.
   `desktop_integration` controls only AppImage desktop entry/icon installation.
 

@@ -12,8 +12,13 @@ pub(crate) const OBJECT_PATH: &str = "/com/yukimemi/shun/Control";
 pub(crate) const INTERFACE: &str = "com.yukimemi.shun.Control1";
 
 type CommandResult = Result<(), String>;
+enum Operation {
+    Command(Command),
+    Native(crate::NativeRequest),
+}
+
 struct Request {
-    command: Command,
+    command: Operation,
     reply: Option<oneshot::Sender<CommandResult>>,
 }
 
@@ -39,7 +44,16 @@ impl CommandQueue {
     pub(crate) fn submit(&self, command: Command) -> Result<(), String> {
         self.sender
             .send(Request {
-                command,
+                command: Operation::Command(command),
+                reply: None,
+            })
+            .map_err(|_| "resident command worker is unavailable".to_string())
+    }
+
+    pub(crate) fn submit_native(&self, request: crate::NativeRequest) -> Result<(), String> {
+        self.sender
+            .send(Request {
+                command: Operation::Native(request),
                 reply: None,
             })
             .map_err(|_| "resident command worker is unavailable".to_string())
@@ -53,7 +67,7 @@ impl CommandQueue {
         let (reply, result) = oneshot::channel();
         self.sender
             .send(Request {
-                command,
+                command: Operation::Command(command),
                 reply: Some(reply),
             })
             .map_err(|_| "resident command worker is unavailable".to_string())?;
@@ -62,7 +76,7 @@ impl CommandQueue {
 
     fn start(
         &self,
-        execute: impl Fn(Command) -> CommandResult + Send + 'static,
+        execute: impl Fn(Operation) -> CommandResult + Send + 'static,
     ) -> Result<(), String> {
         let receiver = self
             .receiver
@@ -97,7 +111,7 @@ impl Control {
         let (reply, result) = oneshot::channel();
         self.sender
             .send(Request {
-                command,
+                command: Operation::Command(command),
                 reply: Some(reply),
             })
             .map_err(|_| {
@@ -139,7 +153,10 @@ struct ResidentConnection {
 pub(crate) fn start(app: &tauri::AppHandle) -> Result<(), String> {
     let queue = app.state::<CommandQueue>();
     let handle = app.clone();
-    queue.start(move |command| crate::execute_command(&handle, command))?;
+    queue.start(move |operation| match operation {
+        Operation::Command(command) => crate::execute_command(&handle, command),
+        Operation::Native(request) => request.execute(&handle),
+    })?;
     if let Err(error) = start_api(app, &queue) {
         log::warn!("{error}; continuing without the resident control API");
     }
@@ -420,10 +437,12 @@ mod tests {
         config.keybindings.launch = "F10".into();
         queue
             .start(move |command| match command {
-                Command::Hotkey(key) => crate::execute_hotkey(&config, &key, || {
-                    calls.fetch_add(1, Ordering::SeqCst);
-                    Ok(())
-                }),
+                Operation::Command(Command::Hotkey(key)) => {
+                    crate::execute_hotkey(&config, &key, || {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        Ok(())
+                    })
+                }
                 _ => Err("main window is unavailable".into()),
             })
             .unwrap();
@@ -457,7 +476,7 @@ mod tests {
         let calls = Arc::clone(&count);
         queue
             .start(move |command| {
-                let Command::Hotkey(key) = command else {
+                let Operation::Command(Command::Hotkey(key)) = command else {
                     panic!("expected hotkey")
                 };
                 crate::execute_hotkey(&config, &key, || {
@@ -503,7 +522,7 @@ mod tests {
         config.keybindings.launch = "F10".into();
         queue
             .start(move |command| {
-                let Command::Hotkey(key) = command else {
+                let Operation::Command(Command::Hotkey(key)) = command else {
                     panic!("expected hotkey")
                 };
                 crate::execute_hotkey(&config, &key, || {
@@ -526,6 +545,52 @@ mod tests {
             Err(ForwardError::Failed(_))
         ));
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn native_requests_share_fifo_and_release_guard_on_completion_or_rejection() {
+        use crate::{NativeOperation, NativeRequest};
+        use std::sync::atomic::AtomicBool;
+        let queue = CommandQueue::default();
+        let (entered, blocked) = mpsc::channel();
+        let (release, released) = mpsc::channel();
+        let (seen, observed) = mpsc::channel();
+        queue
+            .start(move |operation| {
+                match operation {
+                    Operation::Command(Command::Show) => {
+                        entered.send(()).unwrap();
+                        released.recv().unwrap();
+                    }
+                    Operation::Native(_) => {
+                        seen.send("native").unwrap();
+                    }
+                    Operation::Command(Command::Toggle) => {
+                        seen.send("toggle").unwrap();
+                    }
+                    _ => panic!("unexpected operation"),
+                }
+                Ok(())
+            })
+            .unwrap();
+        queue.submit(Command::Show).unwrap();
+        blocked.recv().unwrap();
+        let operation = Arc::new(NativeOperation::Launch);
+        let guard = Arc::new(AtomicBool::new(false));
+        queue
+            .submit_native(NativeRequest::acquire(&operation, &guard).unwrap())
+            .unwrap();
+        assert!(NativeRequest::acquire(&operation, &guard).is_none());
+        let done = queue.submit_and_wait(Command::Toggle).unwrap();
+        release.send(()).unwrap();
+        done.blocking_recv().unwrap().unwrap();
+        assert_eq!(observed.recv().unwrap(), "native");
+        assert_eq!(observed.recv().unwrap(), "toggle");
+        let request = NativeRequest::acquire(&operation, &guard).unwrap();
+        let unavailable = CommandQueue::default();
+        drop(unavailable.receiver.lock().take());
+        assert!(unavailable.submit_native(request).is_err());
+        assert!(NativeRequest::acquire(&operation, &guard).is_some());
     }
 
     #[test]

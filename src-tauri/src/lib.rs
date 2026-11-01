@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use futures_util::StreamExt;
 use log::{debug, info};
-#[cfg(not(target_os = "linux"))]
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::menu::{Menu, MenuItem};
@@ -25,6 +24,7 @@ mod control_activation;
 #[cfg(target_os = "linux")]
 mod desktop;
 mod diag;
+mod frontend_delivery;
 mod history;
 #[cfg(target_os = "windows")]
 mod kbhook;
@@ -564,7 +564,31 @@ fn show_launcher(app: &tauri::AppHandle) -> Result<(), String> {
     position_window(&window, &cfg, cfg.window_width as f64);
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
-    window.emit("show-launcher", ()).map_err(|e| e.to_string())
+    let state = app.state::<Mutex<frontend_delivery::FrontendDelivery>>();
+    let mut delivery = state.lock();
+    if delivery.shown() {
+        window
+            .emit("show-launcher", ())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// The frontend registers its show listener before acknowledging readiness.
+/// Deliver only UI state: never show or focus a native window from this handshake.
+#[tauri::command]
+async fn frontend_ready(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or("main window is unavailable")?;
+    let state = app.state::<Mutex<frontend_delivery::FrontendDelivery>>();
+    let mut delivery = state.lock();
+    if delivery.ready(window.is_visible().map_err(|e| e.to_string())?) {
+        window
+            .emit("show-launcher", ())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 /// `hotkey <KEY>` が指す動作。
@@ -642,11 +666,16 @@ fn run_command(app: &tauri::AppHandle, cmd: cli::Command) {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
 /// `[[apps]].hotkey` の処理（launch / activate / toggle）。
 fn on_app_hotkey(entry: &config::AppEntry, mode: &config::AppHotkeyMode) -> Result<(), String> {
     // Native callbacks retain their registered entry, but apply current overrides.
     execute_app_hotkey(entry, mode, &config::load_config().0)
+}
+
+fn native_launch_item(entry: &config::AppEntry, cfg: &config::Config) -> apps::LaunchItem {
+    let mut item = apps::launch_item_from_entry(entry);
+    apps::apply_overrides(&mut item, &cfg.overrides);
+    item
 }
 
 fn execute_app_hotkey(
@@ -654,8 +683,7 @@ fn execute_app_hotkey(
     mode: &config::AppHotkeyMode,
     cfg: &config::Config,
 ) -> Result<(), String> {
-    let mut item = apps::launch_item_from_entry(entry);
-    apps::apply_overrides(&mut item, &cfg.overrides);
+    let item = native_launch_item(entry, cfg);
     let vars = &cfg.vars;
     let window = app_window::WindowMatch {
         app: entry.window_app.as_deref(),
@@ -677,103 +705,90 @@ fn execute_app_hotkey(
     })
 }
 
-#[cfg(target_os = "linux")]
-fn register_launch_handler(app: &tauri::AppHandle, shortcut: Shortcut) -> Result<(), String> {
-    let handle = app.clone();
-    register_hotkey(
-        app,
-        shortcut,
-        Arc::new(move || run_command(&handle, cli::Command::Toggle)),
-    )
+/// Native registrations retain their target and mode until /reload. Only current
+/// overrides and template variables are read when the operation executes.
+enum NativeOperation {
+    Launch,
+    App(Arc<config::AppEntry>, config::AppHotkeyMode),
 }
 
-#[cfg(target_os = "linux")]
-fn register_app_hotkey_handler(
+struct NativeRequest {
+    operation: Arc<NativeOperation>,
+    in_flight: Arc<AtomicBool>,
+}
+
+impl Drop for NativeRequest {
+    fn drop(&mut self) {
+        self.in_flight.store(false, Ordering::Release);
+    }
+}
+
+impl NativeRequest {
+    fn acquire(operation: &Arc<NativeOperation>, in_flight: &Arc<AtomicBool>) -> Option<Self> {
+        if in_flight.swap(true, Ordering::AcqRel) {
+            return None;
+        }
+        Some(Self {
+            operation: Arc::clone(operation),
+            in_flight: Arc::clone(in_flight),
+        })
+    }
+
+    fn execute(&self, app: &tauri::AppHandle) -> Result<(), String> {
+        match self.operation.as_ref() {
+            NativeOperation::Launch => on_launch_hotkey(app),
+            NativeOperation::App(entry, mode) => on_app_hotkey(entry, mode),
+        }
+    }
+}
+
+fn register_native_handler(
     app: &tauri::AppHandle,
     shortcut: Shortcut,
-    entry: config::AppEntry,
-    _mode: config::AppHotkeyMode,
+    operation: NativeOperation,
 ) -> Result<(), String> {
-    let key = entry
-        .hotkey
-        .ok_or_else(|| "registered app has no hotkey".to_string())?;
     let handle = app.clone();
-    register_hotkey(
-        app,
-        shortcut,
-        Arc::new(move || {
-            run_command(&handle, cli::Command::Hotkey(key.clone()));
-        }),
-    )
-}
-
-/// launch キーを登録する。
-///
-/// ハンドラ本体は Carbon のホットキーコールバック（macOS では main thread で実行される）
-/// を config 読み込みなどのディスク I/O でブロックしないよう、別スレッドに逃がして実行する。
-/// `in_flight` は前回分の処理が終わる前の連打で背景スレッドが積み上がらないようにするガード。
-#[cfg(not(target_os = "linux"))]
-fn register_launch_handler(app: &tauri::AppHandle, shortcut: Shortcut) -> Result<(), String> {
-    let handle = app.clone();
+    let operation = Arc::new(operation);
     let in_flight = Arc::new(AtomicBool::new(false));
     register_hotkey(
         app,
         shortcut,
         Arc::new(move || {
-            if in_flight.swap(true, Ordering::AcqRel) {
-                debug!("launch hotkey: previous press still in flight, skipping");
+            let Some(request) = NativeRequest::acquire(&operation, &in_flight) else {
+                debug!("native hotkey: previous press still in flight, skipping");
                 return;
+            };
+            #[cfg(target_os = "linux")]
+            if let Err(error) = handle
+                .state::<control::CommandQueue>()
+                .submit_native(request)
+            {
+                log::warn!("native hotkey: {error}");
             }
-            let handle = handle.clone();
-            let in_flight = Arc::clone(&in_flight);
-            std::thread::spawn(move || {
-                if let Err(error) = on_launch_hotkey(&handle) {
-                    log::warn!("launch hotkey: {error}");
-                }
-                in_flight.store(false, Ordering::Release);
-            });
+            #[cfg(not(target_os = "linux"))]
+            {
+                let handle = handle.clone();
+                std::thread::spawn(move || {
+                    if let Err(error) = request.execute(&handle) {
+                        log::warn!("native hotkey: {error}");
+                    }
+                });
+            }
         }),
     )
-    .map_err(|e| {
-        log::warn!("Failed to register launch shortcut: {e}");
-        e
-    })
 }
 
-/// `[[apps]].hotkey` を登録する。
-///
-/// launch キーと同様、ハンドラ本体（config 再読み込みを含む）は main thread を
-/// ブロックしないよう別スレッドで実行する。
-#[cfg(not(target_os = "linux"))]
+fn register_launch_handler(app: &tauri::AppHandle, shortcut: Shortcut) -> Result<(), String> {
+    register_native_handler(app, shortcut, NativeOperation::Launch)
+}
+
 fn register_app_hotkey_handler(
     app: &tauri::AppHandle,
     shortcut: Shortcut,
     entry: config::AppEntry,
     mode: config::AppHotkeyMode,
 ) -> Result<(), String> {
-    let in_flight = Arc::new(AtomicBool::new(false));
-    register_hotkey(
-        app,
-        shortcut,
-        Arc::new(move || {
-            if in_flight.swap(true, Ordering::AcqRel) {
-                debug!(
-                    "app hotkey \"{}\": previous press still in flight, skipping",
-                    entry.name
-                );
-                return;
-            }
-            let entry = entry.clone();
-            let mode = mode.clone();
-            let in_flight = Arc::clone(&in_flight);
-            std::thread::spawn(move || {
-                if let Err(error) = on_app_hotkey(&entry, &mode) {
-                    log::warn!("app hotkey: {error}");
-                }
-                in_flight.store(false, Ordering::Release);
-            });
-        }),
-    )
+    register_native_handler(app, shortcut, NativeOperation::App(Arc::new(entry), mode))
 }
 
 /// The Linux shortcut plugin uses X11, not Wayland. Compositor binds use resident control.
@@ -1746,6 +1761,7 @@ pub fn run() {
     let log_retention_days = log_cfg.retention_days;
 
     let builder = tauri::Builder::default()
+        .manage(Mutex::new(frontend_delivery::FrontendDelivery::default()))
         .manage(cache)
         .manage(warnings_state)
         .plugin(
@@ -1963,19 +1979,7 @@ pub fn run() {
             control::start(app.handle())?;
             let args: Vec<String> = std::env::args().skip(1).collect();
             if let Some(cmd) = cli::startup_command(&args) {
-                #[cfg(target_os = "linux")]
                 run_command(app.handle(), cmd);
-                #[cfg(not(target_os = "linux"))]
-                {
-                    // Retain the existing frontend startup behavior on other platforms.
-                    let handle = app.handle().clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_millis(500));
-                        if let Err(error) = execute_command(&handle, cmd) {
-                            log::warn!("startup command: {error}");
-                        }
-                    });
-                }
             }
 
             // Config にエラーがある場合は起動時にウィンドウを表示して警告を見せる
@@ -1987,26 +1991,16 @@ pub fn run() {
                 .parse::<Shortcut>()
                 .is_err();
             let has_warnings = !startup_warnings.is_empty() || launch_is_invalid;
-            // Service bootstrapping itself never performs a launcher operation.
-            #[cfg(target_os = "linux")]
-            let has_warnings = has_warnings && !(args.len() == 1 && args[0] == cli::RESIDENT_ARG);
+            let has_warnings = has_warnings && cli::allows_startup_warning(&args);
             if has_warnings {
                 log::warn!("Config has errors at startup — showing window immediately");
-                let window_warn = window.clone();
-                // フロントエンドの初期化完了を待ってから表示
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                    let cfg = config::load_config().0;
-                    position_window(&window_warn, &cfg, cfg.window_width as f64);
-                    window_warn.show().ok();
-                    window_warn.set_focus().ok();
-                    window_warn.emit("show-launcher", ()).ok();
-                });
+                run_command(app.handle(), cli::Command::Show);
             }
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            frontend_ready,
             get_config_and_warnings,
             should_round_corners,
             get_apps,
@@ -2133,6 +2127,65 @@ mod hotkey_plan_tests {
             window_title: None,
             window_title_exclude: None,
         }
+    }
+
+    #[test]
+    fn native_registration_retains_entry_and_mode_with_current_overrides() {
+        use super::{native_launch_item, NativeOperation, NativeRequest};
+        use std::sync::{atomic::AtomicBool, Arc};
+        let mut config = Config::default();
+        config.apps.push(app_with_hotkey(
+            "registered",
+            Some("F11"),
+            AppHotkeyMode::Toggle,
+        ));
+        let entry = Arc::new(config.apps[0].clone());
+        let operation = Arc::new(NativeOperation::App(
+            Arc::clone(&entry),
+            AppHotkeyMode::Toggle,
+        ));
+        config.apps[0].hotkey = Some("F12".into());
+        config.apps[0].path = "edited.exe".into();
+        config.apps[0].hotkey_mode = AppHotkeyMode::Launch;
+        config.apps.push(app_with_hotkey(
+            "replacement",
+            Some("F11"),
+            AppHotkeyMode::Activate,
+        ));
+        let guard = Arc::new(AtomicBool::new(false));
+        let request = NativeRequest::acquire(&operation, &guard).unwrap();
+        let NativeOperation::App(captured, mode) = request.operation.as_ref() else {
+            panic!("app operation")
+        };
+        assert!(Arc::ptr_eq(captured, &entry));
+        assert_eq!(*mode, AppHotkeyMode::Toggle);
+        assert_eq!(native_launch_item(captured, &config).path, "some.exe");
+        config.overrides = toml::from_str::<Config>(
+            r#"
+            [[overrides]]
+            name = "registered"
+            path = "override.exe"
+            args = ["current"]
+        "#,
+        )
+        .unwrap()
+        .overrides;
+        let item = native_launch_item(captured, &config);
+        assert_eq!(item.path, "override.exe");
+        assert_eq!(item.args, vec!["current"]);
+    }
+
+    #[test]
+    fn native_guard_coalesces_only_until_request_finishes_or_is_dropped() {
+        use super::{NativeOperation, NativeRequest};
+        use std::sync::{atomic::AtomicBool, Arc};
+        let operation = Arc::new(NativeOperation::Launch);
+        let guard = Arc::new(AtomicBool::new(false));
+        let request = NativeRequest::acquire(&operation, &guard).unwrap();
+        assert!(NativeRequest::acquire(&operation, &guard).is_none());
+        drop(request);
+        assert!(NativeRequest::acquire(&operation, &guard).is_some());
+        assert!(NativeRequest::acquire(&operation, &guard).is_some());
     }
 
     #[test]
