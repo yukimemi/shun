@@ -79,7 +79,7 @@ pub struct Config {
     /// Linux only: keep the AppImage's `.desktop` entry and icon in place.
     #[serde(default = "default_true")]
     pub desktop_integration: bool,
-    /// Linux/niri only: sync the included shun-binds.kdl file (opt-in).
+    /// Linux/niri only: sync included binds and install public D-Bus activation (opt-in).
     #[serde(default)]
     pub niri: bool,
     #[serde(default = "default_update_check_interval")]
@@ -697,8 +697,8 @@ auto_start = true
 # Linux only: write shun's .desktop entry and icon for AppImage (default: true)
 desktop_integration = true
 
-# Linux/niri only: sync shun-binds.kdl (requires an existing include in niri config)
-# Disabled by default; niri's main config is never modified
+# Linux/niri only: sync shun-binds.kdl and install public D-Bus cold activation
+# Requires an existing include; disabled by default; never modifies niri's main config
 niri = false
 
 # Update check interval in seconds (0 to disable)

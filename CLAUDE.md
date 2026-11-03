@@ -23,6 +23,8 @@ src-tauri/
     apps.rs              # App discovery, LaunchItem, launch_with_extra
     app_window.rs        # OS window activate/toggle for per-app hotkeys (activate_or_launch)
     cli.rs               # `shun show|toggle|hotkey <KEY>|install-desktop` parsing (second instances are forwarded to the resident one)
+    control.rs           # Linux: public resident D-Bus API, early CLI forwarding, serialized common command execution
+    control_activation.rs # Opt-in niri: owned user-session D-Bus activation descriptor, bootstrap-only --resident mode
     niri.rs              # Linux/niri: explicit app-window activate/toggle via niri IPC
     niri_binds.rs        # Opt-in niri=true: validated, atomic synchronization of included shun-binds.kdl
     desktop.rs           # Linux/AppImage: `.desktop` entry + icon self-install
@@ -194,8 +196,18 @@ Add per-repo extras (e.g. `cargo fetch`, `npm install`) by extending
   `apps::launch()`; on macOS, a found app/window whose operation itself fails does *not* fall back
   (would duplicate an already-running app) — see the README's "Per-app global hotkeys" section for
   per-OS constraints
-- Wayland uses compositor binds invoking `shun toggle` / `shun hotkey <KEY>`
-  (`cli.rs`, handled by `execute_command` in `lib.rs`). By default config is untouched.
+- Wayland compositor binds call the public resident API through `busctl --user --quiet call`:
+  bus `com.yukimemi.shun.Control`, path `/com/yukimemi/shun/Control`, interface
+  `com.yukimemi.shun.Control1`; `Show()`, `Toggle()`, `Hotkey(key: string)`.
+  `control.rs` owns ABI constants. Warm keys spawn only the D-Bus client, never shun/GTK.
+  Methods serialize operations through the common `execute_command` in `lib.rs` and report
+  invalid/unregistered keys or failed operations as D-Bus errors, without retries/debounce.
+  Early Linux CLI forwarding checks name ownership without activation before config/cache/GTK
+  initialization. An absent owner or a failure before command delivery permits normal GUI startup;
+  errors after attempted delivery must not replay an action. Control API registration
+  failures warn and leave the command worker available. The single-instance plugin remains
+  the process-ownership guard.
+  By default compositor config is untouched.
   Top-level `niri = true` opts into `niri_binds` synchronization on startup and `/reload`.
   Require one existing top-level `include "shun-binds.kdl"`; replace only that dedicated file.
   Never rewrite the main config or insert include lines/region markers.
@@ -203,10 +215,26 @@ Add per-repo extras (e.g. `cargo fetch`, `npm install`) by extending
   validate the whole config with `niri validate`, check both live files for concurrent edits,
   then atomically replace the resolved binds target (preserve symlinks/permissions).
   Missing/duplicate includes or validation failure must not change either live file.
-  `niri = false` stops syncing and does not clear existing bindings.
+  `control_activation::install()` installs `dbus-1/services/com.yukimemi.shun.Control.service`
+  under the XDG data directory only within opted-in niri sync. `Exec` uses `desktop::exe_path`
+  with only `cli::RESIDENT_ARG` (`--resident`), never an action argument. This explicit
+  bootstrap-only mode performs no operation in either startup or secondary forwarding,
+  including while another instance is acquiring the control name. The queued public
+  method is the sole cold-start action.
+  Escape two layers (D-Bus service string, then argv parser), not `.desktop` field codes or
+  a shell; preserve user descriptors lacking the generated marker, symlinks and permissions,
+  and stage on the resolved target filesystem before atomic replacement.
+  `niri = false` stops syncing and does not clear existing bindings or activation descriptors.
   Never call the single-instance plugin's private D-Bus API directly or reclaim focus on blur.
   `native_shortcuts_available()` skips the X11 global-shortcut plugin and registration/reload
   calls in Wayland sessions. Windows/macOS/native X11 retain native shortcut registration.
+  Native callbacks share one handler with an owned operation and an in-flight guard;
+  Linux queues that operation through the resident FIFO. Captured app entries/modes
+  survive config edits until `/reload`; execution still applies current overrides.
+- `frontend_delivery.rs` retains show notifications until `frontend_ready`, invoked only
+  after the frontend registers `show-launcher`. Readiness only delivers UI state when
+  the window is visible; it never shows/focuses a native window. Startup needs no sleep.
+  Hotkey/bootstrap startup suppresses automatic config-warning windows.
   `find_hotkey_target()` and niri generation share `plan_hotkey_registrations()` precedence.
   `desktop_integration` controls only AppImage desktop entry/icon installation.
 

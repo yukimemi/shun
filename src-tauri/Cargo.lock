@@ -4240,6 +4240,7 @@ dependencies = [
  "webview2-com",
  "windows",
  "windows-core",
+ "zbus",
  "zip 8.6.0",
 ]
 

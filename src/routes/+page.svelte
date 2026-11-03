@@ -389,8 +389,10 @@
       await applyConfig();
       // 表示時に必ずサイズを正しく戻す（WebView2 の描画キャッシュ対策）
       resizeForSearch(filtered.length || MAX_ITEMS);
-      setTimeout(() => inputEl?.focus(), 30);
+      await tick();
+      if (await win.isVisible()) inputEl?.focus();
     });
+    await invoke("frontend_ready");
   });
 
   // スラッシュコマンドの args mode で Enter/Shift+Enter が押されたときの処理。
