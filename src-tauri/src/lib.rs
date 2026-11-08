@@ -14,6 +14,7 @@ use tauri_plugin_updater::UpdaterExt;
 
 mod app_window;
 mod apps;
+mod child_process;
 mod cli;
 mod complete;
 mod config;
@@ -33,6 +34,7 @@ mod migemo;
 mod niri;
 #[cfg(target_os = "linux")]
 mod niri_binds;
+mod opener;
 mod search;
 mod utils;
 
@@ -360,7 +362,7 @@ fn launch_item(
 
     if apps::is_url(&path) {
         // The Rust opener API uses OS handlers directly; URL scopes only apply to IPC calls.
-        tauri_plugin_opener::open_url(&path, None::<&str>).map_err(|e| e.to_string())
+        crate::opener::open_url(&path)
     } else if matches!(item.source, apps::ItemSource::Path) && extra.is_empty() {
         // args なし → OS 関連付けで開く（フォルダ、ドキュメント等）
         let expanded = utils::expand_path(path.trim_end_matches('/'));
@@ -379,7 +381,7 @@ fn launch_item(
         // Windows: 内部正規化（/ 統一）を OS ネイティブ形式（\）に戻す
         #[cfg(target_os = "windows")]
         let expanded = expanded.replace('/', "\\");
-        tauri_plugin_opener::open_path(expanded, None::<&str>).map_err(|e| e.to_string())
+        crate::opener::open_path(expanded)
     } else {
         apps::launch_with_extra(&item, extra, &vars)
     }
@@ -1380,7 +1382,7 @@ fn open_with_editor(path: std::path::PathBuf) -> Result<(), String> {
             }
         }
     }
-    tauri_plugin_opener::open_path(path, None::<&str>).map_err(|e| e.to_string())
+    crate::opener::open_path(path)
 }
 
 /// `editor_command` を空白区切りでプログラム名と引数に分解する（クォート非対応）。
@@ -1392,10 +1394,10 @@ fn split_editor_command(cmd: &str) -> Option<(&str, Vec<&str>)> {
 }
 
 /// `editor_command` のプログラム名から起動用の `Command` を組み立てる。
-/// Unix では `Command::new` が PATH を引いてくれるのでそのまま渡す。
+/// Unix では PATH で解決し、Linux の子プロセス環境だけ AppImage の設定を除く。
 #[cfg(not(target_os = "windows"))]
 fn editor_base_command(program: &str) -> std::process::Command {
-    std::process::Command::new(program)
+    crate::child_process::command(program)
 }
 
 /// Windows の `Command::new` は `.exe` しか補完せず PATHEXT を見ないため、

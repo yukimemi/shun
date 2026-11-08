@@ -2,7 +2,6 @@
 //! Optional included-file global-key synchronization is handled separately by `niri_binds`.
 
 use serde_json::Value;
-use std::process::Command;
 
 /// Whether the current session is niri (it exports `NIRI_SOCKET` to its children).
 pub fn is_active() -> bool {
@@ -73,7 +72,7 @@ pub enum Outcome {
 }
 
 fn niri_msg(args: &[&str]) -> Result<String, String> {
-    let out = Command::new("niri")
+    let out = crate::child_process::command("niri")
         .arg("msg")
         .args(args)
         .output()

@@ -5,7 +5,6 @@ use crate::{config, control, control_activation, niri, plan_hotkey_registrations
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
 
 const BINDS_FILE: &str = "shun-binds.kdl";
@@ -248,7 +247,7 @@ fn resolved_output(path: &Path) -> Result<PathBuf, String> {
 }
 
 fn validate(path: &Path) -> Result<(), String> {
-    let out = Command::new("niri")
+    let out = crate::child_process::command("niri")
         .arg("validate")
         .arg("-c")
         .arg(path)

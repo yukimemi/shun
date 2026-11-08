@@ -1132,7 +1132,7 @@ mod linux_impl {
                 },
             );
         }
-        let output = match std::process::Command::new("wmctrl")
+        let output = match crate::child_process::command("wmctrl")
             .args(["-x", "-a", app_name])
             .output()
         {

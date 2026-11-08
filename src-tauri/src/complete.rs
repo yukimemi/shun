@@ -237,7 +237,7 @@ fn complete_command(
         }
         #[cfg(not(target_os = "windows"))]
         {
-            let mut cmd = std::process::Command::new("sh");
+            let mut cmd = crate::child_process::command("sh");
             cmd.args(["-c", cmd_str]);
             if let Some(dir) = workdir {
                 cmd.current_dir(crate::utils::expand_path(dir));
