@@ -21,6 +21,8 @@ src-tauri/
     lib.rs               # Tauri app entrypoint, all #[tauri::command]s, plugin setup
     config.rs            # Config struct, TOML parsing, defaults
     apps.rs              # App discovery, LaunchItem, launch_with_extra
+    child_process.rs     # Child-only AppImage environment sanitization
+    opener.rs            # Linux OS-association opener with sanitized child environment
     app_window.rs        # OS window activate/toggle for per-app hotkeys (activate_or_launch)
     cli.rs               # `shun show|toggle|hotkey <KEY>|install-desktop` parsing (second instances are forwarded to the resident one)
     control.rs           # Linux: public resident D-Bus API, early CLI forwarding, serialized common command execution
@@ -335,6 +337,9 @@ Do not mock these — they are pure functions with no Tauri dependencies.
 
 - Keep all launcher UI logic in `+page.svelte`; extract **pure** functions to `src/lib/utils.js` only when they need to be tested independently (Tauri imports block Vitest)
 - Rust: one file per concern; add `#[cfg(test)]` tests in the same file
+- Route new Linux external subprocesses through `crate::child_process::command`;
+  for commands built by another API, apply `crate::child_process::sanitize` before spawning.
+  Keep sanitation child-only: the running app still needs its AppImage environment.
 - Do not use `sed -i` in shell scripts or CI — use `perl -i -pe` for cross-platform compatibility
 - `releaseDraft: false` in tauri-action — tests gate the build so no manual publish needed
 - README keybindings table and `config.toml` example must be kept in sync with `config.rs` defaults whenever keybindings change

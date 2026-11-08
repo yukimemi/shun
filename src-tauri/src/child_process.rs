@@ -116,6 +116,7 @@ mod linux {
                     || Path::new(image)
                         .file_name()
                         .is_some_and(|name| argv0 == name)
+                    || matches_relative_image(&argv0, image, get("OWD").as_deref())
             });
             if matches_image || is_bundle_path(&argv0, appdir) {
                 result.push(("ARGV0", None));
@@ -124,6 +125,30 @@ mod linux {
         // GTK_THEME is not a path, and AppRun leaves no original-value backup.
         // Its value alone cannot distinguish a runtime override from user intent.
         result
+    }
+
+    fn matches_relative_image(argv0: &OsStr, image: &OsStr, owd: Option<&OsStr>) -> bool {
+        let invocation = Path::new(argv0);
+        let image = Path::new(image);
+        if invocation.is_absolute() || !image.is_absolute() {
+            return false;
+        }
+        // AppRun may change cwd before starting shun. OWD records the directory
+        // in which the user invoked the image; never resolve against the bundle.
+        let directory = owd
+            .map(std::path::PathBuf::from)
+            .or_else(|| std::env::current_dir().ok());
+        let Some(directory) = directory.filter(|path| path.is_absolute()) else {
+            return false;
+        };
+        let resolved = directory.join(invocation);
+        resolved == image
+            || resolved.canonicalize().ok().is_some_and(|resolved| {
+                image
+                    .canonicalize()
+                    .ok()
+                    .is_some_and(|image| resolved == image)
+            })
     }
 
     fn is_bundle_path(value: &OsStr, appdir: Option<&Path>) -> bool {
@@ -371,6 +396,56 @@ mod linux {
                 value(&observed, "PYTHONHOME"),
                 Some(OsStr::new("/user/python"))
             );
+        }
+
+        #[test]
+        fn relative_image_invocation_and_near_miss_in_real_child() {
+            let mut input = environment(&[
+                ("APPIMAGE", "/opt/images/shun.AppImage"),
+                ("OWD", "/opt/images"),
+                ("ARGV0", "./shun.AppImage"),
+            ]);
+            assert_eq!(value(&child_environment(&input), "ARGV0"), None);
+            input.insert("ARGV0".into(), "./shun.AppImage-backup".into());
+            assert_eq!(
+                value(&child_environment(&input), "ARGV0"),
+                value(&input, "ARGV0")
+            );
+        }
+
+        #[test]
+        fn relative_image_identity_uses_original_directory_in_real_child() {
+            let original_directory = tempfile::tempdir().unwrap();
+            // This directory differs from the test process cwd, as after AppRun
+            // changes cwd. Include non-UTF8 bytes in the invocation and APPIMAGE.
+            let image_name = OsStr::from_bytes(b"shun-\xff.AppImage");
+            let image = original_directory.path().join(image_name);
+            std::fs::write(&image, b"").unwrap();
+            std::fs::create_dir(original_directory.path().join("subdir")).unwrap();
+            let mut input = environment(&[("APPDIR", "/tmp/.mount_shunCURRENT")]);
+            input.insert("APPIMAGE".into(), image.into_os_string());
+            input.insert("OWD".into(), original_directory.path().into());
+            for (invocation, removed) in [
+                (b"./shun-\xff.AppImage".as_slice(), true),
+                (b"subdir/../shun-\xff.AppImage".as_slice(), true),
+                (b"./shun-\xff.AppImage-backup".as_slice(), false),
+                (b"subdir/shun-\xff.AppImage".as_slice(), false),
+            ] {
+                let invocation = OsStr::from_bytes(invocation);
+                input.insert("ARGV0".into(), invocation.into());
+                let observed = child_environment(&input);
+                assert_eq!(
+                    value(&observed, "ARGV0"),
+                    if removed { None } else { Some(invocation) },
+                    "{invocation:?}"
+                );
+                assert_eq!(value(&observed, "OWD"), value(&input, "OWD"));
+                assert_eq!(value(&observed, "APPIMAGE"), None);
+                assert_eq!(value(&observed, "APPDIR"), None);
+                // The inherited input stays intact; only the child is sanitized.
+                assert_eq!(value(&input, "ARGV0"), Some(invocation));
+                assert!(value(&input, "APPIMAGE").is_some());
+            }
         }
 
         #[test]
