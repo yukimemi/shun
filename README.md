@@ -506,7 +506,9 @@ OS association helpers and compositor tools do not inherit shun's bundled librar
 plugin or interpreter search paths. Entries beneath `$APPDIR` and stale `.mount_shun*`
 mounts are removed from known runtime path variables; unrelated user paths and desktop/
 authentication variables are preserved. Bundle-only variables and AppImage identity
-(`APPDIR`, `APPIMAGE`, and bundle-derived `ARGV0`) are unset for children.
+(`APPDIR` and `APPIMAGE`) are unset for children. `ARGV0` is unset whenever
+`APPIMAGE` is nonempty, since the runtime overwrites it with its invocation name;
+for APPDIR-only launches, only bundle-derived `ARGV0` is removed.
 This changes only child environments: shun's GTK/WebKit runtime remains untouched,
 and native Linux, Windows and macOS launches retain their normal environment.
 AppRun does not save overwritten originals, so non-path values such as `GTK_THEME`
