@@ -46,7 +46,7 @@ fn truncate_cmdline(s: &str) -> String {
 
 #[cfg(unix)]
 fn ps_field(field: &str, pid: u32) -> Option<String> {
-    let out = std::process::Command::new("ps")
+    let out = crate::child_process::command("ps")
         .args(["-o", &format!("{field}="), "-p", &pid.to_string()])
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

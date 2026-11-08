@@ -196,7 +196,7 @@ pub fn launch(item: &LaunchItem) -> Result<(), String> {
         }
     };
 
-    let mut cmd = std::process::Command::new(&path);
+    let mut cmd = crate::child_process::command(&path);
     add_common(&mut cmd);
 
     // Windows の .lnk / .cmd / .bat ファイルは cmd /c で起動
