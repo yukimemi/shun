@@ -218,9 +218,9 @@ fn try_activate(
 /// **ウィンドウの関連付け**: タイトルは後から変わる（Windows Terminal のタブ切替など）ため、
 /// タイトルだけに頼ると既存ウィンドウを見失い、`wt -w name new-tab` が重複タブを作る。
 /// そこで shun は対象ウィンドウに `SetPropW` でエントリ固有のマーカー（エントリ名・
-/// 解決済み exe stem のバージョン付き指紋）を付ける。ウィンドウプロパティはウィンドウと
-/// 運命を共にするため HWND の再利用で別ウィンドウを掴むことがなく、shun を再起動しても残る。
-/// 補完設定やテンプレート変数の編集では関連付けを失わない。
+/// 解決済み exe stem・起動設定・タイトル条件のバージョン付き指紋）を付ける。
+/// ウィンドウプロパティはウィンドウと運命を共にするため HWND の再利用で別ウィンドウを
+/// 掴むことがなく、shun を再起動しても残る。補完設定や無関係な変数の編集では失われない。
 ///
 /// - マーカー付きウィンドウがちょうど1つ → タイトルの正条件は無視してそれを操作する
 ///   （`title_exclude` は維持する）。複数なら曖昧なので何もしない（`ActionFailed`）。
@@ -341,11 +341,21 @@ mod windows_impl {
         h
     }
 
-    fn marker_name(item: &LaunchItem, stem: &str) -> String {
-        // Keep property names bounded; only entry identity, not mutable launch/completion
-        // settings or unrelated template variables, determines the association.
-        let h = fnv1a(&[&item.name, stem]);
-        format!("shun.window.v3.{h:016x}")
+    fn marker_name(item: &LaunchItem, stem: &str, window: &super::WindowMatch) -> String {
+        // Fingerprint only target-defining fields, not completion/history metadata or
+        // the whole vars map. JSON preserves argument boundaries and optional fields.
+        let target = serde_json::to_string(&(
+            &item.name,
+            stem,
+            &item.path,
+            &item.args,
+            &item.workdir,
+            window.title,
+            window.title_exclude,
+        ))
+        .expect("window target contains only serializable strings");
+        let h = fnv1a(&[&target]);
+        format!("shun.window.v4.{h:016x}")
     }
 
     pub(super) fn spec_for(item: &LaunchItem, app: &str, window: &super::WindowMatch) -> Spec {
@@ -353,7 +363,7 @@ mod windows_impl {
         let stem = app.to_lowercase();
         let normalize = |s: Option<&str>| s.filter(|t| !t.is_empty()).map(str::to_lowercase);
         Spec {
-            marker: marker_name(item, &stem),
+            marker: marker_name(item, &stem, window),
             stem,
             title: normalize(window.title),
             title_exclude: normalize(window.title_exclude),
@@ -690,15 +700,43 @@ mod windows_impl {
         }
 
         #[test]
-        fn marker_survives_unrelated_config_edits_but_separates_entries_and_apps() {
-            let mut item = item();
-            let original = marker_name(&item, "windowsterminal");
+        fn marker_survives_metadata_edits_but_invalidates_changed_targets() {
+            let original_item = item();
+            let mut item = original_item.clone();
+            let window = super::super::WindowMatch {
+                app: Some("WindowsTerminal"),
+                title: Some("Yazi"),
+                title_exclude: None,
+            };
+            let marker = |item: &LaunchItem| marker_name(item, "windowsterminal", &window);
+            let original = marker(&item);
             item.completion_list = vec!["other".into()];
             item.history_key = Some("other-history".into());
-            assert_eq!(original, marker_name(&item, "windowsterminal"));
-            assert_ne!(original, marker_name(&item, "other-app"));
-            item.name.push_str("-other");
-            assert_ne!(original, marker_name(&item, "windowsterminal"));
+            assert_eq!(original, marker(&item));
+            assert_ne!(original, marker_name(&item, "other-app", &window));
+            let changes: [fn(&mut LaunchItem); 4] = [
+                |item| item.name.push_str("-other"),
+                |item| item.path.push_str("-other"),
+                |item| item.args = vec!["-w".into(), "other".into()],
+                |item| item.workdir = Some("other-dir".into()),
+            ];
+            for change in changes {
+                let mut changed = original_item.clone();
+                change(&mut changed);
+                assert_ne!(original, marker(&changed));
+            }
+            for changed in [
+                super::super::WindowMatch {
+                    title: Some("Other"),
+                    ..window
+                },
+                super::super::WindowMatch {
+                    title_exclude: Some("Other"),
+                    ..window
+                },
+            ] {
+                assert_ne!(original, marker_name(&item, "windowsterminal", &changed));
+            }
         }
 
         #[test]
@@ -797,6 +835,22 @@ mod windows_impl {
             assert_eq!(
                 select(&enumerate(&restarted).unwrap()),
                 Selection::Tracked(raw)
+            );
+            // Retarget the same entry to the other window after a config reload.
+            let mut retargeted_item = item.clone();
+            retargeted_item.args = vec!["-w".into(), "other-window".into()];
+            let other_title = format!("{title}-other");
+            unsafe {
+                SetWindowTextW(second.0, PCWSTR(wide(&other_title).as_ptr())).unwrap();
+            }
+            let retargeted_window = super::super::WindowMatch {
+                title: Some(&other_title),
+                ..window
+            };
+            let retargeted = spec_for(&retargeted_item, &app, &retargeted_window);
+            assert_eq!(
+                select(&enumerate(&retargeted).unwrap()),
+                Selection::Bind(second.0 .0 as isize)
             );
             unsafe {
                 SetWindowTextW(first.0, w!("excluded tab")).unwrap();
