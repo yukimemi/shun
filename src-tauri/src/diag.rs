@@ -17,6 +17,7 @@ pub const ENV_ALLOWLIST: &[&str] = &[
     "LANG",
 ];
 
+#[cfg(any(unix, test))]
 const MAX_CMDLINE_LEN: usize = 512;
 
 /// `NAME="value"` pairs (or `NAME=<unset>`) for the allowlist, using `get` as the lookup.
@@ -35,6 +36,7 @@ fn env_allowlist_now() -> String {
     format_env_allowlist(|k| std::env::var_os(k).map(|v| v.to_string_lossy().into_owned()))
 }
 
+#[cfg(any(unix, test))]
 fn truncate_cmdline(s: &str) -> String {
     let s = s.trim();
     if s.chars().count() <= MAX_CMDLINE_LEN {

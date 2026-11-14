@@ -104,11 +104,11 @@ pub fn activate_or_launch(
         let Some(guard) = windows_impl::EntryGuard::acquire(&spec.marker) else {
             return Ok(());
         };
-        return resolve_outcome(windows_impl::activate(&spec, toggle), &item.name, || {
+        resolve_outcome(windows_impl::activate(&spec, toggle), &item.name, || {
             apps::launch_with_extra(item, Vec::new(), vars)?;
             windows_impl::start_discovery(spec, guard);
             Ok(())
-        });
+        })
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -384,7 +384,7 @@ mod windows_impl {
         SetPropW(
             hwnd,
             PCWSTR(name.as_ptr()),
-            Some(HANDLE(1usize as *mut std::ffi::c_void)),
+            Some(HANDLE(std::ptr::dangling_mut::<std::ffi::c_void>())),
         )
         .map_err(|e| format!("SetPropW failed: {e}"))
     }
