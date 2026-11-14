@@ -95,19 +95,36 @@ pub fn activate_or_launch(
     toggle: bool,
     vars: &std::collections::HashMap<String, String>,
 ) -> Result<(), String> {
-    // ウィンドウが見つからず新規起動するケース専用: 起動しただけでは終わらせず、
-    // macOS では続けて前面化も試みる（macos_impl::activate_after_launch のドキュメント参照）。
-    let launch_and_activate = || {
-        apps::launch_with_extra(item, Vec::new(), vars)?;
-        #[cfg(target_os = "macos")]
-        macos_impl::activate_after_launch(item, window);
-        Ok(())
-    };
-    resolve_outcome(
-        try_activate(item, window, toggle),
-        &item.name,
-        launch_and_activate,
-    )
+    #[cfg(target_os = "windows")]
+    {
+        let Some(app) = resolve_window_app(window.app, &item.path) else {
+            return apps::launch_with_extra(item, Vec::new(), vars);
+        };
+        let spec = windows_impl::spec_for(item, &app, &window);
+        let Some(guard) = windows_impl::EntryGuard::acquire(&spec.marker) else {
+            return Ok(());
+        };
+        resolve_outcome(windows_impl::activate(&spec, toggle), &item.name, || {
+            apps::launch_with_extra(item, Vec::new(), vars)?;
+            windows_impl::start_discovery(spec, guard);
+            Ok(())
+        })
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        // macOS also attempts activation after launching.
+        let launch_and_activate = || {
+            apps::launch_with_extra(item, Vec::new(), vars)?;
+            #[cfg(target_os = "macos")]
+            macos_impl::activate_after_launch(item, window);
+            Ok(())
+        };
+        resolve_outcome(
+            try_activate(item, window, toggle),
+            &item.name,
+            launch_and_activate,
+        )
+    }
 }
 
 /// ウィンドウ照合条件（config から渡される）。`title` / `title_exclude` は Windows・macOS・
@@ -165,7 +182,7 @@ fn should_retry_enumeration(result: &Result<ActivateOutcome, String>, attempt: u
     attempt == 0 && matches!(result, Ok(ActivateOutcome::EnumerationFailed))
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn try_activate(
     item: &LaunchItem,
     window: WindowMatch,
@@ -174,8 +191,6 @@ fn try_activate(
     let Some(app) = resolve_window_app(window.app, &item.path) else {
         return Ok(ActivateOutcome::NotFound);
     };
-    #[cfg(target_os = "windows")]
-    return windows_impl::activate(&app, window, toggle);
     #[cfg(target_os = "macos")]
     return macos_impl::activate(&item.name, &app, window, toggle);
     #[cfg(target_os = "linux")]
@@ -191,7 +206,7 @@ fn try_activate(
     Ok(ActivateOutcome::Unsupported)
 }
 
-/// Windows: `EnumWindows` で対象プロセスの通常ウィンドウを1つ探し、
+/// Windows: `EnumWindows` で対象プロセスの通常ウィンドウを探し、
 /// `SetForegroundWindow` / `ShowWindow` で操作する。
 ///
 /// マッチは解決済みアプリ名（`window_app` または `path` の file stem）を
@@ -199,106 +214,250 @@ fn try_activate(
 ///
 /// 対象を絞るフィルタ: 可視ウィンドウのみ、オーナーウィンドウを持たない、
 /// `WS_EX_TOOLWINDOW` を除外（通常のアプリウィンドウのみを対象にする）。
-/// 同一実行ファイルが複数ウィンドウを持つ場合、`activate`（新規に前面化する）は
-/// `EnumWindows` が最初に見つけたウィンドウを操作する。`toggle` はまずフォアグラウンド
-/// ウィンドウ自体が対象プロセスのものか確認するため、複数ウィンドウのうちどれが
-/// アクティブでも正しく最小化できる。
+///
+/// **ウィンドウの関連付け**: タイトルは後から変わる（Windows Terminal のタブ切替など）ため、
+/// タイトルだけに頼ると既存ウィンドウを見失い、`wt -w name new-tab` が重複タブを作る。
+/// そこで shun は対象ウィンドウに `SetPropW` でエントリ固有のマーカー（エントリ名・
+/// 解決済み exe stem・起動設定・タイトル条件のバージョン付き指紋）を付ける。
+/// ウィンドウプロパティはウィンドウと運命を共にするため HWND の再利用で別ウィンドウを
+/// 掴むことがなく、shun を再起動しても残る。補完設定や無関係な変数の編集では失われない。
+///
+/// - マーカー付きウィンドウがちょうど1つ → タイトルの正条件は無視してそれを操作する
+///   （`title_exclude` は維持する）。複数なら曖昧なので何もしない（`ActionFailed`）。
+/// - マーカーが無ければ従来どおり exe + タイトルで探す。一意に一致したときだけマーカーを付ける。
+/// - 見つからず起動した場合、バックグラウンドで最大約 10 秒、exe + タイトルが一意に一致する
+///   ウィンドウを探してマーカーを付ける（`wt` が既存プロセスへ転送するため PID は使えない）。
+///   その間の同一エントリのホットキーは何もしない（重複起動防止）。タイムアウトしても再起動は
+///   しない。関連付け前にタイトルが変わった場合は安全に復旧できない（既知の制限）。
+///
+/// 関連付けは「ウィンドウ」単位でありタブ単位ではない。
 #[cfg(target_os = "windows")]
 mod windows_impl {
-    use super::ActivateOutcome;
+    use super::{ActivateOutcome, LaunchItem};
+    use std::collections::HashSet;
     use std::path::Path;
-    use windows::core::{BOOL, PWSTR};
-    use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM};
+    use std::sync::{LazyLock, Mutex};
+    use windows::core::{BOOL, PCWSTR, PWSTR};
+    use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM};
     use windows::Win32::System::Threading::{
         AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW,
         PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        BringWindowToTop, EnumWindows, GetForegroundWindow, GetWindow, GetWindowLongPtrW,
-        GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
-        SetForegroundWindow, ShowWindow, GWL_EXSTYLE, GW_OWNER, SW_MINIMIZE, SW_RESTORE,
-        WS_EX_TOOLWINDOW,
+        BringWindowToTop, EnumWindows, GetForegroundWindow, GetPropW, GetWindow, GetWindowLongPtrW,
+        GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow,
+        IsWindowVisible, SetForegroundWindow, SetPropW, ShowWindow, GWL_EXSTYLE, GW_OWNER,
+        SW_MINIMIZE, SW_RESTORE, WS_EX_TOOLWINDOW,
     };
+
+    const DISCOVERY_POLLS: u32 = 50;
+    const DISCOVERY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(200);
+
+    /// 起動後のウィンドウ探索中のエントリ（マーカーキーで識別）。
+    static PENDING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 
     /// 探す対象ウィンドウの条件。exe stem 一致 AND タイトル部分一致（指定時）
     /// AND タイトル除外文字列を含まない（指定時）。
-    struct Target {
+    pub(super) struct Spec {
         stem: String,
         /// 小文字化済み
         title: Option<String>,
         /// 小文字化済み
         title_exclude: Option<String>,
+        /// ウィンドウプロパティ名（指紋入り）
+        pub(super) marker: String,
     }
 
-    impl Target {
-        unsafe fn matches(&self, hwnd: HWND) -> bool {
-            if window_exe_stem(hwnd).as_deref() != Some(self.stem.as_str()) {
-                return false;
-            }
-            if self.title.is_none() && self.title_exclude.is_none() {
-                return true;
-            }
-            let title = window_title(hwnd).to_lowercase();
-            self.title
-                .as_ref()
-                .is_none_or(|t| title.contains(t.as_str()))
-                && self
-                    .title_exclude
-                    .as_ref()
-                    .is_none_or(|t| !title.contains(t.as_str()))
+    /// 列挙した通常ウィンドウ1つ分の判定結果。
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    struct Candidate {
+        hwnd: isize,
+        marked: bool,
+        /// タイトル正条件 AND 除外条件を満たす
+        strict: bool,
+        /// 除外条件を満たす（正条件は問わない）
+        not_excluded: bool,
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum Selection {
+        /// マーカー付きウィンドウが一意。
+        Tracked(isize),
+        /// マーカー付きウィンドウが複数。
+        Ambiguous,
+        /// 関連付け済みだが除外または操作対象外。重複起動しない。
+        Blocked,
+        /// マーカー無し・厳密一致が一意 → 関連付けてよい。
+        Bind(isize),
+        /// マーカー無し・厳密一致が複数 → 従来どおり先頭を操作するが関連付けはしない。
+        First(isize),
+        None,
+    }
+
+    fn select(cands: &[Candidate]) -> Selection {
+        let marked: Vec<_> = cands.iter().filter(|c| c.marked).collect();
+        match marked.len() {
+            1 if marked[0].not_excluded => return Selection::Tracked(marked[0].hwnd),
+            1 => return Selection::Blocked,
+            0 => {}
+            _ => return Selection::Ambiguous,
+        }
+        let strict: Vec<_> = cands.iter().filter(|c| c.strict).collect();
+        match strict.len() {
+            0 => Selection::None,
+            1 => Selection::Bind(strict[0].hwnd),
+            _ => Selection::First(strict[0].hwnd),
         }
     }
 
-    struct SearchState {
-        target: Target,
-        found: Option<isize>,
+    fn foreground_is_target(selection: &Selection, cands: &[Candidate], foreground: isize) -> bool {
+        match selection {
+            Selection::Tracked(hwnd) | Selection::Bind(hwnd) => foreground == *hwnd,
+            Selection::First(_) => cands.iter().any(|c| c.hwnd == foreground && c.strict),
+            _ => false,
+        }
     }
 
-    pub(super) fn activate(
-        app: &str,
-        window: super::WindowMatch,
-        toggle: bool,
-    ) -> Result<ActivateOutcome, String> {
+    /// 起動後探索用: 厳密一致が一意のときだけ返す。
+    fn discover(cands: &[Candidate]) -> Option<isize> {
+        if cands.iter().any(|c| c.marked) {
+            return None;
+        }
+        let mut strict = cands.iter().filter(|c| c.strict);
+        match (strict.next(), strict.next()) {
+            (Some(c), None) => Some(c.hwnd),
+            _ => None,
+        }
+    }
+
+    fn fnv1a(parts: &[&str]) -> u64 {
+        let mut h: u64 = 0xcbf29ce484222325;
+        for p in parts {
+            for b in p.bytes().chain(std::iter::once(0u8)) {
+                h ^= b as u64;
+                h = h.wrapping_mul(0x100000001b3);
+            }
+        }
+        h
+    }
+
+    fn marker_name(item: &LaunchItem, stem: &str, window: &super::WindowMatch) -> String {
+        // Fingerprint only target-defining fields, not completion/history metadata or
+        // the whole vars map. JSON preserves argument boundaries and optional fields.
+        let target = serde_json::to_string(&(
+            &item.name,
+            stem,
+            &item.path,
+            &item.args,
+            &item.workdir,
+            window.title,
+            window.title_exclude,
+        ))
+        .expect("window target contains only serializable strings");
+        let h = fnv1a(&[&target]);
+        format!("shun.window.v4.{h:016x}")
+    }
+
+    pub(super) fn spec_for(item: &LaunchItem, app: &str, window: &super::WindowMatch) -> Spec {
         // app は resolve_window_app() で解決済み（.exe 除去済み）。比較用に小文字化する。
         let stem = app.to_lowercase();
         let normalize = |s: Option<&str>| s.filter(|t| !t.is_empty()).map(str::to_lowercase);
-        let target = Target {
+        Spec {
+            marker: marker_name(item, &stem, window),
             stem,
             title: normalize(window.title),
             title_exclude: normalize(window.title_exclude),
+        }
+    }
+
+    fn wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    unsafe fn has_marker(hwnd: HWND, marker: &str) -> bool {
+        let name = wide(marker);
+        !GetPropW(hwnd, PCWSTR(name.as_ptr())).is_invalid()
+    }
+
+    unsafe fn set_marker(hwnd: HWND, marker: &str) -> Result<(), String> {
+        let name = wide(marker);
+        SetPropW(
+            hwnd,
+            PCWSTR(name.as_ptr()),
+            Some(HANDLE(std::ptr::dangling_mut::<std::ffi::c_void>())),
+        )
+        .map_err(|e| format!("SetPropW failed: {e}"))
+    }
+
+    fn pending_lock() -> std::sync::MutexGuard<'static, HashSet<String>> {
+        PENDING.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Owns the pending marker through launch and asynchronous discovery.
+    pub(super) struct EntryGuard(String);
+
+    impl EntryGuard {
+        pub(super) fn acquire(marker: &str) -> Option<Self> {
+            pending_lock()
+                .insert(marker.to_owned())
+                .then(|| Self(marker.to_owned()))
+        }
+    }
+
+    impl Drop for EntryGuard {
+        fn drop(&mut self) {
+            pending_lock().remove(&self.0);
+        }
+    }
+
+    pub(super) fn activate(spec: &Spec, toggle: bool) -> Result<ActivateOutcome, String> {
+        let cands = enumerate(spec)?;
+        let selection = select(&cands);
+        let hwnd = match selection {
+            Selection::Tracked(h) | Selection::First(h) => h,
+            Selection::Bind(h) => {
+                if let Err(e) =
+                    unsafe { set_marker(HWND(h as *mut std::ffi::c_void), &spec.marker) }
+                {
+                    // 関連付けられないだけで、見つかった対象の操作は続行できる。
+                    log::warn!("app_window(windows): could not mark window: {e}");
+                }
+                h
+            }
+            Selection::Ambiguous => {
+                return Ok(ActivateOutcome::ActionFailed(
+                    "multiple windows carry this entry's marker".into(),
+                ));
+            }
+            Selection::Blocked => {
+                return Ok(ActivateOutcome::ActionFailed(
+                    "associated window is excluded or ineligible; not launching".into(),
+                ));
+            }
+            Selection::None => {
+                // The caller retains its EntryGuard until discovery ends.
+                return Ok(ActivateOutcome::NotFound);
+            }
         };
+        let hwnd = HWND(hwnd as *mut std::ffi::c_void);
 
         unsafe {
-            // toggle: まずフォアグラウンドウィンドウ自体が対象か確認する。
-            // 対象プロセスが複数ウィンドウを持つ場合、EnumWindows が最初に見つける
-            // ウィンドウとフォアグラウンドウィンドウが別物なことがあるため、
-            // 「今アクティブな対象ウィンドウ」は独立して判定する必要がある。
+            // Once associated, only that HWND may be minimized. Before association,
+            // retain the foreground preference among multiple strict matches.
             if toggle {
                 let foreground = GetForegroundWindow();
-                if !foreground.is_invalid() && target.matches(foreground) {
+                let fg_is_target = !foreground.is_invalid()
+                    && foreground_is_target(&selection, &cands, foreground.0 as isize);
+                if fg_is_target {
                     let _ = ShowWindow(foreground, SW_MINIMIZE);
+                    if !IsIconic(foreground).as_bool() {
+                        return Ok(ActivateOutcome::ActionFailed(
+                            "window minimization failed".into(),
+                        ));
+                    }
                     return Ok(ActivateOutcome::Minimized);
                 }
             }
-        }
-
-        let mut state = SearchState {
-            target,
-            found: None,
-        };
-        unsafe {
-            let _ = EnumWindows(
-                Some(enum_proc),
-                LPARAM(&mut state as *mut SearchState as isize),
-            );
-        }
-
-        let Some(raw) = state.found else {
-            return Ok(ActivateOutcome::NotFound);
-        };
-        let hwnd = HWND(raw as *mut std::ffi::c_void);
-
-        unsafe {
             if IsIconic(hwnd).as_bool() {
                 let _ = ShowWindow(hwnd, SW_RESTORE);
             }
@@ -307,6 +466,37 @@ mod windows_impl {
             }
         }
         Ok(ActivateOutcome::Activated)
+    }
+
+    /// 起動直後にウィンドウを探してマーカーを付けるスレッドを開始する。
+    /// The worker owns pending state; failed spawn and unwinding release it too.
+    pub(super) fn start_discovery(spec: Spec, guard: EntryGuard) {
+        let _ = std::thread::Builder::new()
+            .name("shun-window-discovery".into())
+            .spawn({
+                move || {
+                    let _guard = guard;
+                    for _ in 0..DISCOVERY_POLLS {
+                        std::thread::sleep(DISCOVERY_INTERVAL);
+                        let Ok(cands) = enumerate(&spec) else {
+                            continue;
+                        };
+                        if let Some(h) = discover(&cands) {
+                            let hwnd = HWND(h as *mut std::ffi::c_void);
+                            unsafe {
+                                if IsWindow(Some(hwnd)).as_bool() {
+                                    if let Err(e) = set_marker(hwnd, &spec.marker) {
+                                        log::warn!(
+                                            "app_window(windows): could not mark window: {e}"
+                                        );
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            });
     }
 
     /// フォアグラウンドロックを回避して `hwnd` を前面に出す。
@@ -370,27 +560,339 @@ mod windows_impl {
         String::from_utf16_lossy(&buf[..len])
     }
 
-    unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
-        let state = &mut *(lparam.0 as *mut SearchState);
+    struct EnumState<'a> {
+        spec: &'a Spec,
+        out: Vec<Candidate>,
+    }
 
-        if !IsWindowVisible(hwnd).as_bool() {
+    /// 対象 exe の通常ウィンドウをすべて列挙する。
+    fn enumerate(spec: &Spec) -> Result<Vec<Candidate>, String> {
+        let mut state = EnumState {
+            spec,
+            out: Vec::new(),
+        };
+        unsafe {
+            EnumWindows(
+                Some(enum_proc),
+                LPARAM(&mut state as *mut EnumState as isize),
+            )
+            .map_err(|e| format!("EnumWindows failed: {e}"))?;
+        }
+        Ok(state.out)
+    }
+
+    unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let state = &mut *(lparam.0 as *mut EnumState);
+
+        let spec = state.spec;
+        let marked = has_marker(hwnd, &spec.marker);
+        let ownerless = GetWindow(hwnd, GW_OWNER).map_or(true, |owner| owner.is_invalid());
+        let eligible = IsWindowVisible(hwnd).as_bool()
+            && ownerless
+            && GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TOOLWINDOW.0 == 0
+            && window_exe_stem(hwnd).as_deref() == Some(spec.stem.as_str());
+        // Keep marked windows in the result even when hidden, excluded, or otherwise
+        // ineligible: a known association must never become a fresh launch.
+        if !eligible {
+            if marked {
+                state.out.push(Candidate {
+                    hwnd: hwnd.0 as isize,
+                    marked,
+                    strict: false,
+                    not_excluded: false,
+                });
+            }
             return true.into();
         }
-        if let Ok(owner) = GetWindow(hwnd, GW_OWNER) {
-            if !owner.is_invalid() {
-                return true.into();
+        let (strict, not_excluded) = if spec.title.is_none() && spec.title_exclude.is_none() {
+            (true, true)
+        } else {
+            let title = window_title(hwnd).to_lowercase();
+            let not_excluded = spec
+                .title_exclude
+                .as_ref()
+                .is_none_or(|t| !title.contains(t.as_str()));
+            let positive = spec
+                .title
+                .as_ref()
+                .is_none_or(|t| title.contains(t.as_str()));
+            (positive && not_excluded, not_excluded)
+        };
+        state.out.push(Candidate {
+            hwnd: hwnd.0 as isize,
+            marked,
+            strict,
+            not_excluded,
+        });
+        true.into()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn c(hwnd: isize, marked: bool, strict: bool, not_excluded: bool) -> Candidate {
+            Candidate {
+                hwnd,
+                marked,
+                strict,
+                not_excluded,
             }
         }
-        let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-        if ex_style & WS_EX_TOOLWINDOW.0 != 0 {
-            return true.into();
+
+        #[test]
+        fn marked_window_wins_despite_title_drift() {
+            let cands = [c(1, false, true, true), c(2, true, false, true)];
+            assert_eq!(select(&cands), Selection::Tracked(2));
         }
 
-        if state.target.matches(hwnd) {
-            state.found = Some(hwnd.0 as isize);
-            return false.into();
+        #[test]
+        fn tracked_toggle_ignores_unrelated_foreground_strict_match() {
+            let cands = [c(1, false, true, true), c(2, true, false, true)];
+            let selection = select(&cands);
+            assert!(!foreground_is_target(&selection, &cands, 1));
+            assert!(foreground_is_target(&selection, &cands, 2));
+            let untracked = [c(1, false, true, true), c(2, false, true, true)];
+            assert!(foreground_is_target(&select(&untracked), &untracked, 2));
         }
-        true.into()
+
+        #[test]
+        fn marked_but_excluded_blocks_even_with_an_unrelated_strict_match() {
+            let cands = [c(2, true, false, false), c(3, false, true, true)];
+            assert_eq!(select(&cands), Selection::Blocked);
+        }
+
+        #[test]
+        fn multiple_marked_is_ambiguous() {
+            let cands = [c(1, true, true, true), c(2, true, true, true)];
+            assert_eq!(select(&cands), Selection::Ambiguous);
+        }
+
+        #[test]
+        fn unmarked_unique_binds_and_multiple_does_not() {
+            assert_eq!(
+                select(&[c(1, false, true, true), c(2, false, false, true)]),
+                Selection::Bind(1)
+            );
+            assert_eq!(
+                select(&[c(1, false, true, true), c(2, false, true, true)]),
+                Selection::First(1)
+            );
+            assert_eq!(select(&[c(1, false, false, true)]), Selection::None);
+        }
+
+        #[test]
+        fn discovery_requires_unique_strict_match() {
+            assert_eq!(discover(&[c(1, false, true, true)]), Some(1));
+            assert_eq!(
+                discover(&[c(1, false, true, true), c(2, false, true, true)]),
+                None
+            );
+            assert_eq!(discover(&[c(1, false, false, true)]), None);
+        }
+
+        fn item() -> LaunchItem {
+            serde_json::from_value(serde_json::json!({
+                "name": "window-lifecycle-test", "path": "not-a-real-launch-command",
+                "args": [], "workdir": null, "source": "Config"
+            }))
+            .unwrap()
+        }
+
+        #[test]
+        fn marker_survives_metadata_edits_but_invalidates_changed_targets() {
+            let original_item = item();
+            let mut item = original_item.clone();
+            let window = super::super::WindowMatch {
+                app: Some("WindowsTerminal"),
+                title: Some("Yazi"),
+                title_exclude: None,
+            };
+            let marker = |item: &LaunchItem| marker_name(item, "windowsterminal", &window);
+            let original = marker(&item);
+            item.completion_list = vec!["other".into()];
+            item.history_key = Some("other-history".into());
+            assert_eq!(original, marker(&item));
+            assert_ne!(original, marker_name(&item, "other-app", &window));
+            let changes: [fn(&mut LaunchItem); 4] = [
+                |item| item.name.push_str("-other"),
+                |item| item.path.push_str("-other"),
+                |item| item.args = vec!["-w".into(), "other".into()],
+                |item| item.workdir = Some("other-dir".into()),
+            ];
+            for change in changes {
+                let mut changed = original_item.clone();
+                change(&mut changed);
+                assert_ne!(original, marker(&changed));
+            }
+            for changed in [
+                super::super::WindowMatch {
+                    title: Some("Other"),
+                    ..window
+                },
+                super::super::WindowMatch {
+                    title_exclude: Some("Other"),
+                    ..window
+                },
+            ] {
+                assert_ne!(original, marker_name(&item, "windowsterminal", &changed));
+            }
+        }
+
+        #[test]
+        fn pending_guard_releases_after_failed_launch_and_worker_unwind() {
+            let item = item();
+            let window = super::super::WindowMatch {
+                app: Some("shun-nonexistent-window-test"),
+                title: None,
+                title_exclude: None,
+            };
+            let vars = std::collections::HashMap::new();
+            let spec = spec_for(&item, window.app.unwrap(), &window);
+            assert!(super::super::activate_or_launch(&item, window, false, &vars).is_err());
+            let guard = EntryGuard::acquire(&spec.marker).expect("failed launch releases pending");
+            assert!(EntryGuard::acquire(&spec.marker).is_none());
+            let worker = std::thread::spawn(move || {
+                let _guard = guard;
+                panic!("exercise discovery unwinding");
+            });
+            assert!(worker.join().is_err());
+            assert!(EntryGuard::acquire(&spec.marker).is_some());
+        }
+
+        #[test]
+        fn native_marker_tracks_title_restart_exclusion_and_window_lifetime() {
+            use windows::core::w;
+            use windows::Win32::UI::WindowsAndMessaging::{
+                CreateWindowExW, DestroyWindow, SetWindowTextW, SW_HIDE, SW_SHOWNOACTIVATE,
+                WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+            };
+            struct TestWindow(HWND);
+            impl Drop for TestWindow {
+                fn drop(&mut self) {
+                    unsafe {
+                        let _ = DestroyWindow(self.0);
+                    }
+                }
+            }
+            let title = format!("shun-association-test-{}", std::process::id());
+            let title_wide = wide(&title);
+            let mut item = item();
+            item.name = title.clone();
+            let app = exe_stem(std::env::current_exe().unwrap().to_str().unwrap());
+            let window = super::super::WindowMatch {
+                app: Some(&app),
+                title: Some(&title),
+                title_exclude: Some("excluded"),
+            };
+            let vars = std::collections::HashMap::new();
+            let spec = spec_for(&item, &app, &window);
+            let create = || {
+                TestWindow(unsafe {
+                    CreateWindowExW(
+                        WINDOW_EX_STYLE::default(),
+                        w!("STATIC"),
+                        PCWSTR(title_wide.as_ptr()),
+                        WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                        0,
+                        0,
+                        100,
+                        100,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .unwrap()
+                })
+            };
+            let first = create();
+            let raw = first.0 .0 as isize;
+            assert_eq!(select(&enumerate(&spec).unwrap()), Selection::Bind(raw));
+            let second = create();
+            unsafe {
+                let mut first_pid = 0;
+                let mut second_pid = 0;
+                GetWindowThreadProcessId(first.0, Some(&mut first_pid));
+                GetWindowThreadProcessId(second.0, Some(&mut second_pid));
+                assert_eq!(first_pid, second_pid);
+            }
+            let ambiguous = enumerate(&spec).unwrap();
+            assert!(matches!(select(&ambiguous), Selection::First(_)));
+            assert_eq!(discover(&ambiguous), None);
+            unsafe {
+                set_marker(first.0, &spec.marker).unwrap();
+                SetWindowTextW(first.0, w!("another tab")).unwrap();
+            }
+            assert_eq!(select(&enumerate(&spec).unwrap()), Selection::Tracked(raw));
+            // Rebuild lookup inputs: no in-memory HWND survives a simulated restart.
+            let mut edited_vars = vars.clone();
+            edited_vars.insert("unrelated".into(), "value".into());
+            item.completion_list = vec!["changed completion".into()];
+            let restarted = spec_for(&item, &app, &window);
+            // Config reload with unrelated vars still finds the drifted window.
+            super::super::activate_or_launch(&item, window, false, &edited_vars).unwrap();
+            assert_eq!(
+                select(&enumerate(&restarted).unwrap()),
+                Selection::Tracked(raw)
+            );
+            // Retarget the same entry to the other window after a config reload.
+            let mut retargeted_item = item.clone();
+            retargeted_item.args = vec!["-w".into(), "other-window".into()];
+            let other_title = format!("{title}-other");
+            unsafe {
+                SetWindowTextW(second.0, PCWSTR(wide(&other_title).as_ptr())).unwrap();
+            }
+            let retargeted_window = super::super::WindowMatch {
+                title: Some(&other_title),
+                ..window
+            };
+            let retargeted = spec_for(&retargeted_item, &app, &retargeted_window);
+            assert_eq!(
+                select(&enumerate(&retargeted).unwrap()),
+                Selection::Bind(second.0 .0 as isize)
+            );
+            unsafe {
+                SetWindowTextW(first.0, w!("excluded tab")).unwrap();
+            }
+            assert_eq!(select(&enumerate(&restarted).unwrap()), Selection::Blocked);
+            let mut launched = false;
+            super::super::resolve_outcome(activate(&restarted, false), &item.name, || {
+                launched = true;
+                Ok(())
+            })
+            .unwrap();
+            assert!(!launched);
+            unsafe {
+                SetWindowTextW(first.0, w!("another tab")).unwrap();
+                let _ = ShowWindow(first.0, SW_HIDE);
+            }
+            assert_eq!(select(&enumerate(&restarted).unwrap()), Selection::Blocked);
+            assert!(matches!(
+                activate(&restarted, false).unwrap(),
+                ActivateOutcome::ActionFailed(_)
+            ));
+            unsafe {
+                let _ = ShowWindow(first.0, SW_SHOWNOACTIVATE);
+            }
+            drop(second);
+            drop(first);
+            let replacement = create();
+            let replacement_raw = replacement.0 .0 as isize;
+            assert!(!unsafe { has_marker(replacement.0, &restarted.marker) });
+            assert_eq!(
+                select(&enumerate(&restarted).unwrap()),
+                Selection::Bind(replacement_raw)
+            );
+            unsafe {
+                set_marker(replacement.0, &restarted.marker).unwrap();
+                SetWindowTextW(replacement.0, w!("replacement tab")).unwrap();
+            }
+            assert_eq!(
+                select(&enumerate(&restarted).unwrap()),
+                Selection::Tracked(replacement_raw)
+            );
+        }
     }
 }
 
