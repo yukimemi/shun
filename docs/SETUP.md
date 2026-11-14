@@ -123,6 +123,46 @@ merging a version-bump PR until this secret is confirmed working.
 See `CLAUDE.md`'s "Tagging a release" section for the day-to-day release flow that depends on
 this secret.
 
+### magi release-bump configuration
+
+`magi.toml` enables `[merge] release_bump = true` and sets `[release] mode = "actions"`.
+Its ordered `version_files` list is:
+
+1. `src-tauri/Cargo.toml` (`kind = "cargo"`) — the version of record, first because
+   `auto-tag.yml` reads this manifest, not a root `Cargo.toml`.
+2. `package.json` (`kind = "json"`) — the top-level application version.
+3. `src-tauri/tauri.conf.json` (`kind = "json"`) — the top-level Tauri version.
+
+All three versions must agree before magi can prepare a bump; it refuses drift rather
+than choosing a winner. The existing release writer updates those three files together
+and automatically updates the matching `shun` package entry in the adjacent
+`src-tauri/Cargo.lock`, without rebuilding Tauri or changing dependency versions.
+The lockfile must contain exactly one matching package name and old version.
+
+`package-lock.json` is **not** synchronized by magi. Do not add it as an ordinary
+`kind = "json"` version file: that only updates the top-level version, leaving
+`packages[""].version` stale. If npm lockfile version metadata needs reconciliation,
+update both fields in an owner-approved release PR; do not rely on magi to do it.
+
+After an approved implementation merge, magi can prepare a separate version-bump PR.
+Merging that PR changes the nested manifest on `main`; `auto-tag.yml` then pushes
+the tag, and `release.yml` builds, signs, and publishes. This configuration does not
+change the existing owner approval path or authorize a manual merge, tag, or release.
+A run that loaded configuration before this change may still skip its own post-merge
+bump; any catch-up release must use the existing owner approval path.
+
+Validate the edited repository configuration explicitly (rather than a saved run's
+configuration) with:
+
+```sh
+magi doctor --repo . --config ./magi.toml
+```
+
+magi layers machine configuration, `.magi/config.toml`, and `magi.toml` in that order.
+Keep this repository's ordered list in one declaration and check the effective
+configuration when using additional layers. Verification of the writer should use
+disposable file copies only; do not create a bump PR, tag, or release as a test.
+
 ---
 
 ## GitHub Secrets Summary
