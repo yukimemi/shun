@@ -100,7 +100,7 @@ pub fn activate_or_launch(
         let Some(app) = resolve_window_app(window.app, &item.path) else {
             return apps::launch_with_extra(item, Vec::new(), vars);
         };
-        let spec = windows_impl::spec_for(item, &app, &window, vars)?;
+        let spec = windows_impl::spec_for(item, &app, &window);
         let Some(guard) = windows_impl::EntryGuard::acquire(&spec.marker) else {
             return Ok(());
         };
@@ -217,10 +217,10 @@ fn try_activate(
 ///
 /// **ウィンドウの関連付け**: タイトルは後から変わる（Windows Terminal のタブ切替など）ため、
 /// タイトルだけに頼ると既存ウィンドウを見失い、`wt -w name new-tab` が重複タブを作る。
-/// そこで shun は対象ウィンドウに `SetPropW` でエントリ固有のマーカー（エントリ名・起動設定・
-/// 照合条件のバージョン付き指紋）を付ける。ウィンドウプロパティはウィンドウと運命を共にする
-/// ため HWND の再利用で別ウィンドウを掴むことがなく、shun を再起動しても残る。設定を変えると
-/// 指紋が変わり古い関連付けは無効になる。
+/// そこで shun は対象ウィンドウに `SetPropW` でエントリ固有のマーカー（エントリ名・
+/// 解決済み exe stem のバージョン付き指紋）を付ける。ウィンドウプロパティはウィンドウと
+/// 運命を共にするため HWND の再利用で別ウィンドウを掴むことがなく、shun を再起動しても残る。
+/// 補完設定やテンプレート変数の編集では関連付けを失わない。
 ///
 /// - マーカー付きウィンドウがちょうど1つ → タイトルの正条件は無視してそれを操作する
 ///   （`title_exclude` は維持する）。複数なら曖昧なので何もしない（`ActionFailed`）。
@@ -310,6 +310,14 @@ mod windows_impl {
         }
     }
 
+    fn foreground_is_target(selection: &Selection, cands: &[Candidate], foreground: isize) -> bool {
+        match selection {
+            Selection::Tracked(hwnd) | Selection::Bind(hwnd) => foreground == *hwnd,
+            Selection::First(_) => cands.iter().any(|c| c.hwnd == foreground && c.strict),
+            _ => false,
+        }
+    }
+
     /// 起動後探索用: 厳密一致が一意のときだけ返す。
     fn discover(cands: &[Candidate]) -> Option<isize> {
         if cands.iter().any(|c| c.marked) {
@@ -333,41 +341,23 @@ mod windows_impl {
         h
     }
 
-    fn marker_name(
-        item: &LaunchItem,
-        stem: &str,
-        window: &super::WindowMatch,
-        vars: &std::collections::HashMap<String, String>,
-    ) -> Result<String, String> {
-        let vars: std::collections::BTreeMap<_, _> = vars.iter().collect();
-        let configuration = serde_json::to_string(&(
-            item,
-            stem,
-            window.app,
-            window.title,
-            window.title_exclude,
-            vars,
-        ))
-        .map_err(|e| format!("cannot fingerprint window configuration: {e}"))?;
-        let h = fnv1a(&["v2", &configuration]);
-        Ok(format!("shun.window.v2.{h:016x}"))
+    fn marker_name(item: &LaunchItem, stem: &str) -> String {
+        // Keep property names bounded; only entry identity, not mutable launch/completion
+        // settings or unrelated template variables, determines the association.
+        let h = fnv1a(&[&item.name, stem]);
+        format!("shun.window.v3.{h:016x}")
     }
 
-    pub(super) fn spec_for(
-        item: &LaunchItem,
-        app: &str,
-        window: &super::WindowMatch,
-        vars: &std::collections::HashMap<String, String>,
-    ) -> Result<Spec, String> {
+    pub(super) fn spec_for(item: &LaunchItem, app: &str, window: &super::WindowMatch) -> Spec {
         // app は resolve_window_app() で解決済み（.exe 除去済み）。比較用に小文字化する。
         let stem = app.to_lowercase();
         let normalize = |s: Option<&str>| s.filter(|t| !t.is_empty()).map(str::to_lowercase);
-        Ok(Spec {
-            marker: marker_name(item, &stem, window, vars)?,
+        Spec {
+            marker: marker_name(item, &stem),
             stem,
             title: normalize(window.title),
             title_exclude: normalize(window.title_exclude),
-        })
+        }
     }
 
     fn wide(s: &str) -> Vec<u16> {
@@ -412,7 +402,8 @@ mod windows_impl {
 
     pub(super) fn activate(spec: &Spec, toggle: bool) -> Result<ActivateOutcome, String> {
         let cands = enumerate(spec)?;
-        let hwnd = match select(&cands) {
+        let selection = select(&cands);
+        let hwnd = match selection {
             Selection::Tracked(h) | Selection::First(h) => h,
             Selection::Bind(h) => {
                 if let Err(e) =
@@ -441,16 +432,12 @@ mod windows_impl {
         let hwnd = HWND(hwnd as *mut std::ffi::c_void);
 
         unsafe {
-            // toggle: 今フォアグラウンドなのが対象ウィンドウなら最小化。複数ウィンドウが
-            // ある場合も「今アクティブな対象ウィンドウ」を優先して判定する。
+            // Once associated, only that HWND may be minimized. Before association,
+            // retain the foreground preference among multiple strict matches.
             if toggle {
                 let foreground = GetForegroundWindow();
                 let fg_is_target = !foreground.is_invalid()
-                    && (foreground == hwnd
-                        || cands.iter().any(|c| {
-                            c.hwnd == foreground.0 as isize
-                                && (c.strict || (c.marked && c.not_excluded))
-                        }));
+                    && foreground_is_target(&selection, &cands, foreground.0 as isize);
                 if fg_is_target {
                     let _ = ShowWindow(foreground, SW_MINIMIZE);
                     if !IsIconic(foreground).as_bool() {
@@ -650,6 +637,16 @@ mod windows_impl {
         }
 
         #[test]
+        fn tracked_toggle_ignores_unrelated_foreground_strict_match() {
+            let cands = [c(1, false, true, true), c(2, true, false, true)];
+            let selection = select(&cands);
+            assert!(!foreground_is_target(&selection, &cands, 1));
+            assert!(foreground_is_target(&selection, &cands, 2));
+            let untracked = [c(1, false, true, true), c(2, false, true, true)];
+            assert!(foreground_is_target(&select(&untracked), &untracked, 2));
+        }
+
+        #[test]
         fn marked_but_excluded_blocks_even_with_an_unrelated_strict_match() {
             let cands = [c(2, true, false, false), c(3, false, true, true)];
             assert_eq!(select(&cands), Selection::Blocked);
@@ -684,12 +681,6 @@ mod windows_impl {
             assert_eq!(discover(&[c(1, false, false, true)]), None);
         }
 
-        #[test]
-        fn fingerprint_separates_fields() {
-            assert_ne!(fnv1a(&["v1", "a"]), fnv1a(&["v1", "b"]));
-            assert_ne!(fnv1a(&["ab", "c"]), fnv1a(&["a", "bc"]));
-        }
-
         fn item() -> LaunchItem {
             serde_json::from_value(serde_json::json!({
                 "name": "window-lifecycle-test", "path": "not-a-real-launch-command",
@@ -699,47 +690,15 @@ mod windows_impl {
         }
 
         #[test]
-        fn marker_includes_template_inputs_and_full_launch_item() {
+        fn marker_survives_unrelated_config_edits_but_separates_entries_and_apps() {
             let mut item = item();
-            let window = super::super::WindowMatch {
-                app: Some("WindowsTerminal"),
-                title: Some("Yazi"),
-                title_exclude: None,
-            };
-            let mut vars = std::collections::HashMap::from([
-                ("profile".into(), "yazi".into()),
-                ("directory".into(), "home".into()),
-            ]);
-            let original = marker_name(&item, "windowsterminal", &window, &vars).unwrap();
-            let mut sorted: Vec<_> = vars.iter().collect();
-            sorted.sort();
-            let reordered: std::collections::HashMap<_, _> = sorted
-                .into_iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
-            assert_eq!(
-                original,
-                marker_name(&item, "windowsterminal", &window, &reordered).unwrap()
-            );
-            vars.insert("profile".into(), "other".into());
-            assert_ne!(
-                original,
-                marker_name(&item, "windowsterminal", &window, &vars).unwrap()
-            );
-            vars.insert("profile".into(), "yazi".into());
-            item.source_file = Some("other-input.txt".into());
-            assert_ne!(
-                original,
-                marker_name(&item, "windowsterminal", &window, &vars).unwrap()
-            );
-            item.source_file = None;
-            item.args = vec!["a\u{1f}b".into()];
-            let joined = marker_name(&item, "windowsterminal", &window, &vars).unwrap();
-            item.args = vec!["a".into(), "b".into()];
-            assert_ne!(
-                joined,
-                marker_name(&item, "windowsterminal", &window, &vars).unwrap()
-            );
+            let original = marker_name(&item, "windowsterminal");
+            item.completion_list = vec!["other".into()];
+            item.history_key = Some("other-history".into());
+            assert_eq!(original, marker_name(&item, "windowsterminal"));
+            assert_ne!(original, marker_name(&item, "other-app"));
+            item.name.push_str("-other");
+            assert_ne!(original, marker_name(&item, "windowsterminal"));
         }
 
         #[test]
@@ -751,7 +710,7 @@ mod windows_impl {
                 title_exclude: None,
             };
             let vars = std::collections::HashMap::new();
-            let spec = spec_for(&item, window.app.unwrap(), &window, &vars).unwrap();
+            let spec = spec_for(&item, window.app.unwrap(), &window);
             assert!(super::super::activate_or_launch(&item, window, false, &vars).is_err());
             let guard = EntryGuard::acquire(&spec.marker).expect("failed launch releases pending");
             assert!(EntryGuard::acquire(&spec.marker).is_none());
@@ -789,7 +748,7 @@ mod windows_impl {
                 title_exclude: Some("excluded"),
             };
             let vars = std::collections::HashMap::new();
-            let spec = spec_for(&item, &app, &window, &vars).unwrap();
+            let spec = spec_for(&item, &app, &window);
             let create = || {
                 TestWindow(unsafe {
                     CreateWindowExW(
@@ -829,7 +788,12 @@ mod windows_impl {
             }
             assert_eq!(select(&enumerate(&spec).unwrap()), Selection::Tracked(raw));
             // Rebuild lookup inputs: no in-memory HWND survives a simulated restart.
-            let restarted = spec_for(&item, &app, &window, &vars).unwrap();
+            let mut edited_vars = vars.clone();
+            edited_vars.insert("unrelated".into(), "value".into());
+            item.completion_list = vec!["changed completion".into()];
+            let restarted = spec_for(&item, &app, &window);
+            // Config reload with unrelated vars still finds the drifted window.
+            super::super::activate_or_launch(&item, window, false, &edited_vars).unwrap();
             assert_eq!(
                 select(&enumerate(&restarted).unwrap()),
                 Selection::Tracked(raw)
