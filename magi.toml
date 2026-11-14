@@ -64,7 +64,18 @@ pre_gate = ["npm ci"]
 # none | local | pr
 mode = "pr"
 base = "main"
-# release_bump = true  # Rust (Cargo.toml) repositories only; a no-op elsewhere
+# Use the explicitly configured nested manifest for release-bump PRs.
+release_bump = true
+
+[release]
+mode = "actions"
+# First entry is the version of record read by auto-tag.yml.
+# Its adjacent Cargo.lock follows automatically; package-lock.json does not.
+version_files = [
+  { path = "src-tauri/Cargo.toml", kind = "cargo" },
+  { path = "package.json", kind = "json" },
+  { path = "src-tauri/tauri.conf.json", kind = "json" },
+]
 
 [update]
 # off | notify | install — checked in the background, throttled.
