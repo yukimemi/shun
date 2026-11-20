@@ -53,7 +53,7 @@ jobs:
       # Without this the tag push goes out under the default
       # GITHUB_TOKEN and release.yml never fires.
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_TAG_TOKEN }}
