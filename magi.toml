@@ -46,10 +46,20 @@ timeout_review = 1200
 # fed back to the fixer.
 e2e = []
 # Final gate. Every command must exit 0 before a merge.
+#
+# The cargo steps build into one shared directory under vars.cache instead
+# of each worktree's src-tauri/target. Measured on 2026-11-28: four run
+# roots of this repository held 22.8 GiB of src-tauri/target between them,
+# two weeks after their runs had ended, and nothing collects a nested
+# target. magi recognises CARGO_TARGET_DIR in a rendered verify command as
+# a shared build cache: it takes a lease on it (verification of concurrent
+# runs is serialised on it) and prunes it to `[disk] cache_limit_bytes`.
+# Never build by hand into that directory. An agent's own `cargo` calls
+# inside its worktree still go to src-tauri/target.
 gate = [
   "cd src-tauri && cargo fmt --check",
-  "cd src-tauri && cargo clippy -- -D warnings",
-  "cd src-tauri && cargo test",
+  "cd src-tauri && CARGO_TARGET_DIR={{ vars.cache }}/shun-target cargo clippy -- -D warnings",
+  "cd src-tauri && CARGO_TARGET_DIR={{ vars.cache }}/shun-target cargo test",
   "npm test",
 ]
 # Mechanical fixers (formatters) run in the winner's worktree just
